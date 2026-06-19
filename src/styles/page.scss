@@ -1,0 +1,37 @@
+.page-layout {
+  box-shadow: -$element-gutter $element-gutter $element-gutter 0 rgb(0 0 0 / 12%);
+  margin: $element-gutter;
+  background-color: $white;
+  box-sizing: border-box;
+  .search-wrapper {
+    padding: $element-gutter 10px;
+    border-bottom: 1px solid $border-color;
+    box-sizing: border-box;
+    position: relative;
+    .right-top {
+      position: absolute;
+      right: $element-gutter;
+    }
+    .right-bottom {
+      position: absolute;
+      right: $element-gutter;
+      bottom: $element-gutter;
+    }
+    .base-form {
+      margin: 10px 0 -10px 0;
+      box-sizing: border-box;
+      &.none {
+        margin: 0;
+      }
+      &.mb-5 {
+        margin: 5px 0 0 0;
+      }
+    }
+  }
+  .result-wrapper {
+    // padding: 0 10px;
+  }
+  .operation-wrapper {
+    padding: $element-gutter 10px;
+  }
+}

@@ -1,0 +1,79 @@
+.base-table {
+  .el-button--text {
+    padding: 0;
+  }
+  .el-table-column--selection {
+    .cell {
+      line-height: 1;
+    }
+  }
+  .el-table {
+    // border-radius: 4px;
+    &.el-table--mini, &.el-table--small {
+      font-size: 14px;
+    }
+
+    .caret-wrapper {
+      width: 16px;
+      height: 22px;
+      .sort-caret {
+        left: 4px;
+        &.ascending {
+          top: -1px;
+          border-bottom-color: #fff;
+        }
+        &.descending {
+          bottom: 0;
+          border-top-color: #fff;
+        }
+      }
+    }
+    .descending .sort-caret.descending {
+      border-top-color: $blue;
+    }
+    .ascending .sort-caret.ascending {
+      border-bottom-color: $blue;
+    }
+  }
+  .el-table__fixed-right-patch {
+    background: $blue;
+  }
+  .el-table__header, .plx-table  .plx-table--header-wrapper {
+    th {
+      background-color: $blue;
+      color: $white;
+      font-weight: 700;
+      padding: 4px 0;
+    }
+  }
+  .el-table__footer-wrapper, .plx-table .plx-table--footer-wrapper {
+    td {
+      background-color: $blue;
+      color: $white;
+      font-weight: 700;
+      padding: 4px 0;
+    }
+  }
+
+  .plx-table {
+    // border-radius: 8px;
+    .plx-sort-wrapper {
+      width: 16px;
+      height: 22px;
+
+      .plx-sort--asc-btn {
+        left: 4px;
+        top: 0;
+        color: #fff;
+      }
+      .plx-sort--desc-btn {
+        left: 4px;
+        bottom: 2px;
+        color: #fff;
+      }
+      .sort--active {
+        color: $blue;
+      }
+    }
+  }
+}

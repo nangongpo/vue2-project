@@ -1,0 +1,299 @@
+@use './transition' as *;
+@use './element-ui' as *;
+@use './sidebar' as *;
+@use './page' as *;
+
+body {
+  height: 100%;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  color: #333;
+  font-size: 14px;
+}
+
+html, #app {
+  height: 100%;
+  box-sizing: border-box;
+}
+
+body, button, input, select, textarea {
+  font-family: "Microsoft YaHei",'宋体',Arial,sans-serif;
+}
+
+label {
+  font-weight: 500;
+}
+
+*,
+*:before,
+*:after {
+  box-sizing: inherit;
+}
+
+.no-size {
+  width: 0;
+  height: 0
+}
+
+.no-padding {
+  padding: 0px !important;
+}
+
+.padding-content {
+  padding: 4px 0;
+}
+
+a:focus,
+a:active {
+  outline: none;
+}
+
+a,
+a:focus,
+a:hover {
+  cursor: pointer;
+  color: inherit;
+  text-decoration: none;
+}
+
+div:focus {
+  outline: none;
+}
+
+.fr {
+  float: right;
+}
+
+.fl {
+  float: left;
+}
+
+.p-10 {
+  padding: 10px
+}
+
+.pl-10 {
+  padding-left: 10px;
+}
+
+.pr-10 {
+  padding-right: 10px;
+}
+
+.pr-20 {
+  padding-right: 20px;
+}
+
+.pt-10 {
+  padding-top: 10px;
+}
+
+.pb-10 {
+  padding-bottom: 10px;
+}
+
+.mr-5 {
+  margin-right: 5px;
+}
+
+.mr-10 {
+  margin-right: 10px;
+}
+
+.mb-10 {
+  margin-bottom: 10px;
+}
+
+.mb-20 {
+  margin-bottom: 20px;
+}
+
+.ml-10 {
+  margin-left: 10px;
+}
+.mt-10 {
+  margin-top: 10px;
+}
+// 水平间距
+.px-5 {
+  padding-left: 5px;
+  padding-right: 5px;
+}
+.px-10 {
+	padding-left: 10px;
+	padding-right: 10px;
+}
+// 垂直间距
+.py-5 {
+  padding-top: 5px;
+	padding-bottom: 5px;
+}
+.py-10 {
+	padding-top: 10px;
+	padding-bottom: 10px;
+}
+.px-20 {
+  padding-right: 20px;
+  padding-left: 20px;
+}
+
+.block {
+  display: block;
+}
+
+.pointer {
+  cursor: pointer;
+}
+
+.inline-block {
+  display: inline-block;
+}
+
+// 倒角
+.radius-sm {
+  border-radius: 4px;
+}
+
+.radius-md {
+  border-radius: 8px;
+}
+
+// 文字大小
+.font-xs {
+  font-size: $font-xs;
+}
+
+.font-sm {
+  font-size: $font-sm;
+}
+
+.font-md {
+  font-size: $font-md;
+}
+
+.font-lg {
+  font-size: $font-lg;
+}
+
+.font-xl {
+  font-size: $font-xl;
+}
+
+// 水平垂直居中
+.center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+// 文本布局样式
+.text-justify {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.text-center {
+  text-align: center;
+}
+
+.text-left {
+  text-align: left;
+}
+
+.text-right {
+  text-align: right;
+}
+
+.text-bold {
+  font-weight: 700;
+}
+
+// 文本颜色
+.text-white {
+  color: $white;
+}
+
+.text-main {
+  color: $--color-text-primary;
+}
+
+.text-regular {
+  color: $--color-text-regular;
+}
+
+.text-primary {
+  color: $blue;
+}
+
+.text-success {
+  color: $green;
+  &.el-button--text {
+    &:hover, &:focus {
+      color: $green;
+    }
+  }
+}
+
+.text-warning {
+  color: $yellow;
+  &.el-button--text {
+    &:hover, &:focus {
+      color: $yellow;
+    }
+  }
+}
+
+.text-info {
+  color: $gray;
+  &.el-button--text {
+    &:hover, &:focus {
+      color: $gray;
+    }
+  }
+}
+
+.text-danger {
+  color: $red;
+  &.el-button--text {
+    &:hover, &:focus {
+      color: $red;
+    }
+  }
+}
+
+.text-overflow {
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  word-break: break-all;
+  white-space: nowrap;
+}
+
+.clearfix {
+  &:after {
+    visibility: hidden;
+    display: block;
+    font-size: 0;
+    content: " ";
+    clear: both;
+    height: 0;
+  }
+}
+
+//main-container全局样式
+.app-container {
+  padding: $element-gutter;
+}
+
+.link-type,
+.link-type:focus {
+  color: $blue;
+  cursor: pointer;
+
+  &:hover {
+    color: rgb(32, 160, 255);
+  }
+}
+

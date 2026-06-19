@@ -1,0 +1,38 @@
+{
+  "name": "vue2-project",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "theme": "node theme.mjs"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-legacy": "8.0.2",
+    "@vitejs/plugin-vue2": "2.3.4",
+    "element-theme-chalk": "2.15.14",
+    "element-theme-replace": "2.0.9",
+    "sass-embedded": "1.100.0",
+    "unplugin-vue-components": "30.0.0",
+    "unplugin-vue-jsx": "0.6.1",
+    "vite": "^8.0.12",
+    "vue-template-compiler": "2.7.16"
+  },
+  "dependencies": {
+    "element-ui": "github:nangongpo/element-ui",
+    "vue": "2.7.16",
+    "vue-easytable": "2.27.1",
+    "vue-router": "3.6.5",
+    "vuex": "3.6.2",
+    "xlsx-js-style": "1.2.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "vue": "github:nangongpo/vue#v2.7.16-security.1",
+      "vue-template-compiler": "github:nangongpo/vue#template-compiler-v2.7.16-security.1",
+      "@vue/compiler-sfc": "github:nangongpo/vue#compiler-sfc-v2.7.16-security.1"
+    }
+  }
+}
