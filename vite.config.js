@@ -23,7 +23,9 @@ export default defineConfig(({ mode }) => {
         version: 2
       }),
       legacy({
-        modernPolyfills: true
+        polyfills: ['es.promise', 'es.object.assign'],
+        renderLegacyChunks: true,
+        renderModernChunks: true,
       }),
       // 自动导入组件（如 <el-button>）
       Components({
@@ -34,11 +36,6 @@ export default defineConfig(({ mode }) => {
         dts: true
       }),
     ],
-    resolve: {
-      alias: [
-        { find: '@', replacement: resolve('src') }
-      ]
-    },
     css: {
       preprocessorOptions: {
         scss: {
@@ -74,13 +71,70 @@ export default defineConfig(({ mode }) => {
           }
         } : undefined
     },
-    // 关键配置：调整 Vite 的 CommonJS 插件行为
-    // build: {
-    //   commonjsOptions: {
-    //     transformMixedEsModules: true,
-    //     // 允许直接将 CJS 的 module.exports 视为 default 导出
-    //     defaultIsModuleExports: true 
-    //   }
-    // },
+    resolve: {
+      mainFields: ['browser', 'module', 'main'],
+      alias: [
+        { find: '@', replacement: resolve('src') }
+      ]
+    },
+    optimizeDeps: {
+      // exclude: ['element-ui']
+    },
+    build: {
+      outDir: env.VITE_OUTDIR,
+      assetsDir: env.VITE_ASSETS_DIR,
+      sourcemap: false,
+      cssCodeSplit: true,
+      assetsInlineLimit: 40960, // 将小于 40KB 的 CSS 自动内联进 JS 或 HTML 中
+      chunkSizeWarningLimit: 500, // 以 kB 为单位
+      reportCompressedSize: false,
+      oxcOptions: {
+        compress: {
+          drop_console: true,     // 移除所有 console.*
+          drop_debugger: true,    // 移除 debugger
+          pure_funcs: ['console.log'] // 移除 console.log
+        },
+        mangle: true // 开启变量名混淆（默认已开启，显式写出来更清晰）
+      },
+      rolldownOptions: {
+        output: {
+          entryFileNames: 'assets/[name]-[hash].js',
+          assetFileNames: 'static/[name]-[hash].[ext]',
+          chunkFileNames: 'chunks/[name]-[hash].js',
+          cleanDir: true,
+          sourcemap: false,
+          codeSplitting: {
+            groups: [
+              {
+                name: 'table-vendor',
+                test: /node_modules[\\/]vue-easytable/,
+                priority: 30
+              },
+              {
+                name: 'vue-vendors',
+                test: /node_modules[\\/]vue/,
+                priority: 20
+              },
+              {
+                name: 'ui-vendor',
+                test: /node_modules[\\/]element-ui/,
+                priority: 15
+              },
+              {
+                name: 'vendor',
+                test: /node_modules/,
+                priority: 10,
+              },
+              {
+                name: 'common',
+                minShareCount: 2,
+                minSize: 10000,
+                priority: 5,
+              }
+            ],
+          }
+        }
+      }
+    },
   }
 })

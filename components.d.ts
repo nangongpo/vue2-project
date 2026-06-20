@@ -11,12 +11,21 @@ export {}
 /* prettier-ignore */
 declare module 'vue' {
   export interface GlobalComponents {
+    AsyncLoginForm: typeof import('./src/components/AsyncLoginForm.vue')['default']
+    AsyncTable: typeof import('./src/components/AsyncTable.vue')['default']
     ElButton: typeof import('element-ui/lib/button')['default']
     ElDatePicker: typeof import('element-ui/lib/date-picker')['default']
     ElDropdown: typeof import('element-ui/lib/dropdown')['default']
     ElDropdownItem: typeof import('element-ui/lib/dropdown-item')['default']
     ElDropdownMenu: typeof import('element-ui/lib/dropdown-menu')['default']
+    ElForm: typeof import('element-ui/lib/form')['default']
+    ElFormItem: typeof import('element-ui/lib/form-item')['default']
+    ElInput: typeof import('element-ui/lib/input')['default']
+    ElPagination: typeof import('element-ui/lib/pagination')['default']
     ElPopover: typeof import('element-ui/lib/popover')['default']
+    ElRadio: typeof import('element-ui/lib/radio')['default']
+    ElRadioGroup: typeof import('element-ui/lib/radio-group')['default']
+    ElStatistic: typeof import('element-ui/lib/statistic')['default']
     HelloWorld: typeof import('./src/components/HelloWorld.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']

@@ -1,13 +1,14 @@
 <template>
   <div class="wrapper">
-    <HelloWorld msg="Vite + Vue" /> 
+    首页
+    <!-- <HelloWorld msg="Vite + Vue" />  -->
   </div>
 </template>
 
 <script>
-import HelloWorld from '@/components/HelloWorld.vue'
+// import HelloWorld from '@/components/HelloWorld.vue'
 export default {
-  components: { HelloWorld },
+  // components: { HelloWorld },
   data() {
     return {
     }

@@ -1,5 +1,6 @@
 import Vue from 'vue'
 import VueRouter from 'vue-router'
+import { loadElementUI, isElementReady } from '@/utils/element-loader'
 
 // hack router push callback
 const originalPush = VueRouter.prototype.push
@@ -85,5 +86,12 @@ export function resetRouter() {
   const newRouter = createRouter()
   router.matcher = newRouter.matcher // reset router
 }
+
+router.beforeEach(async (to, from, next) => {
+  if (sessionStorage.getItem('token') && !isElementReady()) {
+    await loadElementUI(Vue);
+  }
+  next();
+});
 
 export default router

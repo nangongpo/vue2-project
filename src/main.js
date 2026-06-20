@@ -2,11 +2,11 @@ import Vue from "vue"
 import App from "./App.vue"
 import router from './router'
 import store from './store'
-import ElementUI from './plugins/element.js'
-import EasyTable from './plugins/easytable.js'
+// import ElementUI from './plugins/element.js'
+// import EasyTable from './plugins/easytable.js'
 
-Vue.use(ElementUI, { size: 'small' })
-Vue.use(EasyTable)
+// Vue.use(ElementUI, { size: 'small' })
+// Vue.use(EasyTable)
 
 new Vue({
   router,

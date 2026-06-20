@@ -23,6 +23,23 @@
     </h3>
 
     <div class="mb-10">
+      <el-radio-group v-model="radio">
+        <el-radio :label="1">备选项1</el-radio>
+        <el-radio :label="2">备选项2</el-radio>
+        <el-radio :label="3">备选项3</el-radio>
+      </el-radio-group>
+    </div>
+
+    <div class="mb-10">
+      <el-statistic
+        group-separator=","
+        :precision="2"
+        :value="1314"
+        title="增长人数">
+      </el-statistic>
+    </div>
+
+    <div class="mb-10">
       <el-button plain @click="openMessage">打开消息提示</el-button>
       <el-button plain @click="openMessageVn">VNode</el-button>
       <el-button plain @click="openPrompt">打开Prompt Dialog</el-button>
@@ -71,7 +88,15 @@
       </ul>
     </div>
 
-    <ve-table id="loading-container" :columns="columns" :table-data="tableData" />
+    <AsyncTable v-loading="loading" :columns="columns" :table-data="tableData" class="mb-10" />
+    <el-pagination 
+      background 
+      layout="prev, pager, next" 
+      :current-page="currentPage"
+      :page-size="pageSize"
+      :total="8"
+      @current-change="onCurrentChange">
+    </el-pagination>
 
     <!-- <el-table
       :data="tableData"
@@ -98,20 +123,20 @@
 </template>
 
 <script>
-import ElButton from 'element-ui/lib/checkbox'
-import ElTable from 'element-ui/lib/table'
-import ElTableColumn from 'element-ui/lib/table-column'
+import AsyncTable from '@/components/AsyncTable.vue'
 export default {
-  components: { ElButton, ElTable, ElTableColumn  },
+  components: { AsyncTable },
   props: {
     msg: String
   },
   data() {
     return {
-      loadingInstance: null,
-      loading: true,
+      loading: false,
+      radio: 1,
       count: 0,
       date1: '',
+      currentPage: 1,
+      pageSize: 4,
       columns: [
         { field: "date", key: "date", title: "日期", width: 180 },
         { field: "name", key: "name", title: "姓名", width: 180 },
@@ -119,45 +144,26 @@ export default {
       ],
       tableData: [{
         date: '2016-05-02',
-        name: '王小虎',
+        name: '王大虎',
         address: '上海市普陀区金沙江路 1518 弄'
       }, {
         date: '2016-05-04',
-        name: '王小虎',
+        name: '王大虎',
         address: '上海市普陀区金沙江路 1517 弄'
       }, {
         date: '2016-05-01',
-        name: '王小虎',
+        name: '王大虎',
         address: '上海市普陀区金沙江路 1519 弄'
       }, {
         date: '2016-05-03',
-        name: '王小虎',
+        name: '王大虎',
         address: '上海市普陀区金沙江路 1516 弄'
       }],
     }
   },
   mounted() {
-    this.loadingInstance = this.$veLoading({
-        target: document.querySelector("#loading-container"),
-        // 等同于
-        // target:"#loading-container"
-        name: "wave",
-    })
-    this.show()
-    setTimeout(() => {
-      this.close()
-    }, 3000)
-  },
-  destroyed() {
-    this.loadingInstance.destroy()
   },
   methods: {
-    show() {
-      this.loadingInstance.show()
-    },
-    close() {
-      this.loadingInstance.close()
-    },
     load() {
       this.count += 2
     },
@@ -226,6 +232,30 @@ export default {
         title: '标题名称',
         message: h('i', { style: 'color: teal'}, '这是提示文案这是提示文案这是提示文案这是提示文案这是提示文案这是提示文案这是提示文案这是提示文案')
       })
+    },
+    onCurrentChange(currentPage) {
+      this.currentPage = currentPage
+      this.loading = true
+      setTimeout(() => {
+        this.tableData = [{
+          date: '2016-05-02',
+          name: '王二虎',
+          address: '上海市普陀区金沙江路 1518 弄'
+        }, {
+          date: '2016-05-04',
+          name: '王二虎',
+          address: '上海市普陀区金沙江路 1517 弄'
+        }, {
+          date: '2016-05-01',
+          name: '王二虎',
+          address: '上海市普陀区金沙江路 1519 弄'
+        }, {
+          date: '2016-05-03',
+          name: '王二虎',
+          address: '上海市普陀区金沙江路 1516 弄'
+        }]
+        this.loading = false
+      }, 2000)
     }
   }
 }

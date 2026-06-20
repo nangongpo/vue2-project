@@ -3,6 +3,10 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "browserslist": [
+    "Chrome >= 49",
+    "not IE 11"
+  ],
   "scripts": {
     "dev": "vite",
     "build": "vite build",
