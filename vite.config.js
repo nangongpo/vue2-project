@@ -22,10 +22,13 @@ export default defineConfig(({ mode }) => {
       vueJsx({
         version: 2
       }),
+      // @vitejs/plugin-legacy 不兼容 rollup、rolldown, 配置rollup或rolldown时目前无法同时输出legacy和modern
       legacy({
-        polyfills: ['es.promise', 'es.object.assign'],
+        // polyfills: ['es.promise', 'es.object.assign'],
+        polyfills: true,
         renderLegacyChunks: true,
-        renderModernChunks: true,
+        renderModernChunks: false,
+        modernPolyfills: false,
       }),
       // 自动导入组件（如 <el-button>）
       Components({
@@ -40,14 +43,13 @@ export default defineConfig(({ mode }) => {
       preprocessorOptions: {
         scss: {
           // 1. 指定使用现代 API（Vite 8 默认即为 modern，显式声明更稳妥）
-          api: 'modern', 
+          api: 'modern',
+
+          // loadPaths: [fileURLToPath(new URL('./src/styles', import.meta.url))],
           
           // 2. 使用 @use 引入全局文件
           // 注意：末尾的分号 `;` 不能省略
-          additionalData: `
-            @use "@/styles/variables.scss" as *;
-            @use "@/styles/mixin.scss" as *;
-          `
+          additionalData: `@use "@/styles/variables.scss" as *;`
         },
       }
     },
@@ -134,7 +136,7 @@ export default defineConfig(({ mode }) => {
             ],
           }
         }
-      }
+      },
     },
   }
 })

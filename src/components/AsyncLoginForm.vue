@@ -48,7 +48,7 @@ export default {
           data: () => ({ form: { u: '', p: '' } }),
           render(h) {
             return h('div', { class: 'skeleton-wrapper' }, [
-              h('div', { class: 'login-header' }, 'vue2-project'),
+              h('div', { class: 'mb-10' }, 'vue2-project'),
               h('el-form', { props: { model: this.form }, class: 'login-form' }, [
                 h('el-form-item', [h('el-input', { props: { placeholder: '用户名' } })]),
                 h('el-form-item', [h('el-input', { props: { type: 'password', placeholder: '密码' } })]),
@@ -76,18 +76,17 @@ export default {
 };
 </script>
 
-<style lang="scss">
+<style scoped>
 .skeleton-wrapper {
   font-size: 24px; font-weight: 700; text-align: center; width: 320px; height: 260px;
   border: 1px solid #eee; padding: 20px; box-sizing: border-box;
-  .skeleton-item {
-    background: #f0f2f5; border-radius: 4px; margin-bottom: 20px;
-    animation: pulse 1.5s infinite ease-in-out;
-  }
-  .header { height: 34px; width: 60%; margin: 0 auto 20px auto; }
-  .input { height: 40px; }
-  .button { height: 40px; }
 }
+.skeleton-item {
+  background: #f0f2f5; border-radius: 4px; margin-bottom: 20px;
+  animation: pulse 1.5s infinite ease-in-out;
+}
+.header { height: 34px; width: 60%; margin: 0 auto 20px auto; }
+.input { height: 40px; }
+.button { height: 40px; }
 @keyframes pulse { 0% { opacity: 0.6; } 50% { opacity: 1; } 100% { opacity: 0.6; } }
-.login-header { margin-bottom: 20px; }
 </style>

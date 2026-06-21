@@ -1,3 +1,5 @@
+@use "@/styles/element-variables.scss" as *;
+
 .page-layout {
   box-shadow: -$element-gutter $element-gutter $element-gutter 0 rgb(0 0 0 / 12%);
   margin: $element-gutter;

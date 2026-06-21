@@ -1049,3 +1049,75 @@ $font-size-base: $--font-size-base !default;
 $font-size-medium: $--font-size-medium !default;
 $font-size-large: $--font-size-large !default;
 $font-size-extra-large: $--font-size-extra-large !default;
+
+// color
+$bg: #F3F3F3;
+$white: $color-white;
+$red: $color-danger;
+$blue: $color-primary;
+$gray: $color-info;
+$heavy-blue: #0372C9; // #0372C9
+$light-blue: #3A71A8; // #3A71A8
+$green: $color-success;
+$yellow: $color-warning;
+
+$theme: $color-primary;
+
+// 元素间距, 控制整体间距
+$element-gutter: 6px;
+
+// font
+$font-color: $color-text-primary; // #333
+
+$font-xs: $font-size-extra-small; // 12px
+$font-sm: $font-size-base; // 14px
+$font-md: $font-size-medium; // 16px
+$font-lg: $font-size-large; // 18px
+$font-xl: $font-size-extra-large; // 20px
+
+// border
+$border-radius-xs: $border-radius-base; // 4px
+$border-radius-sm: $border-radius-base * 2; // 8px
+$border-radius-lg: $border-radius-base * 3; // 12px
+$border-radius-xl: $border-radius-base * 4; // 16px
+$border-color: $border-color-base; // #DCDFE6
+
+// header
+$headerHeight: 54px;
+
+// tagsView
+$tagsViewHeight: 34px;
+
+// pageTitle
+$pageTitleHeight: 130px;
+
+
+// main
+$mainBg: $bg;
+
+// sidebar
+$sideBarWidth: 190px;
+$sideBarMinWidth: 54px;
+
+// menu
+$menuText: #bfcbd9;
+$menuActiveText: #fff;
+$subMenuActiveText: #fff; // https://github.com/ElemeFE/element/issues/12951
+
+$menuBg: #08214A;
+$menuHover: #0A2D65;
+
+$subMenuBg: #273C5F;
+$subMenuHover: #0A2D65;
+
+$menuActiveBg: #055EA3;
+$menuLineBg: #008DFC;
+$menuHeight: 48px;
+
+
+// table
+$cell-height: 30px;
+$cell-input-height: 28px;
+$table-header-color: #F5F7FA;
+$table-hover: #e6f4ff;
+$caret-color: rgba(0, 0, 0, .20);

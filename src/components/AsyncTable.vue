@@ -78,7 +78,7 @@ export default {
 }
 </script>
 
-<style lang="scss">
+<style scoped>
 /* 骨架屏与错误组件样式 */
 .table-loading-container, .table-error-container {
   width: 100%;
