@@ -3,12 +3,9 @@ import messageCssUrl from "@/theme/message.css?url";
 import messageBoxCssUrl from "@/theme/message-box.css?url";
 import notificationCssUrl from "@/theme/notification.css?url";
 import loadingCssUrl from "@/theme/loading.css?url";
-import buttonCssUrl from "@/theme/button.css?url";
-import formCssUrl from "@/theme/form.css?url";
-import inputCssUrl from "@/theme/input.css?url";
 
-// 定义需要单独加载的css地址映射
-export const cssUrls = { baseCssUrl, messageCssUrl, messageBoxCssUrl, notificationCssUrl, loadingCssUrl, buttonCssUrl, formCssUrl, inputCssUrl }
+// 定义需要单独加载的css地址映射，保证引用的是同一个地址，避免重复加载
+// export const cssUrls = { baseCssUrl, messageCssUrl, messageBoxCssUrl, notificationCssUrl, loadingCssUrl }
 
 // 单例锁：防止多次初始化和重复 CSS 注入
 let isElementRegistered = false;

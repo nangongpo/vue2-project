@@ -20,7 +20,6 @@ declare module 'vue' {
     ElDropdownMenu: typeof import('element-ui/lib/dropdown-menu')['default']
     ElForm: typeof import('element-ui/lib/form')['default']
     ElFormItem: typeof import('element-ui/lib/form-item')['default']
-    ElInput: typeof import('element-ui/lib/input')['default']
     ElPagination: typeof import('element-ui/lib/pagination')['default']
     ElPopover: typeof import('element-ui/lib/popover')['default']
     ElRadio: typeof import('element-ui/lib/radio')['default']

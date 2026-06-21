@@ -10,6 +10,52 @@ function resolve(dir) {
   return path.join(__dirname, dir)
 }
 
+// 自定义移除 crossorigin 属性的轻量插件
+const removeCrossoriginPlugin = () => {
+  return {
+    name: 'remove-crossorigin',
+    enforce: 'post', // 确保在最后一轮执行
+    
+    transformIndexHtml(html) {
+      let fixedHtml = html;
+
+      // 1. 精准处理 polyfills-legacy 脚本：去掉 crossorigin，加上 defer，并注入 onload 标记
+      const polyfillRegex = /<script([^>]*?)id="vite-legacy-polyfill"([^>]*?)><\/script>/g;
+      fixedHtml = fixedHtml.replace(polyfillRegex, (match) => {
+        let cleanTag = match.replace(/\s?crossorigin(=['"]anonymous['"])?/g, '');
+        if (!cleanTag.includes('defer')) {
+          cleanTag = cleanTag.replace('<script', '<script defer');
+        }
+        // 关键：给补丁加上一个全局变量标记，证明它已经彻底下载并执行完毕
+        cleanTag = cleanTag.replace('></script>', ' onload="window.__legacyReady=true; if(window.__runViteLegacyEntry) window.__runViteLegacyEntry();"></script>');
+        return cleanTag;
+      });
+
+      // 2. 精准处理紧随其后的 vite-legacy-entry 内联脚本：
+      // 包装它的执行时机，必须等到 __legacyReady 为 true 时再调用 System.import
+      const entryRegex = /<script([^>]*?)id="vite-legacy-entry"([^>]*?)>([\s\S]*?)<\/script>/g;
+      fixedHtml = fixedHtml.replace(entryRegex, (match, p1, p2, code) => {
+        let cleanAttrs = `${p1}${p2}`.replace(/\s?crossorigin(=['"]?.*?['"]?)?/g, '');
+        
+        // 组装清洁后的标签，并将核心代码包裹在 window.__runViteLegacyEntry 中延迟执行
+        let cleanEntry = `<script ${cleanAttrs} id="vite-legacy-entry">`;
+        cleanEntry += `
+          window.__runViteLegacyEntry = function() {
+            ${code.trim()}
+          };
+          if (window.__legacyReady) {
+            window.__runViteLegacyEntry();
+          }
+        `;
+        cleanEntry += `</script>`;
+        return cleanEntry;
+      });
+
+      return fixedHtml;
+    }
+  };
+};
+
 export default defineConfig(({ mode }) => {
   // 根据当前工作目录中的 `mode` 加载 .env 文件
   // 设置第三个参数为 '' 来加载所有环境变量，而不管是否有
@@ -30,6 +76,7 @@ export default defineConfig(({ mode }) => {
         renderModernChunks: false,
         modernPolyfills: false,
       }),
+      removeCrossoriginPlugin(),
       // 自动导入组件（如 <el-button>）
       Components({
         resolvers: [
