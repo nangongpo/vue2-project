@@ -98,27 +98,6 @@
       @current-change="onCurrentChange">
     </el-pagination>
 
-    <!-- <el-table
-      :data="tableData"
-      v-loading="loading"
-      stripe
-      style="width: 100%"
-      class="mb-10">
-      <el-table-column
-        prop="date"
-        label="日期"
-        width="180">
-      </el-table-column>
-      <el-table-column
-        prop="name"
-        label="姓名"
-        width="180">
-      </el-table-column>
-      <el-table-column
-        prop="address"
-        label="地址">
-      </el-table-column>
-    </el-table> -->
   </div>
 </template>
 
@@ -270,18 +249,47 @@ export default {
   justify-content: center;
   align-items: center;
 }
+
 a {
   font-weight: 500;
   color: #646cff;
   text-decoration: inherit;
 }
+
 a:hover {
   color: #535bf2;
 }
 
 h1 {
-  font-size: 3.2em;
+  font-size: 2.6em;
   line-height: 1.1;
+  margin: 10px;
+}
+
+h3 {
+  font-size: 1.2rem;
+  margin: 10px 10px 20px 10px;
+}
+
+.greetings h1,
+.greetings h3 {
+  text-align: center;
+}
+
+.logo {
+  width: 6em;
+  height: 6em;
+  padding: 1em;
+  will-change: filter;
+  transition: filter 300ms;
+}
+
+.logo:hover {
+  filter: drop-shadow(0 0 2em #646cffaa);
+}
+
+.logo.vue:hover {
+  filter: drop-shadow(0 0 2em #42b883aa);
 }
 
 .mb-10 {
@@ -291,8 +299,16 @@ h1 {
 .infinite-scroll-box {
   width: 100%;
   height: 200px;
-  overflow-x: hidden;
-  overflow-y: auto;
+  border: 1px solid #eee;
+  box-sizing: border-box;
+}
+
+.infinite-list {
+  height: 200px;
+  padding: 0px;
+  margin: 0px;
+  list-style: none;
+  overflow: auto;
 }
 
 .infinite-list .infinite-list-item {
@@ -305,38 +321,16 @@ h1 {
   color: #7dbcfc;
 }
 
-h1 {
-  font-weight: 500;
-  font-size: 2.6rem;
-  top: -10px;
-}
-
-h3 {
-  font-size: 1.2rem;
-}
-
-.greetings h1,
-.greetings h3 {
-  text-align: center;
-}
-
-.logo {
-  height: 4em;
-  padding: 1em;
-  will-change: filter;
-  transition: filter 300ms;
-}
-.logo:hover {
-  filter: drop-shadow(0 0 2em #646cffaa);
-}
-.logo.vue:hover {
-  filter: drop-shadow(0 0 2em #42b883aa);
-}
 .el-dropdown-link {
   cursor: pointer;
   color: #409EFF;
 }
+
 .el-icon-arrow-down {
   font-size: 12px;
+}
+
+.el-pagination {
+  height: 32px;
 }
 </style>

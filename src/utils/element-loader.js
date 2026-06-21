@@ -1,8 +1,14 @@
-import elBase from "element-ui/lib/theme-chalk/base.css?url";
-import elMsg from "element-ui/lib/theme-chalk/message.css?url";
-import elMsgBox from "element-ui/lib/theme-chalk/message-box.css?url";
-import elNotify from "element-ui/lib/theme-chalk/notification.css?url";
-import elLoading from "element-ui/lib/theme-chalk/loading.css?url";
+import baseCssUrl from "@/theme/base.css?url";
+import messageCssUrl from "@/theme/message.css?url";
+import messageBoxCssUrl from "@/theme/message-box.css?url";
+import notificationCssUrl from "@/theme/notification.css?url";
+import loadingCssUrl from "@/theme/loading.css?url";
+import buttonCssUrl from "@/theme/button.css?url";
+import formCssUrl from "@/theme/form.css?url";
+import inputCssUrl from "@/theme/input.css?url";
+
+// 定义需要单独加载的css地址映射
+export const cssUrls = { baseCssUrl, messageCssUrl, messageBoxCssUrl, notificationCssUrl, loadingCssUrl, buttonCssUrl, formCssUrl, inputCssUrl }
 
 // 单例锁：防止多次初始化和重复 CSS 注入
 let isElementRegistered = false;
@@ -21,8 +27,7 @@ export const loadElementUI = async (Vue) => {
 
   try {
     // 1. 动态注入 CSS (使用数组去重检查)
-    const cssUrls = [elBase, elMsg, elMsgBox, elNotify, elLoading];
-    cssUrls.forEach((url) => {
+    [baseCssUrl, messageCssUrl, messageBoxCssUrl, notificationCssUrl, loadingCssUrl].forEach((url) => {
       if (!document.querySelector(`link[href="${url}"]`)) {
         const link = document.createElement("link");
         link.rel = "stylesheet";

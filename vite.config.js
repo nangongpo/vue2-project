@@ -100,8 +100,21 @@ export default defineConfig(({ mode }) => {
       },
       rolldownOptions: {
         output: {
+          assetFileNames: (assetInfo) => {
+            // 确保安全读取文件名
+            const name = assetInfo.name || '';
+            // 匹配字体文件扩展名
+            if (/\.(woff2?|eot|ttf|otf)(\?.*)?$/i.test(name)) {
+              return 'assets/fonts/[name]-[hash][extname]';
+            }
+            // 匹配 CSS 文件
+            if (/\.css$/i.test(name)) {
+              return 'assets/css/[name]-[hash][extname]';
+            }
+            // 其他资产（如图片等）
+            return 'assets/[ext]/[name]-[hash][extname]';
+          },
           entryFileNames: 'assets/[name]-[hash].js',
-          assetFileNames: 'static/[name]-[hash].[ext]',
           chunkFileNames: 'chunks/[name]-[hash].js',
           cleanDir: true,
           sourcemap: false,

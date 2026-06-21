@@ -10,7 +10,7 @@ const TableSkeleton = {
   render(h) {
     return h('div', { class: 'table-loading-container' }, [
       h('div', { class: 'skeleton-header' }),
-      h('div', { class: 'skeleton-content' }, 
+      h('div', { class: 'skeleton-content' },
         Array.from({ length: 6 }).map(() => h('div', { class: 'skeleton-row' }))
       ),
       h('div', { class: 'loading-text' }, '表格正在拼命加载中...')
