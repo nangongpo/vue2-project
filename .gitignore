@@ -9,6 +9,11 @@ lerna-debug.log*
 
 node_modules
 dist
+.pnpm-store
+backend/.env
+backend/.env.production
+captcha-service/.env
+captcha-service/.env.production
 dist-ssr
 *.local
 

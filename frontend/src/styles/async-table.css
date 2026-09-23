@@ -1,0 +1,4 @@
+/* 合并 AsyncTable.vue 加载的样式 */
+@import 'vue-easytable/libs/theme-default/base.css';
+@import 'vue-easytable/libs/theme-default/ve-table.css';
+@import 'vue-easytable/libs/theme-default/ve-icon.css';

@@ -1,0 +1,7 @@
+/* 合并 element-loader.js 加载的样式 */
+@import '@/theme/base.css';
+@import '@/theme/icon.css';
+@import '@/theme/message.css';
+@import '@/theme/message-box.css';
+@import '@/theme/notification.css';
+@import '@/theme/loading.css';

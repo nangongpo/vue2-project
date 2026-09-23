@@ -1,0 +1,23 @@
+packages:
+  - frontend
+  - backend
+  - captcha-service
+
+allowBuilds:
+  '@parcel/watcher': true
+  core-js: true
+  esbuild: true
+  '@prisma/client': true
+  '@prisma/engines': true
+  prisma: true
+
+blockExoticSubdeps: false
+
+minimumReleaseAgeExclude:
+  - vite-plugin-vue2-jsx-oxc@0.0.1
+  - element-theme-replace@2.0.11
+
+overrides:
+  vue: github:nangongpo/vue#v2.7.16-security.1
+  vue-template-compiler: github:nangongpo/vue#template-compiler-v2.7.16-security.1
+  '@vue/compiler-sfc': github:nangongpo/vue#compiler-sfc-v2.7.16-security.1

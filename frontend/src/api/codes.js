@@ -1,0 +1,32 @@
+// 与 backend/src/common/api-code.ts 保持一致。前端只依赖业务码，不直接判断 HTTP 状态码。
+export const REQUEST_CODE = Object.freeze({
+  SUCCESS: '000000',
+  INVALID_PARAMS: '100001',
+  UNAUTHORIZED: '100002',
+  FORBIDDEN: '100003',
+  NOT_FOUND: '100004',
+  CONFLICT: '100005',
+  RATE_LIMITED: '100006',
+  REQUEST_IN_PROGRESS: '100009',
+  CAPTCHA_REQUIRED: '100007',
+  CAPTCHA_INVALID: '100008',
+  INTERNAL_ERROR: '200000',
+  DATABASE_ERROR: '200001'
+})
+
+export const REQUEST_MESSAGE = Object.freeze({
+  [REQUEST_CODE.SUCCESS]: '操作成功',
+  [REQUEST_CODE.INVALID_PARAMS]: '请求参数错误',
+  [REQUEST_CODE.UNAUTHORIZED]: '未登录或登录已失效',
+  [REQUEST_CODE.FORBIDDEN]: '无权执行此操作',
+  [REQUEST_CODE.NOT_FOUND]: '资源不存在',
+  [REQUEST_CODE.CONFLICT]: '请求与当前资源状态冲突',
+  [REQUEST_CODE.RATE_LIMITED]: '请求过于频繁，请稍后重试',
+  [REQUEST_CODE.REQUEST_IN_PROGRESS]: '登录请求处理中，请勿重复提交',
+  [REQUEST_CODE.CAPTCHA_REQUIRED]: '请先完成滑块验证',
+  [REQUEST_CODE.CAPTCHA_INVALID]: '滑块验证失败，请重试',
+  [REQUEST_CODE.INTERNAL_ERROR]: '服务器内部错误',
+  [REQUEST_CODE.DATABASE_ERROR]: '数据服务暂不可用'
+})
+
+export const isSuccessCode = code => code === REQUEST_CODE.SUCCESS

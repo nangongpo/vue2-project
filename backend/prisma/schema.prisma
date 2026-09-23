@@ -1,0 +1,209 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserStatus {
+  ACTIVE
+  LOCKED
+  DISABLED
+}
+
+enum RoleStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum AuditResult {
+  SUCCESS
+  FAILURE
+}
+
+enum PermissionType {
+  PAGE
+  BUTTON
+  API
+}
+
+model User {
+  id           BigInt     @id @default(autoincrement()) @db.UnsignedBigInt
+  userId       String     @unique @default(uuid()) @db.Char(36)
+  username     String     @unique @db.VarChar(64)
+  passwordHash String     @db.VarChar(255)
+  displayName  String     @db.VarChar(128)
+  status       UserStatus @default(ACTIVE)
+  failedLogins Int        @default(0)
+  lockedUntil  DateTime?
+  lastLoginAt  DateTime?
+  lastLoginIp  String?    @db.VarChar(64)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  roles        UserRole[]
+  sessions     Session[]
+  audits       AuditLog[] @relation("AuditActor")
+
+  @@index([status])
+  @@map("sys_user")
+}
+
+model Role {
+  id          BigInt           @id @default(autoincrement()) @db.UnsignedBigInt
+  roleId      String           @unique @default(uuid()) @db.Char(36)
+  code        String           @unique @db.VarChar(64)
+  name        String           @db.VarChar(128)
+  description String?          @db.VarChar(255)
+  status      RoleStatus       @default(ACTIVE)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  users       UserRole[]
+  permissions RolePermission[]
+
+  @@map("sys_role")
+}
+
+model Permission {
+  id                 String           @id @default(uuid()) @db.Char(36)
+  code               String           @unique @db.VarChar(128)
+  name               String           @db.VarChar(128)
+  resource           String           @db.VarChar(128)
+  action             String           @db.VarChar(64)
+  type               PermissionType   @default(API)
+  method             String?          @db.VarChar(16)
+  path               String?          @db.VarChar(255)
+  createdAt          DateTime         @default(now())
+  roles              RolePermission[]
+  functionPermission SystemFunction?  @relation("FunctionPermission")
+  buttonPermission   FunctionButton?  @relation("ButtonPermission")
+  functionApis       FunctionApi[]    @relation("FunctionApiPermission")
+  buttonApis         ButtonApi[]      @relation("ButtonApiPermission")
+
+  @@index([resource, action])
+  @@map("sys_permission")
+}
+
+model SystemFunction {
+  id           String           @id @default(uuid()) @db.Char(36)
+  code         String           @unique @db.VarChar(128)
+  name         String           @db.VarChar(128)
+  route        String           @db.VarChar(255)
+  component    String?          @db.VarChar(255)
+  parentId     String?          @db.Char(36)
+  sort         Int              @default(0)
+  status       UserStatus       @default(ACTIVE)
+  permissionId String?          @unique @db.Char(36)
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  parent       SystemFunction?  @relation("FunctionTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children     SystemFunction[] @relation("FunctionTree")
+  permission   Permission?      @relation("FunctionPermission", fields: [permissionId], references: [id], onDelete: SetNull)
+  buttons      FunctionButton[]
+  apis         FunctionApi[]
+
+  @@index([parentId, sort])
+  @@index([status])
+  @@map("sys_function")
+}
+
+model FunctionButton {
+  id           String         @id @default(uuid()) @db.Char(36)
+  functionId   String         @db.Char(36)
+  code         String         @unique @db.VarChar(128)
+  name         String         @db.VarChar(128)
+  label        String         @db.VarChar(128)
+  sort         Int            @default(0)
+  status       UserStatus     @default(ACTIVE)
+  permissionId String?        @unique @db.Char(36)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  function     SystemFunction @relation(fields: [functionId], references: [id], onDelete: Cascade)
+  permission   Permission?    @relation("ButtonPermission", fields: [permissionId], references: [id], onDelete: SetNull)
+  apis         ButtonApi[]
+
+  @@index([functionId, sort])
+  @@map("sys_function_button")
+}
+
+model FunctionApi {
+  functionId String         @db.Char(36)
+  apiId      String         @db.Char(36)
+  required   Boolean        @default(true)
+  function   SystemFunction @relation(fields: [functionId], references: [id], onDelete: Cascade)
+  api        Permission     @relation("FunctionApiPermission", fields: [apiId], references: [id], onDelete: Cascade)
+
+  @@id([functionId, apiId])
+  @@map("sys_function_api")
+}
+
+model ButtonApi {
+  buttonId String         @db.Char(36)
+  apiId    String         @db.Char(36)
+  button   FunctionButton @relation(fields: [buttonId], references: [id], onDelete: Cascade)
+  api      Permission     @relation("ButtonApiPermission", fields: [apiId], references: [id], onDelete: Cascade)
+
+  @@id([buttonId, apiId])
+  @@map("sys_button_api")
+}
+
+model UserRole {
+  userId     BigInt   @db.UnsignedBigInt
+  roleId     BigInt   @db.UnsignedBigInt
+  assignedAt DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role       Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@map("sys_user_role")
+}
+
+model RolePermission {
+  roleId       BigInt     @db.UnsignedBigInt
+  permissionId String     @db.Char(36)
+  assignedAt   DateTime   @default(now())
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("sys_role_permission")
+}
+
+model Session {
+  id         String    @id @db.Char(64)
+  userId     BigInt    @db.UnsignedBigInt
+  expiresAt  DateTime
+  createdAt  DateTime  @default(now())
+  lastSeenAt DateTime  @default(now())
+  revokedAt  DateTime?
+  ip         String?   @db.VarChar(64)
+  userAgent  String?   @db.VarChar(512)
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revokedAt])
+  @@index([expiresAt])
+  @@map("sys_session")
+}
+
+model AuditLog {
+  id         String      @id @default(uuid()) @db.Char(36)
+  traceId    String      @db.VarChar(64)
+  actorId    BigInt?     @db.UnsignedBigInt
+  action     String      @db.VarChar(128)
+  resource   String      @db.VarChar(128)
+  method     String      @db.VarChar(16)
+  path       String      @db.VarChar(512)
+  result     AuditResult
+  statusCode Int
+  ip         String?     @db.VarChar(64)
+  userAgent  String?     @db.VarChar(512)
+  detail     Json?
+  createdAt  DateTime    @default(now())
+  actor      User?       @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([actorId, createdAt])
+  @@index([traceId])
+  @@map("sys_audit_log")
+}
