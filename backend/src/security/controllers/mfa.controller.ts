@@ -1,10 +1,15 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Inject, Post, Req, Res, UseGuards } from '@nestjs/common'
+import { Body, Controller, Get, HttpCode, HttpStatus, Inject, Post, Req, Res, UnauthorizedException, UseGuards } from '@nestjs/common'
 import { IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator'
 import { FastifyReply, FastifyRequest } from 'fastify'
 import { API_CODE } from '../../common/constants/api-code.js'
 import { AuditAction } from '../../audit/decorators/audit.decorator.js'
-import { AuthGuard } from '../guards/auth.guard.js'
-import { SESSION_COOKIE } from '../services/auth.service.js'
+import { MfaAuthGuard } from '../guards/auth.guard.js'
+import {
+  PREAUTH_COOKIE,
+  SESSION_COOKIE,
+  preAuthCookieOptions,
+  sessionCookieOptions,
+} from '../services/auth.service.js'
 import { assertSameOrigin } from '../policies/csrf.js'
 import { MfaService } from '../services/mfa.service.js'
 
@@ -28,10 +33,14 @@ class ReauthenticateDto extends PasswordProofDto {
   otp?: string
 }
 
-type AuthRequest = FastifyRequest & { user: { internalId: bigint } }
+type AuthRequest = FastifyRequest & {
+  user: { internalId: bigint }
+  authToken?: string
+  authCookie?: string
+}
 
 @Controller('auth')
-@UseGuards(AuthGuard)
+@UseGuards(MfaAuthGuard)
 export class MfaController {
   constructor(@Inject(MfaService) private readonly mfa: MfaService) {}
 
@@ -64,17 +73,23 @@ export class MfaController {
   async enroll(@Body() body: PasswordProofDto, @Req() request: AuthRequest, @Res({ passthrough: true }) response: FastifyReply) {
     assertSameOrigin(request)
     response.header('Cache-Control', 'no-store')
-    const data = await this.mfa.enroll(request.user.internalId, body.password, request.cookies?.[SESSION_COOKIE])
+    const data = await this.mfa.enroll(request.user.internalId, body.password, request.authToken)
     return { code: API_CODE.SUCCESS, message: 'success', data }
   }
 
   @Post('mfa/confirm')
   @HttpCode(HttpStatus.OK)
   @AuditAction('auth.mfa.confirm')
-  async confirm(@Body() body: ConfirmMfaDto, @Req() request: AuthRequest) {
+  async confirm(@Body() body: ConfirmMfaDto, @Req() request: AuthRequest, @Res({ passthrough: true }) response: FastifyReply) {
     assertSameOrigin(request)
-    const data = await this.mfa.confirm(request.user.internalId, body.otp, request.cookies?.[SESSION_COOKIE])
-    return { code: API_CODE.SUCCESS, message: 'success', data }
+    const promoted = request.authCookie === PREAUTH_COOKIE
+    const data = await this.mfa.confirm(request.user.internalId, body.otp, request.authToken, promoted)
+    if (promoted && data.sessionToken) {
+      response.clearCookie(PREAUTH_COOKIE, preAuthCookieOptions())
+      response.setCookie(SESSION_COOKIE, data.sessionToken, sessionCookieOptions(data.expiresIn))
+    }
+    const { sessionToken, expiresIn, ...result } = data
+    return { code: API_CODE.SUCCESS, message: 'success', data: result }
   }
 
   @Post('reauth')
@@ -82,7 +97,8 @@ export class MfaController {
   @AuditAction('auth.reauthenticate')
   async reauthenticate(@Body() body: ReauthenticateDto, @Req() request: AuthRequest) {
     assertSameOrigin(request)
-    const data = await this.mfa.reauthenticate(request.user.internalId, body.password, body.otp, request.cookies?.[SESSION_COOKIE])
+    if (request.authCookie === PREAUTH_COOKIE) throw new UnauthorizedException('临时登录状态不能重新认证')
+    const data = await this.mfa.reauthenticate(request.user.internalId, body.password, body.otp, request.authToken)
     return { code: API_CODE.SUCCESS, message: 'success', data }
   }
 }

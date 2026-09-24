@@ -1,5 +1,5 @@
 import { CanActivate, ExecutionContext, ForbiddenException, Inject, Injectable } from '@nestjs/common'
-import { AuthService, SESSION_COOKIE } from '../services/auth.service.js'
+import { AuthService, PREAUTH_COOKIE, SESSION_COOKIE } from '../services/auth.service.js'
 import { assertSameOrigin } from '../policies/csrf.js'
 
 @Injectable()
@@ -20,6 +20,28 @@ export class AuthGuard implements CanActivate {
     ])
     if (request.user.mfaRequired && (!request.user.mfaEnabled || !request.user.mfaVerifiedAt) && !enrollmentRoutes.has(route))
       throw new ForbiddenException('请先完成管理员多因素认证')
+    return true
+  }
+}
+
+@Injectable()
+export class MfaAuthGuard implements CanActivate {
+  constructor(@Inject(AuthService) private readonly auth: AuthService) {}
+
+  async canActivate(context: ExecutionContext) {
+    const request = context.switchToHttp().getRequest()
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method)) assertSameOrigin(request)
+    const formalToken = request.cookies?.[SESSION_COOKIE]
+    const preAuthToken = request.cookies?.[PREAUTH_COOKIE]
+    if (formalToken) {
+      request.user = await this.auth.authenticate(formalToken)
+      request.authToken = formalToken
+      request.authCookie = SESSION_COOKIE
+      return true
+    }
+    request.user = await this.auth.authenticate(preAuthToken)
+    request.authToken = preAuthToken
+    request.authCookie = PREAUTH_COOKIE
     return true
   }
 }

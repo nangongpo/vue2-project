@@ -47,19 +47,6 @@
             autocomplete="current-password"
             placeholder="请输入密码"
             @input="clearLoginError" />
-          <div v-if="!mfaEnabled" class="login-error">{{ loginError || ' ' }}</div>
-        </div>
-
-        <div v-if="mfaEnabled" class="input-group">
-          <label for="otp">动态验证码（已绑定认证器时必填）</label>
-          <input
-            id="otp"
-            v-model="loginModel.otp"
-            inputmode="numeric"
-            autocomplete="one-time-code"
-            maxlength="6"
-            placeholder="认证器中的 6 位验证码"
-            @input="clearLoginError" />
           <div class="login-error">{{ loginError || ' ' }}</div>
         </div>
 
@@ -84,6 +71,8 @@
       custom-class="captcha-dialog"
       append-to-body
       :close-on-click-modal="false"
+      :close-on-press-escape="false"
+      :destroy-on-close="true"
       @close="handleCaptchaDialogClose">
       <div class="captcha-dialog-body">
         <p class="captcha-dialog-tip">请拖动拼图完成验证，验证通过后将自动登录</p>
@@ -92,14 +81,46 @@
     </el-dialog>
 
     <el-dialog
+      title="输入动态验证码"
+      :visible.sync="otpDialogVisible"
+      width="420px"
+      custom-class="otp-dialog"
+      append-to-body
+      :show-close="false"
+      :close-on-click-modal="false"
+      :close-on-press-escape="false"
+      :destroy-on-close="true"
+      @opened="focusOtpInput"
+      @close="handleOtpDialogClose">
+      <div class="otp-dialog-body">
+        <p class="otp-dialog-tip">请输入认证器中当前显示的 6 位动态验证码</p>
+        <input
+          ref="otpInput"
+          v-model="loginModel.otp"
+          class="otp-dialog-input"
+          autocomplete="one-time-code"
+          maxlength="6"
+          placeholder="请输入 6 位验证码"
+          :disabled="loading"
+          @input="handleOtpInput"
+          @keyup.enter="submitOtpLogin" />
+        <div class="login-error">{{ loginError || ' ' }}</div>
+      </div>
+      <span slot="footer" class="dialog-footer">
+        <el-button :disabled="loading" @click="cancelOtpLogin">取消</el-button>
+        <el-button type="primary" :loading="loading" @click="submitOtpLogin">验证并登录</el-button>
+      </span>
+    </el-dialog>
+
+    <el-dialog
       :visible.sync="securityPending"
       width="520px"
       custom-class="security-dialog"
       append-to-body
-      top="5vh"
       :show-close="false"
       :close-on-click-modal="false"
       :close-on-press-escape="false"
+      :destroy-on-close="true"
       :before-close="blockSecurityDialogClose">
       <session-security
         security-only
@@ -117,7 +138,6 @@ import { createSliderCaptcha } from '@/utils/sliderCaptcha'
 import { REQUEST_CODE } from '@/api/codes'
 import {
   createCaptchaChallenge,
-  getMfaStatus,
   reportCaptchaEvent,
   verifyCaptcha,
 } from '@/api/user'
@@ -132,6 +152,7 @@ export default {
       title: 'vue2-project',
       loading: false,
       securityPending: false,
+      otpDialogVisible: false,
       mfaStatus: null,
       loadingText: '',
       captchaDialogVisible: false,
@@ -146,7 +167,6 @@ export default {
       captchaChallenge: null,
       captchaUsername: '',
       loginError: '',
-      mfaEnabled: false,
       sliderCaptcha: null,
       loginModel: {
         username: 'admin',
@@ -164,6 +184,23 @@ export default {
       await this.$store.dispatch('user/logout')
       this.securityPending = false
       this.mfaStatus = null
+    },
+    focusOtpInput() {
+      this.$nextTick(() => {
+        if (this.$refs.otpInput) this.$refs.otpInput.focus()
+      })
+    },
+    handleOtpInput() {
+      this.loginModel.otp = (this.loginModel.otp || '').replace(/\D/g, '').slice(0, 6)
+      this.loginError = ''
+    },
+    handleOtpDialogClose() {
+      this.loginModel.otp = ''
+    },
+    cancelOtpLogin() {
+      this.otpDialogVisible = false
+      this.loginModel.otp = ''
+      this.loginError = ''
     },
     blockSecurityDialogClose(done) {
       if (!this.securityPending && typeof done === 'function') done()
@@ -183,8 +220,9 @@ export default {
       this.initSliderCaptcha()
       try {
         this.captchaChallenge = await createCaptchaChallenge({ username })
-        if (this.sliderCaptcha && this.sliderCaptcha.SetChallenge)
+        if (this.sliderCaptcha && this.sliderCaptcha.SetChallenge) {
           this.sliderCaptcha.SetChallenge(this.captchaChallenge.payload)
+        }
         this.reportCaptchaEvent('INIT_SUCCESS', {
           attemptId: this.captchaChallenge.attemptId,
           challengeId: this.captchaChallenge.challengeId,
@@ -250,7 +288,7 @@ export default {
       })
     },
     async handleLogin() {
-      if (this.loading || this.captchaDialogVisible) return
+      if (this.loading || this.captchaDialogVisible || this.otpDialogVisible) return
       this.loginError = ''
       if (!this.loginModel.username.trim() || !this.loginModel.password) {
         this.loginError = '请输入员工账号和登录密码'
@@ -262,6 +300,7 @@ export default {
     async submitLogin() {
       this.loadingText = '正在登录...'
       this.loading = true
+      const completingOtp = this.otpDialogVisible
       const loginPayload = { ...this.loginModel }
       if (!loginPayload.otp) delete loginPayload.otp
       if (this.captchaResult && this.captchaResult.captchaToken) {
@@ -269,29 +308,49 @@ export default {
         loginPayload.attemptId = this.captchaResult.attemptId
       }
       try {
-        await this.$store.dispatch('user/login', loginPayload)
-        this.loginModel.password = ''
-        this.loginModel.otp = ''
-        this.mfaStatus = await getMfaStatus()
-        if (this.mfaStatus.mfaRequired && (!this.mfaStatus.mfaEnabled || !this.mfaStatus.mfaVerifiedAt)) {
-          this.securityPending = true
+        if (completingOtp) {
+          await this.$store.dispatch('user/completeLogin', { otp: this.loginModel.otp })
         } else {
-          await this.finishLogin()
+          await this.$store.dispatch('user/login', loginPayload)
         }
+        this.loginModel.otp = ''
+        this.otpDialogVisible = false
+        await this.finishLogin()
       } catch (error) {
-        this.loginError = error && error.message ? error.message : '登录失败，请重试'
-        if (this.loginError.includes('动态验证码')) this.mfaEnabled = true
-        this.captchaVerified = false
-        this.captchaResult = null
+        const errorMessage = error && error.message ? error.message : ''
+        const requiresOtp = error && error.code === REQUEST_CODE.MFA_REQUIRED
+        const invalidOtp = error && error.code === REQUEST_CODE.MFA_INVALID
+        const requiresEnrollment = error && error.code === REQUEST_CODE.MFA_ENROLL_REQUIRED
+        this.loginError = invalidOtp
+          ? '验证码错误或已使用，请输入认证器当前显示的验证码'
+          : requiresOtp || requiresEnrollment
+          ? ''
+          : errorMessage || '登录失败，请重试'
         const needsCaptcha =
           error &&
           (error.code === REQUEST_CODE.CAPTCHA_REQUIRED ||
             error.code === REQUEST_CODE.CAPTCHA_INVALID)
         if (needsCaptcha) {
+          this.captchaVerified = false
+          this.captchaResult = null
           this.captchaChallenge = null
           this.captchaDialogVisible = true
+          this.otpDialogVisible = false
           this.$nextTick(() => this.prepareCaptcha())
+        } else if (requiresOtp || invalidOtp) {
+          this.otpDialogVisible = true
+          this.focusOtpInput()
+        } else if (requiresEnrollment) {
+          this.mfaStatus = error.data || {
+            mfaRequired: true,
+            mfaEnabled: false,
+            mfaVerifiedAt: null,
+            reauthenticatedAt: null,
+          }
+          this.securityPending = true
         } else {
+          this.captchaVerified = false
+          this.captchaResult = null
           this.captchaChallenge = null
           if (this.sliderCaptcha) this.sliderCaptcha.destroy()
           this.sliderCaptcha = null
@@ -312,9 +371,17 @@ export default {
     clearLoginError() {
       this.loginError = ''
     },
+    async submitOtpLogin() {
+      if (this.loading) return
+      if (!/^\d{6}$/.test(this.loginModel.otp)) {
+        this.loginError = '请输入 6 位验证码'
+        this.focusOtpInput()
+        return
+      }
+      await this.submitLogin()
+    },
     handleUsernameInput() {
       this.loginError = ''
-      this.mfaEnabled = false
       const username = (this.loginModel.username || '').trim()
       if (this.captchaUsername && username !== this.captchaUsername) {
         this.captchaChallenge = null
@@ -543,6 +610,58 @@ export default {
   line-height: 1.6;
 }
 
+.otp-dialog-body {
+  width: 360px;
+  max-width: 100%;
+  margin: 0 auto;
+}
+
+.otp-dialog-tip {
+  margin: 0 0 14px;
+  color: #8495a6;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.otp-dialog-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 12px;
+  background-color: #141c2e;
+  border: 1px solid #233554;
+  border-radius: 2px;
+  color: #fff;
+  font-size: 18px;
+  letter-spacing: 4px;
+  text-align: center;
+}
+
+.otp-dialog-input:focus {
+  border-color: #00f2fe;
+  outline: none;
+  box-shadow: 0 0 8px rgba(0, 242, 254, 0.5);
+}
+
+.otp-dialog-input:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+::v-deep .security-dialog {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  max-height: calc(100vh - 40px);
+  margin: 0 !important;
+  transform: translate(-50%, -50%);
+}
+
+::v-deep .security-dialog .el-dialog__body {
+  padding: 12px 22px 0;
+  max-height: calc(100vh - 160px);
+  overflow-y: auto;
+}
+
 ::v-deep .security-dialog .page-title {
   padding: 8px 0 10px 0;
   line-height: 24px;
@@ -553,10 +672,6 @@ export default {
 
 ::v-deep .security-dialog .el-dialog__header {
   display: none;
-}
-
-::v-deep .security-dialog .el-dialog__body {
-  padding: 12px 22px 0;
 }
 
 ::v-deep .security-dialog .page-container {

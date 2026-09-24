@@ -114,7 +114,12 @@ describe('MFA service', () => {
         userId: 7n,
         revokedAt: null,
       }),
-      data: { mfaVerifiedAt: new Date(), reauthenticatedAt: new Date() },
+      data: expect.objectContaining({
+        mfaVerifiedAt: expect.any(Date),
+        reauthenticatedAt: expect.any(Date),
+        lastSeenAt: expect.any(Date),
+        expiresAt: expect.any(Date),
+      }),
     })
     await expect(f.service.verify(7n, f.code(result.secret))).rejects.toThrow('已使用')
   })

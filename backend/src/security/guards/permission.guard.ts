@@ -18,6 +18,7 @@ export class PermissionGuard implements CanActivate {
     const exempt = new Set([
       'GET /api/v1/health',
       'POST /api/v1/auth/login',
+      'POST /api/v1/auth/login/complete',
       'POST /api/v1/auth/logout',
       'GET /api/v1/auth/me',
       'GET /api/v1/auth/sessions',

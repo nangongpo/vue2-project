@@ -1,7 +1,13 @@
 import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Inject, Param, Post, Req, Res, UseGuards } from '@nestjs/common'
 import { IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator'
 import { FastifyReply, FastifyRequest } from 'fastify'
-import { AuthService, SESSION_COOKIE, sessionCookieOptions } from '../services/auth.service.js'
+import {
+  AuthService,
+  PREAUTH_COOKIE,
+  SESSION_COOKIE,
+  preAuthCookieOptions,
+  sessionCookieOptions,
+} from '../services/auth.service.js'
 import { AuthGuard } from '../guards/auth.guard.js'
 import { API_CODE } from '../../common/constants/api-code.js'
 import { AuditAction } from '../../audit/decorators/audit.decorator.js'
@@ -47,6 +53,12 @@ class ChangePasswordDto {
   newPassword!: string
 }
 
+class CompleteLoginDto {
+  @IsString()
+  @Matches(/^\d{6}$/)
+  otp!: string
+}
+
 @Controller('auth')
 export class AuthController {
   constructor(@Inject(AuthService) private readonly auth: AuthService) {}
@@ -66,17 +78,47 @@ export class AuthController {
       body.attemptId,
       body.otp
     )
+    if (result.nextStep) {
+      response.clearCookie(SESSION_COOKIE, sessionCookieOptions())
+      response.setCookie(PREAUTH_COOKIE, result.token, preAuthCookieOptions(result.expiresIn))
+      const code = result.nextStep === 'MFA_ENROLL_REQUIRED' ? API_CODE.MFA_ENROLL_REQUIRED : API_CODE.MFA_REQUIRED
+      return {
+        code,
+        message: code === API_CODE.MFA_ENROLL_REQUIRED ? '请先绑定认证器' : '请输入动态验证码',
+        data: {
+          mfaRequired: Boolean(result.user.mfaRequired),
+          mfaEnabled: Boolean(result.user.mfaEnabled),
+          mfaVerifiedAt: null,
+          reauthenticatedAt: null,
+        },
+      }
+    }
+    response.clearCookie(PREAUTH_COOKIE, preAuthCookieOptions())
+    response.setCookie(SESSION_COOKIE, result.token, sessionCookieOptions(result.expiresIn))
+    return { code: API_CODE.SUCCESS, message: 'success', data: null }
+  }
+
+  @Post('login/complete')
+  @HttpCode(HttpStatus.OK)
+  @AuditAction('auth.login.complete')
+  async completeLogin(@Body() body: CompleteLoginDto, @Req() request: FastifyRequest, @Res({ passthrough: true }) response: FastifyReply) {
+    assertSameOrigin(request)
+    const result = await this.auth.completeLogin(request.cookies?.[PREAUTH_COOKIE], body.otp)
+    response.clearCookie(PREAUTH_COOKIE, preAuthCookieOptions())
     response.setCookie(SESSION_COOKIE, result.token, sessionCookieOptions(result.expiresIn))
     return { code: API_CODE.SUCCESS, message: 'success', data: null }
   }
 
   @Post('logout')
-  @UseGuards(AuthGuard)
   @AuditAction('auth.logout')
   async logout(@Req() request: FastifyRequest, @Res({ passthrough: true }) response: FastifyReply) {
     assertSameOrigin(request)
-    await this.auth.logout(request.cookies?.[SESSION_COOKIE])
+    await Promise.all([
+      this.auth.logout(request.cookies?.[SESSION_COOKIE]),
+      this.auth.logout(request.cookies?.[PREAUTH_COOKIE]),
+    ])
     response.clearCookie(SESSION_COOKIE, sessionCookieOptions())
+    response.clearCookie(PREAUTH_COOKIE, preAuthCookieOptions())
     return { code: API_CODE.SUCCESS, message: 'success', data: null }
   }
 

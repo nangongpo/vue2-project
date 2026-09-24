@@ -1,4 +1,4 @@
-import { login, getInfo, logout } from '@/api/user'
+import { completeLogin, login, getInfo, logout } from '@/api/user'
 import { resetRouter } from '@/router'
 import { getOptions } from '@/utils/options'
 
@@ -50,6 +50,16 @@ const actions = {
   login({ commit }, userInfo) {
     return new Promise((resolve, reject) => {
       login(userInfo)
+        .then(() => {
+          commit('SET_LOGIN_INFO_PENDING', true)
+          resolve()
+        })
+        .catch(reject)
+    })
+  },
+  completeLogin({ commit }, userInfo) {
+    return new Promise((resolve, reject) => {
+      completeLogin(userInfo)
         .then(() => {
           commit('SET_LOGIN_INFO_PENDING', true)
           resolve()

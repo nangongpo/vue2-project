@@ -13,6 +13,7 @@ import { roleAllowsPermission } from '../policies/permission-catalog.js'
 import { PasswordPolicyService } from './password-policy.service.js'
 
 export const SESSION_COOKIE = 'app_session'
+export const PREAUTH_COOKIE = 'app_pre_auth'
 
 type AuthUserRecord = Prisma.UserGetPayload<{
   include: {
@@ -37,6 +38,10 @@ export function sessionCookieOptions(maxAge?: number) {
     ...(process.env.COOKIE_DOMAIN ? { domain: process.env.COOKIE_DOMAIN } : {}),
     ...(maxAge === undefined ? {} : { maxAge }),
   }
+}
+
+export function preAuthCookieOptions(maxAge?: number) {
+  return sessionCookieOptions(maxAge)
 }
 
 @Injectable()
@@ -139,13 +144,20 @@ export class AuthService {
       throw new UnauthorizedException('用户名或密码错误')
     }
 
+    const loginUser = await this.toUser(user)
+    const enrollRequired = loginUser.mfaRequired && !user.mfaEnabled
+    const otpRequired = user.mfaEnabled && !otp
     if (user.mfaEnabled) {
       if (!this.mfa) throw new UnauthorizedException('多因素认证服务不可用')
-      await this.mfa.verify(user.id, otp || '')
+      if (!otpRequired) await this.mfa.verify(user.id, otp!)
     }
     const rawToken = randomBytes(32).toString('base64url')
     const sessionId = this.hashToken(rawToken)
-    const ttl = Number(process.env.SESSION_TTL_SECONDS || 1800)
+    const sessionTtl = Number(process.env.SESSION_TTL_SECONDS || 1800)
+    const configuredPreAuthTtl = Number(process.env.PREAUTH_TTL_SECONDS || 300)
+    const preAuthTtl = Number.isSafeInteger(configuredPreAuthTtl) && configuredPreAuthTtl > 0 ? configuredPreAuthTtl : 300
+    const requiresPreAuth = enrollRequired || otpRequired
+    const ttl = requiresPreAuth ? preAuthTtl : sessionTtl
     const configuredCap = Number(process.env.SESSION_MAX_CONCURRENT || 3)
     const cap = Number.isSafeInteger(configuredCap) && configuredCap > 0 ? configuredCap : 3
     for (let attempt = 0; ; attempt++) {
@@ -193,7 +205,7 @@ export class AuthService {
                 expiresAt: new Date(now.getTime() + ttl * 1000),
                 ip,
                 userAgent,
-                ...(user.mfaEnabled ? { mfaVerifiedAt: now, reauthenticatedAt: now } : {}),
+                ...(user.mfaEnabled && otp ? { mfaVerifiedAt: now, reauthenticatedAt: now } : {}),
               },
             })
             await tx.user.update({
@@ -209,7 +221,57 @@ export class AuthService {
         if (attempt >= 2) throw new ConflictException('并发登录冲突，请重试')
       }
     }
-    return { token: rawToken, expiresIn: ttl, user: await this.toUser(user) }
+    return {
+      token: rawToken,
+      expiresIn: ttl,
+      user: loginUser,
+      nextStep: enrollRequired ? 'MFA_ENROLL_REQUIRED' : otpRequired ? 'MFA_REQUIRED' : null,
+    }
+  }
+
+  async completeLogin(rawToken: string | undefined, otp: string) {
+    if (!rawToken) throw new UnauthorizedException('临时登录状态不存在')
+    const user = await this.authenticate(rawToken)
+    if (user.mfaVerifiedAt) throw new UnauthorizedException('临时登录状态无效')
+    if (!user.mfaEnabled) throw new UnauthorizedException('账号尚未绑定认证器')
+    if (!this.mfa) throw new UnauthorizedException('多因素认证服务不可用')
+    await this.mfa.verify(user.internalId, otp)
+    const now = new Date()
+    const expiresIn = Number(process.env.SESSION_TTL_SECONDS || 1800)
+    const formalToken = randomBytes(32).toString('base64url')
+    const current = await this.prisma.session.findFirst({
+      where: {
+        id: this.hashToken(rawToken),
+        userId: user.internalId,
+        revokedAt: null,
+        expiresAt: { gt: now },
+      },
+    })
+    if (!current) throw new UnauthorizedException('临时登录状态已失效')
+    await this.prisma.$transaction(async (tx) => {
+      const revoked = await tx.session.updateMany({
+        where: {
+          id: this.hashToken(rawToken),
+          userId: user.internalId,
+          revokedAt: null,
+          expiresAt: { gt: now },
+        },
+        data: { revokedAt: now, lastSeenAt: now },
+      })
+      if (revoked.count !== 1) throw new UnauthorizedException('临时登录状态已失效')
+      await tx.session.create({
+        data: {
+          id: this.hashToken(formalToken),
+          userId: user.internalId,
+          expiresAt: new Date(now.getTime() + expiresIn * 1000),
+          ip: current.ip,
+          userAgent: current.userAgent,
+          mfaVerifiedAt: now,
+          reauthenticatedAt: now,
+        },
+      })
+    })
+    return { token: formalToken, expiresIn, user: await this.authenticate(formalToken) }
   }
 
   async authenticate(rawToken?: string): Promise<AuthenticatedUser> {

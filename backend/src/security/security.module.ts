@@ -1,7 +1,7 @@
 import { Global, Module } from '@nestjs/common'
 import { APP_GUARD, Reflector } from '@nestjs/core'
 import { AuthController } from './controllers/auth.controller.js'
-import { AuthGuard } from './guards/auth.guard.js'
+import { AuthGuard, MfaAuthGuard } from './guards/auth.guard.js'
 import { AuthService } from './services/auth.service.js'
 import { PasswordService } from './services/password.service.js'
 import { PasswordPolicyService } from './services/password-policy.service.js'
@@ -39,6 +39,7 @@ import { MfaController } from './controllers/mfa.controller.js'
       inject: [PrismaService, PasswordService, RedisService, CaptchaService, MfaService],
     },
     AuthGuard,
+    MfaAuthGuard,
     IdempotencyGuard,
     Reflector,
     {

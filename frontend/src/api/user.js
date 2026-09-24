@@ -1,7 +1,12 @@
 import { axiosGet, axiosPost, sendRequest } from './index'
 
 export function login(data) {
-  return axiosPost('/auth/login', data)
+  // 登录过程中的 MFA_REQUIRED、MFA_INVALID 由登录页通过弹窗处理，不能触发全局错误通知。
+  return axiosPost('/auth/login', data, { showNotify: false })
+}
+
+export function completeLogin(data) {
+  return axiosPost('/auth/login/complete', data, { showNotify: false })
 }
 
 export function createCaptchaChallenge(data) {

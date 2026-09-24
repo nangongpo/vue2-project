@@ -11,6 +11,7 @@ import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, 
 import { PrismaService } from '../../database/prisma.service.js'
 import { RedisService } from '../../cache/services/redis.service.js'
 import { PasswordService } from './password.service.js'
+import { API_CODE } from '../../common/constants/api-code.js'
 
 const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
 const PERIOD = 30
@@ -97,14 +98,21 @@ export class MfaService {
   }
 
   private matchStep(secret: Buffer, otp: string, lastStep: bigint | null): bigint {
-    if (!/^\d{6}$/.test(otp)) throw new ForbiddenException('动态验证码无效或已使用')
+    if (!/^\d{6}$/.test(otp)) throw this.invalidOtp()
     const current = BigInt(Math.floor(Date.now() / 1000 / PERIOD))
     for (const offset of [0n, -1n, 1n]) {
       const step = current + offset
       if (step < 0n || (lastStep !== null && step <= lastStep)) continue
       if (timingSafeEqual(Buffer.from(totpAtStep(secret, step)), Buffer.from(otp))) return step
     }
-    throw new ForbiddenException('动态验证码无效或已使用')
+    throw this.invalidOtp()
+  }
+
+  private invalidOtp() {
+    return new HttpException(
+      { code: API_CODE.MFA_INVALID, message: '动态验证码无效或已使用' },
+      HttpStatus.FORBIDDEN
+    )
   }
 
   private sessionWhere(userId: bigint, rawToken?: string) {
@@ -144,7 +152,7 @@ export class MfaService {
     return { secret, uri, expiresIn: ENROLLMENT_TTL }
   }
 
-  async confirm(userId: bigint, otp: string, rawToken?: string) {
+  async confirm(userId: bigint, otp: string, rawToken?: string, rotateSession = false) {
     await this.rateLimit(userId, 'otp')
     const user = await this.activeUser(userId)
     if (user.mfaEnabled) throw new BadRequestException('多因素认证已启用')
@@ -153,6 +161,8 @@ export class MfaService {
     if (!encrypted) throw new BadRequestException('绑定已过期，请重新验证密码')
     const step = this.matchStep(this.decrypt(encrypted, userId), otp, null)
     const now = new Date()
+    const sessionTtl = Number(process.env.SESSION_TTL_SECONDS || 1800)
+    const rotatedToken = rotateSession ? randomBytes(32).toString('base64url') : undefined
     await this.prisma.$transaction(async (tx) => {
       const changed = await tx.user.updateMany({
         where: {
@@ -165,15 +175,46 @@ export class MfaService {
         data: { mfaSecret: encrypted, mfaEnabled: true, mfaLastStep: step },
       })
       if (changed.count !== 1) throw new ForbiddenException('绑定状态已变化，请重新登录')
-      const session = await tx.session.updateMany({
-        where: this.sessionWhere(userId, rawToken),
-        data: { mfaVerifiedAt: now, reauthenticatedAt: now },
-      })
-      if (session.count !== 1) throw new UnauthorizedException('登录状态已失效')
+      if (rotatedToken) {
+        const current = await tx.session.findFirst({ where: this.sessionWhere(userId, rawToken) })
+        if (!current) throw new UnauthorizedException('临时登录状态已失效')
+        const revoked = await tx.session.updateMany({
+          where: this.sessionWhere(userId, rawToken),
+          data: { revokedAt: now, lastSeenAt: now },
+        })
+        if (revoked.count !== 1) throw new UnauthorizedException('临时登录状态已失效')
+        await tx.session.create({
+          data: {
+            id: createHash('sha256').update(rotatedToken).digest('hex'),
+            userId,
+            expiresAt: new Date(now.getTime() + sessionTtl * 1000),
+            ip: current.ip,
+            userAgent: current.userAgent,
+            mfaVerifiedAt: now,
+            reauthenticatedAt: now,
+          },
+        })
+      } else {
+        const session = await tx.session.updateMany({
+          where: this.sessionWhere(userId, rawToken),
+          data: {
+            mfaVerifiedAt: now,
+            reauthenticatedAt: now,
+            lastSeenAt: now,
+            expiresAt: new Date(now.getTime() + sessionTtl * 1000),
+          },
+        })
+        if (session.count !== 1) throw new UnauthorizedException('登录状态已失效')
+      }
     })
     // Expiring the encrypted pending value is sufficient; never return it again.
     await this.redis.set(pendingKey, '', 1)
-    return { mfaEnabled: true, mfaVerifiedAt: now, reauthenticatedAt: now }
+    return {
+      mfaEnabled: true,
+      mfaVerifiedAt: now,
+      reauthenticatedAt: now,
+      ...(rotatedToken ? { sessionToken: rotatedToken, expiresIn: sessionTtl } : {}),
+    }
   }
 
   /** Consumes one code atomically across login/reauth requests and application instances. */
@@ -193,7 +234,7 @@ export class MfaService {
       },
       data: { mfaLastStep: step },
     })
-    if (changed.count !== 1) throw new ForbiddenException('动态验证码无效或已使用')
+    if (changed.count !== 1) throw this.invalidOtp()
   }
 
   async reauthenticate(userId: bigint, password: string, otp: string | undefined, rawToken?: string) {
