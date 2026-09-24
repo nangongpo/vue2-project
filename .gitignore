@@ -7,9 +7,10 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+.pnpm-store
 node_modules
 dist
-.pnpm-store
+frontend/certs
 backend/.env
 backend/.env.production
 captcha-service/.env

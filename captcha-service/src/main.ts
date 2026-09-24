@@ -21,10 +21,17 @@ const env = Joi.object({
   CAPTCHA_PORT: Joi.number().port().default(3100),
   CAPTCHA_HOST: Joi.string().default('127.0.0.1'),
   CAPTCHA_SERVICE_ID: Joi.string().min(1).default('backend-admin'),
-  CAPTCHA_SERVICE_SECRET: Joi.string().min(1).default('development-secret-change-me').when('NODE_ENV', { is: 'production', then: Joi.string().min(32).required() }),
-  CAPTCHA_PREFIX: Joi.string().pattern(/^[a-z0-9]{4,32}$/).default('yaxbgo'),
+  CAPTCHA_SERVICE_SECRET: Joi.string()
+    .min(1)
+    .default('development-secret-change-me')
+    .when('NODE_ENV', { is: 'production', then: Joi.string().min(32).required() }),
+  CAPTCHA_PREFIX: Joi.string()
+    .pattern(/^[a-z0-9]{4,32}$/)
+    .default('yaxbgo'),
   CAPTCHA_SERVICE_BINDINGS: Joi.string().allow('').default(''),
-  REDIS_URL: Joi.string().uri({ scheme: ['redis', 'rediss'] }).required(),
+  REDIS_URL: Joi.string()
+    .uri({ scheme: ['redis', 'rediss'] })
+    .required(),
   REDIS_ENABLED: Joi.boolean().truthy('true').falsy('false').default(true),
   CAPTCHA_CHALLENGE_RATE_LIMIT: Joi.number().integer().min(1).max(100).default(10),
   CAPTCHA_VERIFY_RATE_LIMIT: Joi.number().integer().min(1).max(300).default(30),
@@ -38,12 +45,23 @@ const env = Joi.object({
   CAPTCHA_TRACK_WIDTH: Joi.number().integer().min(100).max(1000).default(360),
   CAPTCHA_BUTTON_WIDTH: Joi.number().integer().min(20).max(100).default(42),
   CAPTCHA_PIECE_SIZE: Joi.number().integer().min(30).max(80).default(44),
-}).unknown(true).validate(process.env, { abortEarly: false, convert: true })
+})
+  .unknown(true)
+  .validate(process.env, { abortEarly: false, convert: true })
 
-if (env.error) throw new Error(`验证码服务环境变量错误: ${env.error.details.map(item => item.message).join('；')}`)
+if (env.error) throw new Error(`验证码服务环境变量错误: ${env.error.details.map((item) => item.message).join('；')}`)
+if (env.value.NODE_ENV === 'production' && ['0.0.0.0', '::'].includes(env.value.CAPTCHA_HOST))
+  throw new Error('生产环境 CAPTCHA_HOST 不得绑定公网通配地址，必须使用内网或回环地址')
 Object.assign(process.env, env.value)
 
 const app = await NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter({ logger: false }))
-app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true, forbidNonWhitelisted: true }))
+app.useGlobalPipes(
+  new ValidationPipe({
+    whitelist: true,
+    transform: true,
+    forbidNonWhitelisted: true,
+    forbidUnknownValues: true,
+  })
+)
 app.enableShutdownHooks()
 await app.listen({ port: Number(process.env.CAPTCHA_PORT), host: process.env.CAPTCHA_HOST })

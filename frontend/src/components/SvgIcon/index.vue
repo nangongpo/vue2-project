@@ -1,5 +1,9 @@
 <template>
-  <div v-if="isExternal" :style="styleExternalIcon" class="svg-external-icon svg-icon" v-on="$listeners" />
+  <div
+    v-if="isExternal"
+    :style="styleExternalIcon"
+    class="svg-external-icon svg-icon"
+    v-on="$listeners"></div>
   <svg v-else :class="svgClass" aria-hidden="true" v-on="$listeners">
     <use :xlink:href="iconName" />
   </svg>
@@ -13,20 +17,20 @@ export default {
   props: {
     iconClass: {
       type: String,
-      required: true
+      required: true,
     },
     className: {
       type: String,
-      default: ''
-    }
+      default: '',
+    },
   },
   computed: {
     isExternal() {
       return isExternal(this.iconClass)
     },
     iconName() {
-      const url = import.meta.env.DEV 
-        ? import.meta.env.VITE_BASE_URL + '__spritemap' 
+      const url = import.meta.env.DEV
+        ? import.meta.env.VITE_BASE_URL + '__spritemap'
         : import.meta.env.VITE_BASE_URL + `static/spritemap.svg?v=${__BUILD_VERSION__}`
       return `${url}#icon-${this.iconClass}`
     },
@@ -40,10 +44,10 @@ export default {
     styleExternalIcon() {
       return {
         mask: `url(${this.iconClass}) no-repeat 50% 50%`,
-        '-webkit-mask': `url(${this.iconClass}) no-repeat 50% 50%`
+        '-webkit-mask': `url(${this.iconClass}) no-repeat 50% 50%`,
       }
-    }
-  }
+    },
+  },
 }
 </script>
 
@@ -58,7 +62,7 @@ export default {
 
 .svg-external-icon {
   background-color: currentColor;
-  mask-size: cover!important;
+  mask-size: cover !important;
   display: inline-block;
 }
 </style>

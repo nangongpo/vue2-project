@@ -14,48 +14,41 @@ const tableProps = {
     type: Array,
     default() {
       return []
-    }
+    },
   },
 
   fieldAttrs: {
     type: Object,
     default() {
       return {}
-    }
+    },
   },
 
   actionAttrs: {
     type: Object,
     default() {
       return {
-        fixed: 'right'
+        fixed: 'right',
       }
-    }
+    },
   },
 
   border: {
     type: Boolean,
-    default: false
+    default: false,
   },
 
   stripe: {
     type: Boolean,
-    default: false
-  }
+    default: false,
+  },
 }
 
 const getStableHeight = (height) => numberToPx(height) || '120px'
 
 function createTable(h, context) {
   const { data, props, scopedSlots } = context
-  const {
-    height,
-    fields,
-    fieldAttrs,
-    actionAttrs,
-    border,
-    stripe,
-  } = props
+  const { height, fields, fieldAttrs, actionAttrs, border, stripe } = props
 
   const createColumn = (column) => {
     if (!column || column.display === false) return null
@@ -79,30 +72,30 @@ function createTable(h, context) {
 
     if (isNormalColumn(column)) {
       if (!isStringLabel) {
-        scopedSlotsConfig.header = function(scope) {
+        scopedSlotsConfig.header = function (scope) {
           return h(RenderHeader, {
             props: {
               scope,
-              label
-            }
+              label,
+            },
           })
         }
       }
 
-      scopedSlotsConfig.default = function(scope) {
+      scopedSlotsConfig.default = function (scope) {
         return h(RenderCell, {
           props: {
             scope,
             config: column,
             item: rest,
-            parent: context
-          }
+            parent: context,
+          },
         })
       }
     }
 
     if (type === 'expand' && scopedSlots.expand) {
-      scopedSlotsConfig.default = function(scope) {
+      scopedSlotsConfig.default = function (scope) {
         return scopedSlots.expand(scope)
       }
     }
@@ -119,9 +112,9 @@ function createTable(h, context) {
           className: prop_class,
           showOverflowTooltip: prop_overflow,
           ...fieldAttrs,
-          ...other_attrs
+          ...other_attrs,
         },
-        scopedSlots: scopedSlotsConfig
+        scopedSlots: scopedSlotsConfig,
       },
       children.map(createColumn).filter(Boolean)
     )
@@ -136,11 +129,11 @@ function createTable(h, context) {
           label: '操作',
           prop: 'action',
           ...fieldAttrs,
-          ...actionAttrs
+          ...actionAttrs,
         },
         scopedSlots: {
-          default: scopedSlots.action
-        }
+          default: scopedSlots.action,
+        },
       })
     )
   }
@@ -155,12 +148,12 @@ function createTable(h, context) {
         ...(data.props || {}),
         height,
         border,
-        stripe
+        stripe,
       },
       style: {
         ...(data.style || {}),
         // height: numberToPx(height)
-      }
+      },
     },
     columns
   )
@@ -171,21 +164,21 @@ const BaseTableShell = {
   props: {
     baseProps: {
       type: Object,
-      required: true
+      required: true,
     },
     vnodeData: {
       type: Object,
       default() {
         return {}
-      }
-    }
+      },
+    },
   },
   data() {
     return {
       tableReady: false,
       deferTimer: null,
       rafId: null,
-      secondRafId: null
+      secondRafId: null,
     }
   },
   mounted() {
@@ -211,17 +204,17 @@ const BaseTableShell = {
         class: ['base-table-placeholder', dynamicClass],
         style: {
           ...(style || {}),
-          height: getStableHeight(this.baseProps.height)
-        }
+          height: getStableHeight(this.baseProps.height),
+        },
       })
     }
 
     return createTable(h, {
       data: this.vnodeData,
       props: this.baseProps,
-      scopedSlots: this.$scopedSlots
+      scopedSlots: this.$scopedSlots,
     })
-  }
+  },
 }
 
 export default {
@@ -235,11 +228,11 @@ export default {
     return h(BaseTableShell, {
       props: {
         baseProps: context.props,
-        vnodeData: context.data
+        vnodeData: context.data,
       },
-      scopedSlots: context.scopedSlots
+      scopedSlots: context.scopedSlots,
     })
-  }
+  },
 }
 </script>
 

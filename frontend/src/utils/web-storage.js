@@ -1,5 +1,4 @@
 import settings from '@/settings'
-import { encrypt, decrypt } from '@/utils/crypto'
 
 const projectName = settings.name
 
@@ -11,7 +10,7 @@ export default class WebStorage {
     const { namespace = '', storage = window.localStorage } = opts || {}
     this.opts = {
       namespace: `${projectName}__${namespace}`,
-      storage
+      storage,
     }
   }
 
@@ -24,7 +23,7 @@ export default class WebStorage {
    */
   get(name, def = null) {
     const { namespace, storage } = this.opts
-    const item = decrypt(storage.getItem(namespace + name))
+    const item = storage.getItem(namespace + name)
     if (item !== null) {
       try {
         const data = JSON.parse(item)
@@ -38,7 +37,7 @@ export default class WebStorage {
         }
 
         this.remove(name)
-      } catch (err) {
+      } catch {
         return def
       }
     }
@@ -55,10 +54,10 @@ export default class WebStorage {
     const { namespace, storage } = this.opts
     const stringifyValue = JSON.stringify({
       value,
-      expire: expire !== null ? new Date().getTime() + expire : null
+      expire: expire !== null ? new Date().getTime() + expire : null,
     })
 
-    storage.setItem(namespace + name, encrypt(stringifyValue))
+    storage.setItem(namespace + name, stringifyValue)
   }
 
   /**
@@ -101,5 +100,3 @@ export default class WebStorage {
 }
 
 export const globalStorage = new WebStorage({ namespace: 'global' })
-
-export const authStorage = new WebStorage({ namespace: 'auth' })

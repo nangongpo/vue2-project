@@ -33,13 +33,13 @@ export const loadElementUI = (Vue) => {
         { default: InfiniteScroll },
         { default: Message },
         { default: MessageBox },
-        { default: Notification }
+        { default: Notification },
       ] = await Promise.all([
         import('element-ui/lib/loading'),
         import('element-ui/lib/infinite-scroll'),
         import('element-ui/lib/message'),
         import('element-ui/lib/message-box'),
-        import('element-ui/lib/notification')
+        import('element-ui/lib/notification'),
       ])
 
       Vue.prototype.$ELEMENT = { size: 'small', zIndex: 2000 }

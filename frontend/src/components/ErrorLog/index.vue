@@ -1,35 +1,43 @@
 <template>
-  <div v-if="errorLogs.length>0">
-    <el-badge :is-dot="true" style="line-height: 25px;margin-top: -5px;" @click.native="dialogTableVisible=true">
-      <el-button style="padding: 8px 10px;" size="small" type="danger">
+  <div v-if="errorLogs.length > 0">
+    <el-badge
+      :is-dot="true"
+      style="line-height: 25px; margin-top: -5px"
+      @click.native="dialogTableVisible = true">
+      <el-button style="padding: 8px 10px" size="small" type="danger">
         <svg-icon icon-class="bug" />
       </el-button>
     </el-badge>
 
-    <el-dialog :visible.sync="dialogTableVisible" top="5vh" width="80%" custom-class="scroll" append-to-body>
+    <el-dialog
+      :visible.sync="dialogTableVisible"
+      top="5vh"
+      width="80%"
+      custom-class="scroll"
+      append-to-body>
       <div slot="title">
-        <span style="padding-right: 10px;">错误日志</span>
-        <el-button size="mini" type="primary" icon="el-icon-delete" @click="clearAll">清除所有</el-button>
+        <span style="padding-right: 10px">错误日志</span>
+        <el-button size="mini" type="primary" icon="el-icon-delete" @click="clearAll">
+          清除所有
+        </el-button>
       </div>
       <el-table :data="errorLogs" border class="mb-10">
         <el-table-column label="主要消息">
-          <template slot-scope="{row}">
+          <template slot-scope="{ row }">
             <div>
               <span class="message-title">Msg:</span>
               <el-tag type="danger">
                 {{ row.err.message }}
               </el-tag>
             </div>
-            <br>
+            <br />
             <div>
-              <span class="message-title" style="padding-right: 10px;">Info: </span>
-              <el-tag type="warning">
-                {{ row.vm.$vnode.tag }} error in {{ row.info }}
-              </el-tag>
+              <span class="message-title" style="padding-right: 10px">Info: </span>
+              <el-tag type="warning"> {{ row.vm.$vnode.tag }} error in {{ row.info }} </el-tag>
             </div>
-            <br>
+            <br />
             <div>
-              <span class="message-title" style="padding-right: 16px;">Url: </span>
+              <span class="message-title" style="padding-right: 16px">Url: </span>
               <el-tag type="success">
                 {{ row.url }}
               </el-tag>
@@ -51,20 +59,20 @@ export default {
   name: 'ErrorLog',
   data() {
     return {
-      dialogTableVisible: false
+      dialogTableVisible: false,
     }
   },
   computed: {
     errorLogs() {
       return this.$store.getters.errorLogs
-    }
+    },
   },
   methods: {
     clearAll() {
       this.dialogTableVisible = false
       this.$store.dispatch('errorLog/clearErrorLog')
-    }
-  }
+    },
+  },
 }
 </script>
 

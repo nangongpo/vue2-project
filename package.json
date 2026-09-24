@@ -2,6 +2,7 @@
   "name": "vue2-project-workspace",
   "version": "0.0.0",
   "private": true,
+  "type": "module",
   "packageManager": "pnpm@11.9.0",
   "engines": {
     "node": ">=22.14.0"
@@ -13,6 +14,30 @@
     "build:backend": "pnpm --filter backend build",
     "dev:captcha": "pnpm --filter captcha-service dev",
     "build:captcha": "pnpm --filter captcha-service build",
-    "test:backend": "pnpm --filter backend test"
+    "test:backend": "pnpm --filter backend test",
+    "lint:frontend": "eslint frontend/src",
+    "lint:backend": "eslint backend/src",
+    "lint:captcha": "eslint captcha-service/src",
+    "lint:services": "eslint backend/src captcha-service/src",
+    "format:frontend": "prettier --write \"frontend/src/**/*.{js,vue}\"",
+    "format:backend": "prettier --write \"backend/src/**/*.ts\"",
+    "format:captcha": "prettier --write \"captcha-service/src/**/*.ts\"",
+    "format:services": "prettier --write \"backend/src/**/*.ts\" \"captcha-service/src/**/*.ts\"",
+    "format:check": "prettier --check \"frontend/src/**/*.{js,vue}\" \"backend/src/**/*.ts\" \"captcha-service/src/**/*.ts\" && eslint frontend/src backend/src captcha-service/src"
+  },
+  "devDependencies": {
+    "@darraghor/eslint-plugin-nestjs-typed": "^7.5.6",
+    "@eslint/css": "^2.0.0",
+    "@eslint/js": "^10.0.1",
+    "@eslint/json": "^2.1.0",
+    "@eslint/markdown": "^8.0.3",
+    "@typescript-eslint/eslint-plugin": "^8.70.1",
+    "@typescript-eslint/parser": "^8.70.1",
+    "eslint": "^10.11.0",
+    "eslint-plugin-vue": "^10.11.0",
+    "globals": "^17.12.0",
+    "prettier": "2.8.8",
+    "typescript-eslint": "^8.70.1",
+    "vue-eslint-parser": "^10.4.1"
   }
 }

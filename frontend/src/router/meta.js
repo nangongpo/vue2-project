@@ -1,4 +1,3 @@
-
 /**
  * public：是否允许未登录访问，仅用于路由守卫。
    dynamic：是否放进 asyncRoutes，默认 true。
@@ -26,10 +25,15 @@ export default {
     permission: 'page.system.user',
     api: '/user/page/',
     buttons: [
-      { label: '新增', value: 'insert', permission: 'user:create', api: '/user/insert/' },
-      { label: '修改', value: 'update', permission: 'user:update', api: '/user/update/' },
-      { label: '重置密码', value: 'reset_password', permission: 'user:reset-password', api: '/user/reset_password/' }
-    ]
+      { label: '新增', value: 'insert', permission: 'system.user.create', api: '/users' },
+      { label: '修改', value: 'update', permission: 'system.user.update', api: '/users/:id' },
+      {
+        label: '重置密码',
+        value: 'reset_password',
+        permission: 'system.user.reset-password',
+        api: '/user/reset_password/',
+      },
+    ],
   },
   '/system/role': {
     title: '角色管理',
@@ -39,22 +43,60 @@ export default {
     permission: 'page.system.role',
     api: '/role/page/',
     buttons: [
-      { label: '新增', value: 'insert', permission: 'role:create', api: '/role/insert/' },
-      { label: '修改', value: 'update', permission: 'role:update', api: '/role/update/' },
-      { label: '删除', value: 'delete', permission: 'role:delete', api: '/role/delete/' }
-    ]
+      { label: '新增', value: 'insert', permission: 'system.role.create', api: '/roles' },
+      { label: '修改', value: 'update', permission: 'system.role.update', api: '/roles/:id' },
+      { label: '删除', value: 'delete', permission: 'system.role.delete', api: '/roles/:id' },
+    ],
   },
   '/system/audit': {
     title: '审计日志',
     name: 'audit-info',
     icon: 'user-log',
     roleType: 'system',
-    permission: 'page.system.audit'
+    permission: 'page.system.audit',
   },
   '/system/session': {
     title: '会话管理',
     name: 'session-info',
-    icon: 'user'
-    , permission: 'page.system.session'
+    icon: 'user',
+    authenticatedOnly: true,
+  },
+  '/system/permission': {
+    title: '权限管理',
+    name: 'permission-info',
+    icon: 'platform-manage',
+    roleType: 'system',
+    permission: 'page.system.permission',
+  },
+  '/system/permission/api': {
+    title: '接口管理',
+    name: 'permission-api',
+    icon: 'platform-manage',
+    permission: 'page.system.api',
+  },
+  '/system/permission/approval': {
+    title: '授权审批',
+    name: 'permission-approval',
+    icon: 'platform-manage',
+    permission: 'page.system.approval',
+  },
+  '/system/ops-tickets': {
+    title: '运维应急工单',
+    name: 'ops-tickets',
+    icon: 'platform-manage',
+    roleType: 'system',
+    permission: 'page.system.ops-tickets',
+  },
+  '/system/ops-tickets/create': {
+    title: '新建应急工单',
+    name: 'ops-ticket-create',
+    hidden: true,
+    permission: 'page.system.ops-tickets',
+  },
+  '/system/ops-tickets/:id': {
+    title: '应急工单详情',
+    name: 'ops-ticket-detail',
+    hidden: true,
+    permission: 'page.system.ops-tickets',
   },
 }

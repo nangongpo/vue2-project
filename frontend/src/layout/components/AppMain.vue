@@ -2,15 +2,13 @@
   <section class="app-main">
     <transition name="fade-transform" mode="out-in">
       <!-- <keep-alive :include="cachedViews"> -->
-        <router-view :key="key" />
+      <router-view :key="key" />
       <!-- </keep-alive> -->
     </transition>
   </section>
 </template>
 
 <script>
-import Vue from 'vue'
-
 export default {
   name: 'AppMain',
   computed: {
@@ -19,8 +17,8 @@ export default {
     },
     key() {
       return this.$route.path
-    }
-  }
+    },
+  },
 }
 </script>
 
@@ -33,7 +31,7 @@ export default {
   background: $bg;
 }
 
-.fixed-header+.app-main {
+.fixed-header + .app-main {
   padding-top: $headerHeight;
 }
 
@@ -42,7 +40,7 @@ export default {
     min-height: 100vh;
   }
 
-  .fixed-header+.app-main {
+  .fixed-header + .app-main {
     padding-top: $headerHeight + $tagsViewHeight;
   }
 }
@@ -50,11 +48,11 @@ export default {
 
 <style lang="scss">
 .app-content {
-  height: calc(100vh - #{$headerHeight})
+  height: calc(100vh - #{$headerHeight});
 }
 .hasTagsView {
   .app-content {
-    height: calc(100vh - #{$headerHeight + $tagsViewHeight})
+    height: calc(100vh - #{$headerHeight + $tagsViewHeight});
   }
 }
 </style>

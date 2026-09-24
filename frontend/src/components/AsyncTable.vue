@@ -67,7 +67,7 @@ const TableSkeleton = {
   functional: true,
   props: {
     height: Number,
-    pageSize: { type: [Number, String], default: 0 }
+    pageSize: { type: [Number, String], default: 0 },
   },
   render(h, context) {
     const { height, pageSize } = context.props
@@ -80,9 +80,9 @@ const TableSkeleton = {
     }
     return h('div', { class: 'table-loading-container', style: containerStyle }, [
       h('div', { class: 'skeleton-header' }),
-      h('div', { class: 'skeleton-content' }, rowNodes)
+      h('div', { class: 'skeleton-content' }, rowNodes),
     ])
-  }
+  },
 }
 
 export default {
@@ -91,17 +91,17 @@ export default {
   props: {
     height: {
       type: Number,
-      default: 0
+      default: 0,
     },
     pageSize: {
       type: [Number, String],
-      default: 10
-    }
+      default: 10,
+    },
   },
   data() {
     return {
       // 核心控制开关
-      isEngineReady: isTableRegistered
+      isEngineReady: isTableRegistered,
     }
   },
   created() {
@@ -124,21 +124,19 @@ export default {
     // 状态 1：如果引擎没有准备好（CSS/JS 还在加载），渲染骨架屏根节点
     if (!this.isEngineReady) {
       return h(TableSkeleton, {
-        props: { 
+        props: {
           pageSize: this.pageSize,
-          height: this.height
-        }
+          height: this.height,
+        },
       })
     }
 
     // 状态 2：加载完毕，渲染真实的 ve-table 根节点
-    return h(
-      've-table',
-      {
-        attrs: this.$attrs,
-        on: this.$listeners,
-      })
-  }
+    return h('ve-table', {
+      attrs: this.$attrs,
+      on: this.$listeners,
+    })
+  },
 }
 </script>
 

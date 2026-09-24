@@ -1,0 +1,28 @@
+import { SceneConfig, ServiceBinding } from '../services/captcha.engine.js'
+const defaultScene: SceneConfig = {
+  allowedCaptchaTypes: ['SLIDER'],
+  defaultCaptchaType: 'SLIDER',
+  allowedModes: ['EMBED', 'POPUP'],
+  defaultMode: 'POPUP',
+  ttl: Number(process.env.CAPTCHA_CHALLENGE_TTL || 120),
+  status: 'ACTIVE',
+}
+export function loadBindings(): ServiceBinding[] {
+  if (process.env.CAPTCHA_SERVICE_BINDINGS)
+    return (JSON.parse(process.env.CAPTCHA_SERVICE_BINDINGS) as ServiceBinding[]).map((b) => ({
+      ...b,
+      scenes: b.scenes || { login: defaultScene },
+    }))
+  return [
+    {
+      serviceId: process.env.CAPTCHA_SERVICE_ID || 'backend-admin',
+      secret: process.env.CAPTCHA_SERVICE_SECRET || '',
+      prefix: process.env.CAPTCHA_PREFIX || 'yaxbgo',
+      status: 'ACTIVE',
+      scenes: { login: defaultScene, LOGIN: defaultScene },
+    },
+  ]
+}
+export function findBinding(bindings: ServiceBinding[], id: string) {
+  return bindings.find((b) => b.serviceId === id && b.status === 'ACTIVE')
+}

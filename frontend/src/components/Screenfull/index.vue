@@ -1,6 +1,6 @@
 <template>
   <div class="screenfull-svg">
-    <svg-icon :icon-class="isFullscreen?'exit-fullscreen':'fullscreen'" @click="click" />
+    <svg-icon :icon-class="isFullscreen ? 'exit-fullscreen' : 'fullscreen'" @click="click" />
   </div>
 </template>
 
@@ -15,12 +15,12 @@ export default {
     value: Boolean,
     target: {
       type: [Boolean, String, Element],
-      default: true
-    }
+      default: true,
+    },
   },
   data() {
     return {
-      isFullscreen: this.value
+      isFullscreen: this.value,
     }
   },
   mounted() {
@@ -34,7 +34,7 @@ export default {
       if (!screenfull.isEnabled) {
         this.$message({
           message: 'you browser can not work',
-          type: 'warning'
+          type: 'warning',
         })
         return false
       }
@@ -76,8 +76,9 @@ export default {
       if (type === 'string') {
         try {
           el = document.querySelector(el)
-        // eslint-disable-next-line no-empty
-        } catch (err) {}
+        } catch {
+          el = null
+        }
       }
 
       if (el !== Object(el)) {
@@ -85,8 +86,8 @@ export default {
       }
 
       return el._isVue === true && el.$el !== undefined ? el.$el : el
-    }
-  }
+    },
+  },
 }
 </script>
 

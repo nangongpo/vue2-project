@@ -4,8 +4,7 @@ import getters from './getters'
 
 Vue.use(Vuex)
 
-const modulesFiles = import.meta.glob('./modules/*.js', { import: 'default',
-eager: true })
+const modulesFiles = import.meta.glob('./modules/*.js', { import: 'default', eager: true })
 
 const modules = {}
 
@@ -16,7 +15,7 @@ for (const path in modulesFiles) {
 
 const store = new Vuex.Store({
   modules,
-  getters
+  getters,
 })
 
 export default store

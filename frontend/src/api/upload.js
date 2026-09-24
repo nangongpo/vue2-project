@@ -1,36 +1,32 @@
 import axios from 'axios'
-import { isDev, encrypData, decryptData, getCustomHeader, responseHandler, errorHandler } from './axios'
-import { checkType } from '@/utils'
-import { isSuccessCode, REQUEST_MESSAGE } from './codes'
+import {
+  getCustomHeader,
+  responseHandler,
+  errorHandler,
+} from './axios'
 
-const isEncrypt = import.meta.env.VITE_APP_ENCRYPT === 'true'
-
-// 不加密请求
 const instance = axios.create({
-  baseURL: import.meta.env. VITE_APP_BASE_API,
+  baseURL: import.meta.env.VITE_APP_BASE_API,
   withCredentials: false, // 跨域请求携带cookies
-  timeout: 30 * 1000 // 30s请求超时
+  timeout: 30 * 1000, // 30s请求超时
 })
 
 // 请求拦截器
 instance.interceptors.request.use(
-  config => {
+  (config) => {
     config.headers = getCustomHeader(config.headers)
     return config
   },
-  error => {
+  (error) => {
     return Promise.reject(error)
   }
 )
 
 // 响应拦截器
-instance.interceptors.response.use(
-  responseHandler,
-  errorHandler
-)
+instance.interceptors.response.use(responseHandler, errorHandler)
 
 /**
- * 分块导入 不加密
+ * 分块导入
  * @param {object} data
  * @param {string} data.file_id
  * @param {number} data.chunk_number
@@ -47,69 +43,14 @@ export function importFile(data = {}, opts = {}) {
     method: 'post',
     data: formData,
     headers: { 'Content-Type': 'multipart/form-data' },
-    ...opts
+    ...opts,
   })
 }
 
-// 加密请求
-const request = axios.create({
-  baseURL: import.meta.env. VITE_APP_BASE_API,
-  withCredentials: false, // 跨域请求携带cookies
-  timeout: 32 * 1000, // 32s请求超时
-  headers: {
-    'Content-Type': isEncrypt ? 'text/plain' : 'application/json'
-  },
-  transformRequest: [
-    encrypData,
-    ...axios.defaults.transformRequest
-  ],
-  transformResponse: [
-    decryptData,
-    ...axios.defaults.transformResponse
-  ]
-})
-
-// 请求拦截器
-request.interceptors.request.use(
-  config => {
-    config.headers = getCustomHeader(config.headers)
-    if (isDev && isEncrypt) {
-      console.log(config.url + ' 请求参数', config.data)
-    }
-
-    return config
-  },
-  error => {
-    return Promise.reject(error)
-  }
-)
-
-// 响应拦截器
-request.interceptors.response.use(
-  (response) => {
-    if (isDev && isEncrypt) {
-      console.log(response.config.url + ' 响应值', response.data)
-    }
-
-    // 非标数据直接返回
-    if (!Object.prototype.hasOwnProperty.call(response.data, 'data')) {
-      return response
-    }
-
-    const { code, data, msg, timestamp } = response.data
-
-    if (isSuccessCode(code)) {
-      return checkType(data, 'object')
-        ? { headers: response.headers, ...data, timestamp }
-        : { headers: response.headers, ...response.data }
-    }
-    return Promise.reject({ ...response, data, code, message: msg || REQUEST_MESSAGE[code] })
-  },
-  errorHandler
-)
+const request = instance
 
 /**
- * 获取文件ID 加密
+ * 获取文件ID
  * @param {object} data
  * @param {string} data.file_name 文件名称
  * @param {number} data.file_size 文件总大小
@@ -119,7 +60,7 @@ export function getFileID(data = {}) {
   return request({
     url: '/upload_file_id/',
     method: 'post',
-    data
+    data,
   })
 }
 
@@ -137,7 +78,7 @@ const speedChunkMap = new Map([
   [100, 204800], // < 100 → 200KB
   [200, 524288], // < 200 → 512KB
   [500, 1048576], // < 500 → 1MB
-  [Infinity, 2097152] // ≥500 → 2MB
+  [Infinity, 2097152], // ≥500 → 2MB
 ])
 
 const getTime = () => performance?.now() ?? Date.now()
@@ -171,7 +112,7 @@ export async function getFileIDWithSpeed(data) {
   }
 
   const durationSec = durationMs / 1000
-  let bytes = 0
+  let bytes
 
   const contentLength = response.headers['content-length']
   if (contentLength && !isNaN(+contentLength)) {

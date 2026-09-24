@@ -20,7 +20,7 @@ export function getTableColumnValue(item = {}, row = {}, parent = {}) {
   if (formatValue) {
     cellValue = value = formatValue(item, row, allOptions)
   } else {
-  // 有映射，需要转义
+    // 有映射，需要转义
     if (curOptions) {
       cellValue = getLabelByOptions(value, curOptions)
       if (!isValidValue(cellValue)) {
@@ -36,7 +36,9 @@ export function getTableColumnValue(item = {}, row = {}, parent = {}) {
 export function getComponentAttrs(obj) {
   // 排除下划线命名的字段
   const isIgnoreAttrs = (key) => {
-    return key.indexOf('_') > -1 || ['label', 'render', 'formatValue', 'formatOptions'].includes(key)
+    return (
+      key.indexOf('_') > -1 || ['label', 'render', 'formatValue', 'formatOptions'].includes(key)
+    )
   }
   return Object.keys(obj).reduce((acc, key) => {
     const value = obj[key]
@@ -47,7 +49,7 @@ export function getComponentAttrs(obj) {
 
 // 获取虚拟节点中的文本
 export function getTextNode(vNode = {}) {
-  const hasText = (arr) => arr.find(v => Boolean(v.text))
+  const hasText = (arr) => arr.find((v) => Boolean(v.text))
   const { text, children } = vNode
   if (text) return text
   const newText = hasText(children)
@@ -63,11 +65,11 @@ export function isNormalColumn(v) {
 
 // 获取表格参数配置列表 [{ name: '我的', // 表示字段名 state: true, // 表示选择状态 disabled: true // 表示是否禁用 }]
 export function getTableFieldData(h, fields = []) {
-  const newFields = fields.map(item => {
+  const newFields = fields.map((item) => {
     const { prop, label, display, editable } = item
     let newLabel = label
     // label为函数式，解析里面的文本
-    if (typeof (label) === 'function') {
+    if (typeof label === 'function') {
       const vNode = label(h, {})
       newLabel = getTextNode(vNode)
     }
@@ -80,23 +82,45 @@ export function getTableFieldData(h, fields = []) {
 export function getTableFieldByTableData(tableData = [], config = {}) {
   const { prop, label } = config
   return tableData.reduce((t, v) => {
-    return v[prop] ? [...t, { prop, name: typeof (label) === 'function' ? label(v) : (v[label] || v[prop]), state: true, disabled: false, config: v }] : t
+    return v[prop]
+      ? [
+          ...t,
+          {
+            prop,
+            name: typeof label === 'function' ? label(v) : v[label] || v[prop],
+            state: true,
+            disabled: false,
+            config: v,
+          },
+        ]
+      : t
   }, [])
 }
 
 // 根据指定字段处理导出的数据
-export function excel_data_format(tableFields = [], tableData = [], allOptions = {}, checkedField = []) {
+export function excel_data_format(
+  tableFields = [],
+  tableData = [],
+  allOptions = {},
+  checkedField = []
+) {
   console.time('excel_data_format')
-  const fieldMap = checkedField.length > 0
-    ? tableFields.filter(v => checkedField.includes(v.prop))
-    : tableFields.filter(v => isNormalColumn(v))
+  const fieldMap =
+    checkedField.length > 0
+      ? tableFields.filter((v) => checkedField.includes(v.prop))
+      : tableFields.filter((v) => isNormalColumn(v))
 
   // 构造excel字段
-  const header = [], excelFieldsMap = {}, data = [], cacheOptionMap = {}
+  const header = [],
+    excelFieldsMap = {},
+    data = [],
+    cacheOptionMap = {}
   for (let i = 0; i < fieldMap.length; i++) {
     const item = fieldMap[i]
     const { prop, formatOptions } = item
-    item['options'] = formatOptions ? formatOptions(allOptions, item.options) : item.options || allOptions[prop]
+    item['options'] = formatOptions
+      ? formatOptions(allOptions, item.options)
+      : item.options || allOptions[prop]
     excelFieldsMap[prop] = item
     header.push(item.label)
   }

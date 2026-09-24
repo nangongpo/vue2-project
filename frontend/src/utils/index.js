@@ -9,7 +9,7 @@ export function isNotEmpty(value) {
  */
 export function isValidValue(value) {
   if (Array.isArray(value)) {
-    return value.length > 0 && value.every(v => isNotEmpty(v))
+    return value.length > 0 && value.every((v) => isNotEmpty(v))
   }
   return isNotEmpty(value)
 }
@@ -46,10 +46,7 @@ export function downloadFile(url, filename) {
  * @returns {String|Boolean}
  */
 export function checkType(data, type) {
-  const dataType = Object.prototype.toString
-    .call(data)
-    .slice(8, -1)
-    .toLowerCase()
+  const dataType = Object.prototype.toString.call(data).slice(8, -1).toLowerCase()
   return type ? dataType === type.toLowerCase() : dataType
 }
 
@@ -65,7 +62,7 @@ export function isJSON(str) {
   try {
     JSON.parse(str)
     return true
-  } catch (error) {
+  } catch {
     return false
   }
 }
@@ -140,13 +137,11 @@ export function getLabelByOptions(value, options, separator = ',') {
   if (!Array.isArray(options)) return value
   const optionMap = flattenOptions(options)
   const values = Array.isArray(value) ? value : [value]
-  const newValue = values.filter(v => isValidValue(v)).map((val) => optionMap.get(val) || val)
+  const newValue = values.filter((v) => isValidValue(v)).map((val) => optionMap.get(val) || val)
 
   if (separator) {
     const _separator = typeof separator === 'boolean' ? ',' : separator
-    return isValidValue(newValue)
-      ? newValue.join(_separator)
-      : values.join(_separator)
+    return isValidValue(newValue) ? newValue.join(_separator) : values.join(_separator)
   }
   return isValidValue(newValue) ? newValue : values
 }
@@ -190,7 +185,7 @@ export function countDown(cb, second = 0, options = {}) {
   const countdownStep = () => {
     if (s > 0) {
       s--
-      cb && cb(s)
+      if (cb) cb(s)
       timer = setTimeout(countdownStep, 1000)
     } else {
       clear()
@@ -198,13 +193,13 @@ export function countDown(cb, second = 0, options = {}) {
   }
 
   if (immediate) {
-    cb && cb(s)
+    if (cb) cb(s)
   }
 
   timer = setTimeout(countdownStep, 1000)
 
   return {
-    clear
+    clear,
   }
 }
 
@@ -315,9 +310,7 @@ export function deepClone(source) {
   for (const key in source) {
     if (Object.prototype.hasOwnProperty.call(source, key)) {
       targetObj[key] =
-        source[key] && typeof source[key] === 'object'
-          ? deepClone(source[key])
-          : source[key]
+        source[key] && typeof source[key] === 'object' ? deepClone(source[key]) : source[key]
     }
   }
   return targetObj
@@ -371,16 +364,18 @@ export function uniqueArr(arr) {
  */
 export function numberFormatter(num, digits) {
   const si = [
-    { value: 1E18, symbol: 'E' },
-    { value: 1E15, symbol: 'P' },
-    { value: 1E12, symbol: 'T' },
-    { value: 1E9, symbol: 'G' },
-    { value: 1E6, symbol: 'M' },
-    { value: 1E3, symbol: 'k' }
+    { value: 1e18, symbol: 'E' },
+    { value: 1e15, symbol: 'P' },
+    { value: 1e12, symbol: 'T' },
+    { value: 1e9, symbol: 'G' },
+    { value: 1e6, symbol: 'M' },
+    { value: 1e3, symbol: 'k' },
   ]
   for (let i = 0; i < si.length; i++) {
     if (num >= si[i].value) {
-      return (num / si[i].value).toFixed(digits).replace(/\.0+$|(\.[0-9]*[1-9])0+$/, '$1') + si[i].symbol
+      return (
+        (num / si[i].value).toFixed(digits).replace(/\.0+$|(\.[0-9]*[1-9])0+$/, '$1') + si[i].symbol
+      )
     }
   }
   return num.toString()
@@ -391,7 +386,7 @@ export function numberFormatter(num, digits) {
  * @param {number} num
  */
 export function toThousandFilter(num) {
-  return (+num || 0).toString().replace(/^-?\d+/g, m => m.replace(/(?=(?!\b)(\d{3})+$)/g, ','))
+  return (+num || 0).toString().replace(/^-?\d+/g, (m) => m.replace(/(?=(?!\b)(\d{3})+$)/g, ','))
 }
 
 /**
@@ -407,9 +402,7 @@ export function toggleClass(element, className) {
   if (nameIndex === -1) {
     classString += '' + className
   } else {
-    classString =
-      classString.slice(0, nameIndex) +
-      classString.slice(nameIndex + className.length)
+    classString = classString.slice(0, nameIndex) + classString.slice(nameIndex + className.length)
   }
   element.className = classString
 }
@@ -510,7 +503,7 @@ export function transformToTree(data, levels) {
   const result = []
   const nodesMap = {}
 
-  data.forEach(item => {
+  data.forEach((item) => {
     let parent = null
 
     levels.forEach((level, index) => {
@@ -518,19 +511,20 @@ export function transformToTree(data, levels) {
       const valueKey = level.value // Key in flat data providing value (ID), valueKey can be empty
       const labelValue = item[labelKey] // Actual label value
       const value = item[valueKey] // Actual ID value
-      const extraValues = level.extras ? level.extras.map(extraKey => item[extraKey]) : []
-      const extraValuesKey = extraValues.filter(v => isValidValue(v)).join('-')
+      const extraValues = level.extras ? level.extras.map((extraKey) => item[extraKey]) : []
+      const extraValuesKey = extraValues.filter((v) => isValidValue(v)).join('-')
 
       // Generate a unique identifier for the node
-      const nodeId = valueKey && value
-        ? `${valueKey}-${value}-${extraValuesKey}`
-        : `${labelKey}-${labelValue}-${extraValuesKey}`
+      const nodeId =
+        valueKey && value
+          ? `${valueKey}-${value}-${extraValuesKey}`
+          : `${labelKey}-${labelValue}-${extraValuesKey}`
 
       // Create a new node if it doesn't already exist
       if (!nodesMap[nodeId]) {
         const node = {
           label: labelValue, // 'label' is the value from the label key
-          children: []
+          children: [],
         }
 
         if (valueKey) {
@@ -580,7 +574,7 @@ export function transformToTree(data, levels) {
  * @returns {string}
  */
 export function insertSpaces(str, num) {
-  if (typeof (str) !== 'string') return
+  if (typeof str !== 'string') return
 
   const result = []
   for (let i = 0; i < str.length; i += num) {

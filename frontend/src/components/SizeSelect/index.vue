@@ -4,9 +4,12 @@
       <svg-icon class-name="size-icon" icon-class="size" />
     </div>
     <el-dropdown-menu slot="dropdown">
-      <el-dropdown-item v-for="item of sizeOptions" :key="item.value" :disabled="size===item.value" :command="item.value">
-        {{
-          item.label }}
+      <el-dropdown-item
+        v-for="item of sizeOptions"
+        :key="item.value"
+        :disabled="size === item.value"
+        :command="item.value">
+        {{ item.label }}
       </el-dropdown-item>
     </el-dropdown-menu>
   </el-dropdown>
@@ -20,14 +23,14 @@ export default {
         { label: '最大', value: 'default' },
         { label: '中等', value: 'medium' },
         { label: '偏小', value: 'small' },
-        { label: '最小', value: 'mini' }
-      ]
+        { label: '最小', value: 'mini' },
+      ],
     }
   },
   computed: {
     size() {
       return this.$store.getters.size
-    }
+    },
   },
   methods: {
     handleSetSize(size) {
@@ -36,7 +39,7 @@ export default {
       this.refreshView()
       this.$message({
         message: '布局大小更改成功',
-        type: 'success'
+        type: 'success',
       })
     },
     refreshView() {
@@ -47,11 +50,10 @@ export default {
 
       this.$nextTick(() => {
         this.$router.replace({
-          path: '/redirect' + fullPath
+          path: '/redirect' + fullPath,
         })
       })
-    }
-  }
-
+    },
+  },
 }
 </script>

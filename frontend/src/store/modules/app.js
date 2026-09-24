@@ -3,14 +3,14 @@ import { globalStorage } from '@/utils/web-storage'
 const state = {
   sidebar: {
     opened: globalStorage.get('sidebarStatus') ? !!+globalStorage.get('sidebarStatus') : true,
-    withoutAnimation: false
+    withoutAnimation: false,
   },
   device: 'desktop',
-  size: globalStorage.get('size') || 'mini'
+  size: globalStorage.get('size') || 'mini',
 }
 
 const mutations = {
-  TOGGLE_SIDEBAR: state => {
+  TOGGLE_SIDEBAR: (state) => {
     state.sidebar.opened = !state.sidebar.opened
     state.sidebar.withoutAnimation = false
     if (state.sidebar.opened) {
@@ -30,7 +30,7 @@ const mutations = {
   SET_SIZE: (state, size) => {
     state.size = size
     globalStorage.set('size', size)
-  }
+  },
 }
 
 const actions = {
@@ -45,12 +45,12 @@ const actions = {
   },
   setSize({ commit }, size) {
     commit('SET_SIZE', size)
-  }
+  },
 }
 
 export default {
   namespaced: true,
   state,
   mutations,
-  actions
+  actions,
 }

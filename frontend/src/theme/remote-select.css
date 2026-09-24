@@ -1,0 +1,27 @@
+.el-remote-select__error,
+.el-remote-select__resolve-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-height: 36px;
+  padding: 8px 12px;
+  color: #f56c6c;
+  font-size: 13px;
+  line-height: 20px;
+  text-align: center;
+}
+
+.el-remote-select__error .el-icon-warning-outline,
+.el-remote-select__resolve-error .el-icon-warning-outline {
+  flex: 0 0 auto;
+  margin-right: 6px;
+  font-size: 16px;
+}
+
+.el-remote-select__error .el-button,
+.el-remote-select__resolve-error .el-button {
+  flex: 0 0 auto;
+  margin-left: 8px;
+  padding: 0;
+}

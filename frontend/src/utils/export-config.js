@@ -6,7 +6,7 @@ export default [
     label: '文件名称',
     render: 'input',
     editable: true,
-    clearable: true
+    clearable: true,
   },
   {
     prop: 'exportAll',
@@ -16,8 +16,8 @@ export default [
     editable: true,
     options: [
       { label: '全部', value: true },
-      { label: '当前选择项', value: false }
-    ]
+      { label: '当前选择项', value: false },
+    ],
   },
   {
     prop: 'autoWidth',
@@ -27,8 +27,8 @@ export default [
     editable: true,
     options: [
       { label: '是', value: true },
-      { label: '否', value: false }
-    ]
+      { label: '否', value: false },
+    ],
   },
   {
     prop: 'bookType',
@@ -40,7 +40,7 @@ export default [
     options: [
       { label: 'xlsx', value: 'xlsx' },
       { label: 'xls', value: 'xls' },
-      { label: 'csv', value: 'csv' }
-    ]
-  }
+      { label: 'csv', value: 'csv' },
+    ],
+  },
 ]

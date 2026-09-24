@@ -18,6 +18,7 @@ minimumReleaseAgeExclude:
   - element-theme-replace@2.0.11
 
 overrides:
+  element-ui: github:nangongpo/element-ui
   vue: github:nangongpo/vue#v2.7.16-security.1
   vue-template-compiler: github:nangongpo/vue#template-compiler-v2.7.16-security.1
   '@vue/compiler-sfc': github:nangongpo/vue#compiler-sfc-v2.7.16-security.1

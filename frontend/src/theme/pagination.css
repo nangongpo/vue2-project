@@ -1172,27 +1172,6 @@
   box-sizing: border-box;
   margin: 5px 0;
 }
-.el-select-dropdown.is-multiple .el-select-dropdown__item {
-  padding-right: 40px;
-}
-.el-select-dropdown.is-multiple .el-select-dropdown__item.selected {
-  color: #409EFF;
-  background-color: #FFFFFF;
-}
-.el-select-dropdown.is-multiple .el-select-dropdown__item.selected.hover {
-  background-color: #F5F7FA;
-}
-.el-select-dropdown.is-multiple .el-select-dropdown__item.selected::after {
-  position: absolute;
-  right: 20px;
-  font-family: "element-icons";
-  content: "\e6da";
-  font-size: 12px;
-  font-weight: bold;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-
 .el-select-dropdown .el-scrollbar.is-empty .el-select-dropdown__list {
   padding: 0;
 }
@@ -1205,6 +1184,24 @@
   font-size: 14px;
 }
 
+.el-select-dropdown__loading {
+  padding: 10px 0;
+  margin: 0;
+  text-align: center;
+  color: #999;
+  font-size: 14px;
+}
+
+.el-select-dropdown__header {
+  padding: 10px 12px;
+  border-bottom: solid 1px #E4E7ED;
+}
+
+.el-select-dropdown__footer {
+  padding: 10px 12px;
+  border-top: solid 1px #E4E7ED;
+}
+
 .el-select-dropdown__wrap {
   max-height: 274px;
 }
@@ -1214,6 +1211,10 @@
   padding: 6px 0;
   margin: 0;
   box-sizing: border-box;
+}
+.el-select-dropdown__list.el-vl__window {
+  margin: 6px 0;
+  padding: 0;
 }
 
 /* BEM support Func
@@ -2688,17 +2689,36 @@
 .el-select-dropdown__item.is-disabled {
   color: #C0C4CC;
   cursor: not-allowed;
-}
-.el-select-dropdown__item.is-disabled:hover {
   background-color: #FFFFFF;
 }
 
-.el-select-dropdown__item.hover, .el-select-dropdown__item:hover {
+.el-select-dropdown__item.hover {
   background-color: #F5F7FA;
 }
 .el-select-dropdown__item.selected {
   color: #409EFF;
   font-weight: bold;
+}
+
+.el-select-dropdown.is-multiple .el-select-dropdown__item {
+  padding-right: 40px;
+}
+.el-select-dropdown.is-multiple .el-select-dropdown__item.selected {
+  color: #409EFF;
+  background-color: #FFFFFF;
+}
+.el-select-dropdown.is-multiple .el-select-dropdown__item.selected.hover {
+  background-color: #F5F7FA;
+}
+.el-select-dropdown.is-multiple .el-select-dropdown__item.selected::after {
+  position: absolute;
+  right: 20px;
+  font-family: "element-icons";
+  content: "\e6da";
+  font-size: 12px;
+  font-weight: bold;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 /* BEM support Func

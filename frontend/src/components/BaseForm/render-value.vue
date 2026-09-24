@@ -7,7 +7,7 @@ export default {
   props: {
     config: Object,
     item: Object,
-    parent: Object
+    parent: Object,
   },
   renderError,
   render(h, context) {
@@ -34,7 +34,7 @@ export default {
         ...item,
         options,
         placeholder: newPlaceholder,
-        disabled: !editable
+        disabled: !editable,
       }),
       setValue: (newValue) => {
         const { listeners } = parent
@@ -43,11 +43,11 @@ export default {
         }
         model[prop] = newValue
         listeners['update:model'](model)
-      }
+      },
     }
 
     const scopedSlots = parent.scopedSlots
-    if (typeof (render) === 'function') {
+    if (typeof render === 'function') {
       scopedSlots[render] = (attrs) => render(h, attrs)
     }
     if (!scopedSlots[render]) {
@@ -60,6 +60,6 @@ export default {
     }
 
     return scopedSlots[render](elementAttrs)
-  }
+  },
 }
 </script>

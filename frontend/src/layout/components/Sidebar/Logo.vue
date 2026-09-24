@@ -1,13 +1,13 @@
 <template>
-  <div class="sidebar-logo-container" :class="{'collapse':collapse}">
+  <div class="sidebar-logo-container" :class="{ collapse: collapse }">
     <transition name="sidebarLogoFade">
       <router-link v-if="collapse" key="collapse" class="sidebar-logo-link" to="/">
-        <img v-if="logo" :src="logo" class="sidebar-logo">
-        <div class="sidebar-title">{{ title }} </div>
+        <img v-if="logo" :src="logo" class="sidebar-logo" />
+        <div class="sidebar-title">{{ title }}</div>
       </router-link>
       <router-link v-else key="expand" class="sidebar-logo-link" to="/">
-        <img v-if="logo" :src="logo" class="sidebar-logo">
-        <div class="sidebar-title">{{ title }} </div>
+        <img v-if="logo" :src="logo" class="sidebar-logo" />
+        <div class="sidebar-title">{{ title }}</div>
       </router-link>
     </transition>
   </div>
@@ -22,15 +22,15 @@ export default {
   props: {
     collapse: {
       type: Boolean,
-      required: true
-    }
+      required: true,
+    },
   },
   data() {
     return {
       title: settings.title,
-      logo
+      logo,
     }
-  }
+  },
 }
 </script>
 

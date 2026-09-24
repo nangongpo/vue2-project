@@ -1,20 +1,17 @@
 <template>
-  <HelloWorld msg="Vite + Vue" />
+  <div>首页</div>
 </template>
 
 <script>
-import HelloWorld from '@/components/HelloWorld.vue'
 export default {
   name: 'dashboard',
-  components: { HelloWorld },
   data() {
-    return {
-    }
+    return {}
   },
   computed: {},
   watch: {},
-  created() { },
-  mounted() { },
-  methods: {}
+  created() {},
+  mounted() {},
+  methods: {},
 }
 </script>

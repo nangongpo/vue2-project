@@ -5,7 +5,9 @@
 
       <div class="drawer-item">
         <span>主题</span>
-        <theme-picker style="float: right;height: 26px;margin: -3px 8px 0 0;" @change="themeChange" />
+        <theme-picker
+          style="float: right; height: 26px; margin: -3px 8px 0 0"
+          @change="themeChange" />
       </div>
 
       <div class="drawer-item">
@@ -22,7 +24,6 @@
         <span>侧边栏logo</span>
         <el-switch v-model="sidebarLogo" class="drawer-switch" />
       </div>
-
     </div>
   </div>
 </template>
@@ -43,9 +44,9 @@ export default {
       set(val) {
         this.$store.dispatch('settings/changeSetting', {
           key: 'fixedHeader',
-          value: val
+          value: val,
         })
-      }
+      },
     },
     tagsView: {
       get() {
@@ -54,9 +55,9 @@ export default {
       set(val) {
         this.$store.dispatch('settings/changeSetting', {
           key: 'tagsView',
-          value: val
+          value: val,
         })
-      }
+      },
     },
     sidebarLogo: {
       get() {
@@ -65,19 +66,19 @@ export default {
       set(val) {
         this.$store.dispatch('settings/changeSetting', {
           key: 'sidebarLogo',
-          value: val
+          value: val,
         })
-      }
-    }
+      },
+    },
   },
   methods: {
     themeChange(val) {
       this.$store.dispatch('settings/changeSetting', {
         key: 'theme',
-        value: val
+        value: val,
       })
-    }
-  }
+    },
+  },
 }
 </script>
 
@@ -90,19 +91,19 @@ export default {
 
   .drawer-title {
     margin-bottom: 12px;
-    color: rgba(0, 0, 0, .85);
+    color: rgba(0, 0, 0, 0.85);
     font-size: 14px;
     line-height: 22px;
   }
 
   .drawer-item {
-    color: rgba(0, 0, 0, .65);
+    color: rgba(0, 0, 0, 0.65);
     font-size: 14px;
     padding: 12px 0;
   }
 
   .drawer-switch {
-    float: right
+    float: right;
   }
 }
 </style>

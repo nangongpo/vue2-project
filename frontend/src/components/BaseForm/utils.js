@@ -15,7 +15,9 @@ export function getFormItemValue(item = {}, model = {}, parent = {}) {
 
   // 过滤选项无效值
   if (Array.isArray(curOptions) && filterOptionBy) {
-    curOptions = curOptions.filter(v => Object.prototype.hasOwnProperty.call(v, filterOptionBy) ? v[filterOptionBy] : true)
+    curOptions = curOptions.filter((v) =>
+      Object.prototype.hasOwnProperty.call(v, filterOptionBy) ? v[filterOptionBy] : true
+    )
   }
   let value = model[prop]
   // 转义值
@@ -37,7 +39,9 @@ export function getFormItemValue(item = {}, model = {}, parent = {}) {
 export function getComponentAttrs(obj) {
   // 排除下划线命名的字段
   const isIgnoreAttrs = (key) => {
-    return key.indexOf('_') > -1 || ['label', 'render', 'formatValue', 'formatOptions'].includes(key)
+    return (
+      key.indexOf('_') > -1 || ['label', 'render', 'formatValue', 'formatOptions'].includes(key)
+    )
   }
   return Object.keys(obj).reduce((acc, key) => {
     const value = obj[key]
@@ -62,16 +66,20 @@ export function filterObjectNullValue(obj) {
 export function getFormItemWidth(item, model, propWidth = 0) {
   const { render, prop, disabled } = item
   let itemWidth
-  if (typeof (propWidth) === 'string') return propWidth
+  if (typeof propWidth === 'string') return propWidth
 
   switch (propWidth) {
     case 0:
       if (render === 'image') {
         const value = model[prop]
-        let imageNum = Array.isArray(value) ? value.length : value && value.indexOf(',') > -1 ? value.split(',').length : 1
+        let imageNum = Array.isArray(value)
+          ? value.length
+          : value && value.indexOf(',') > -1
+          ? value.split(',').length
+          : 1
         imageNum = disabled ? imageNum : imageNum + 1
         const imageWidth = 148
-        itemWidth = `${(imageNum * imageWidth) + (imageNum - 1) * 10}px`
+        itemWidth = `${imageNum * imageWidth + (imageNum - 1) * 10}px`
       }
       break
     case 1:
@@ -101,17 +109,17 @@ export function getDefaultModel(fields = [], model = {}, otherProps = []) {
   }, {})
   const mapPropType = {
     string: '',
-    array: []
+    array: [],
   }
   const getDefaultValue = (item, model) => {
     const value = model[item.prop]
     return item.formatValue
       ? item.formatValue(item, model)
       : isValidValue(value)
-        ? value
-        : mapPropType[item.prop_type]
+      ? value
+      : mapPropType[item.prop_type]
   }
-  fields.map(item => {
+  fields.map((item) => {
     // 表单项隐藏时清除当前值
     if (item.prop && item.display !== false) {
       defaultModel[item.prop] = getDefaultValue(item, model)
@@ -127,13 +135,13 @@ export function getOriginModel(fields = [], model = {}, otherProps = []) {
   }, {})
   const mapPropType = {
     string: '',
-    array: []
+    array: [],
   }
   const getDefaultValue = (item, model) => {
     const value = model[item.prop]
     return isValidValue(value) ? value : mapPropType[item.prop_type]
   }
-  fields.map(item => {
+  fields.map((item) => {
     // 表单项隐藏时清除当前值
     if (item.prop && item.display !== false) {
       defaultModel[item.prop] = getDefaultValue(item, model)
@@ -145,13 +153,13 @@ export function getOriginModel(fields = [], model = {}, otherProps = []) {
 // 单独构造表单el-form的rules
 export function getDefaultRules(fields, rules = {}) {
   const defaultRules = {}
-  fields.map(v => {
+  fields.map((v) => {
     const { prop, label, display, prop_type, required, placeholder } = v
     if (display && required) {
       const requiredRule = {
         type: prop_type,
         required,
-        message: placeholder || `请填写${label}`
+        message: placeholder || `请填写${label}`,
       }
       defaultRules[prop] = rules[prop] ? [requiredRule, rules[prop]] : [requiredRule]
     }
@@ -174,7 +182,7 @@ export function getSubmitFields(fields = [], model = {}, otherModel = {}) {
       return item.formatValue ? item.formatValue(item, model) : value
     }
   }
-  fields.map(item => {
+  fields.map((item) => {
     if (item.prop) {
       if (Object.prototype.hasOwnProperty.call(item, 'is_submit')) {
         submitForm[item.prop] = item.is_submit ? getSubmitValue(item, model) : undefined

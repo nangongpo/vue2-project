@@ -49,7 +49,7 @@ function getAPIList(menus = [], prefixTitle = []) {
   for (const menu of menus) {
     const data = {
       value: menu.api,
-      title: prefixTitle.concat(menu.label)
+      title: prefixTitle.concat(menu.label),
     }
 
     if (data.value) {
@@ -71,18 +71,13 @@ function getAPIList(menus = [], prefixTitle = []) {
 // 用户操作日志，生成request_url字段的中文描述映射表
 function getRequestUrlOptions(menuList) {
   const apiList = getAPIList(menuList)
-  const userApis = userApiList.map(v => {
+  const userApis = userApiList.map((v) => {
     return { ...v, value: baseAPI + v.value }
   })
-  const apis = apiList.map(v => {
+  const apis = apiList.map((v) => {
     return { ...v, label: v.title.join('-') }
   })
   return userApis.concat(apis)
 }
 
-export {
-  getAllMenu,
-  getMenuList,
-  filterMenuByAPI,
-  getRequestUrlOptions
-}
+export { getAllMenu, getMenuList, filterMenuByAPI, getRequestUrlOptions }

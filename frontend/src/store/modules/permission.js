@@ -11,7 +11,11 @@ function hasPermission(menu_list, route) {
     const childrenName = route.children.filter((v) => hasPermission(menu_list, v))
     return childrenName.length > 0
   } else {
-    return (route.meta && route.meta.permission && menu_list.includes(route.meta.permission)) || route.hidden
+    return (
+      route.meta?.authenticatedOnly === true ||
+      (route.meta && route.meta.permission && menu_list.includes(route.meta.permission)) ||
+      route.hidden
+    )
   }
 }
 
@@ -23,7 +27,7 @@ function hasPermission(menu_list, route) {
 export function filterAsyncRoutes(routes, menu_list) {
   const res = []
 
-  routes.forEach(route => {
+  routes.forEach((route) => {
     const tmp = { ...route }
     if (hasPermission(menu_list, tmp)) {
       if (tmp.children) {
@@ -40,30 +44,30 @@ export function filterAsyncRoutes(routes, menu_list) {
 
 const state = {
   routes: [],
-  addRoutes: []
+  addRoutes: [],
 }
 
 const mutations = {
   SET_ROUTES: (state, routes) => {
     state.addRoutes = routes
     state.routes = constantRoutes.concat(routes)
-  }
+  },
 }
 
 const actions = {
   generateRoutes({ commit }, menu_list) {
-    return new Promise(resolve => {
+    return new Promise((resolve) => {
       const accessedRoutes = filterAsyncRoutes(asyncRoutes, menu_list)
 
       commit('SET_ROUTES', accessedRoutes)
       resolve(accessedRoutes)
     })
-  }
+  },
 }
 
 export default {
   namespaced: true,
   state,
   mutations,
-  actions
+  actions,
 }

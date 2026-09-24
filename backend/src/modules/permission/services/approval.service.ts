@@ -1,0 +1,659 @@
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
+import { HttpAdapterHost } from '@nestjs/core'
+import { ApprovalRequest, Permission, Prisma, Role } from '@prisma/client'
+import { randomUUID } from 'node:crypto'
+import { PrismaService } from '../../../database/prisma.service.js'
+import { AuthenticatedUser } from '../../../security/types/auth.types.js'
+import {
+  ApiRouteChangePayload,
+  ApprovalActionDto,
+  ApprovalQueryDto,
+  CreateApprovalDto,
+  ElevatedRevokePayload,
+  ElevatedScopePayload,
+  MfaResetPayload,
+  RoleGrantPayload,
+  RolePermissionsPayload,
+  approvalDto,
+  approvalPayload,
+} from '../dto/approval.dto.js'
+import { assertApi, ok } from '../policies/policy.js'
+
+export const APPROVAL_MAX_TTL_MS = 24 * 60 * 60 * 1000
+export const APPROVAL_REAUTH_MS = 5 * 60 * 1000
+export type ApprovalActor = AuthenticatedUser & {
+  mfaVerifiedAt?: Date | null
+  reauthenticatedAt?: Date | null
+}
+export type ApprovalContext = {
+  traceId?: string
+  ip?: string
+  method?: string
+  path?: string
+  userAgent?: string
+}
+type Tx = Prisma.TransactionClient
+type Step = 'approve' | 'execute' | 'review'
+const json = (value: unknown): Prisma.InputJsonValue =>
+  JSON.parse(JSON.stringify(value, (_, v) => (typeof v === 'bigint' ? v.toString() : v)))
+const live = (now: Date) => ({
+  revokedAt: null,
+  OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+})
+const sameActor = (a: string | null, b: string) => a?.toLowerCase() === b.toLowerCase()
+const isRevocation = (kind?: string) => ['ROLE_REVOKE', 'ROLE_PERMISSION_REVOKE', 'ELEVATED_REVOKE'].includes(kind || '')
+const TARGET_FOREIGN_KEY = {
+  USER: 'targetUserId',
+  DEPARTMENT: 'targetDepartmentId',
+  ORGANIZATION: 'targetOrganizationId',
+  TENANT: 'targetTenantId',
+} as const
+
+@Injectable()
+export class ApprovalService {
+  constructor(private readonly prisma: PrismaService, private readonly http?: HttpAdapterHost) {}
+
+  private authorize(actor: ApprovalActor, action: 'create' | 'read' | 'detail' | Step, kind?: string) {
+    const types = new Set(
+      actor.roles.map((role) => (role as typeof role & { roleType?: string }).roleType).filter((type) => type !== 'BUSINESS')
+    )
+    const reading = action === 'read' || action === 'detail'
+    const requiredType = action === 'review' ? 'AUDIT' : reading ? undefined : 'SECURITY'
+    const requiredCode =
+      action === 'create' || action === 'execute'
+        ? kind
+          ? kind === 'MFA_RESET'
+            ? 'system.user.mfa-reset'
+            : isRevocation(kind)
+            ? 'system.role.revoke'
+            : 'system.role.grant'
+          : undefined
+        : action === 'approve'
+        ? 'system.role.review'
+        : action === 'review'
+        ? 'system.audit.review'
+        : undefined
+    if (
+      actor.status !== 'ACTIVE' ||
+      types.size !== 1 ||
+      (requiredType ? !types.has(requiredType) : !types.has('SECURITY') && !types.has('AUDIT')) ||
+      !actor.permissions.includes(`system.approval.${action}`) ||
+      (requiredCode && !actor.permissions.includes(requiredCode))
+    ) {
+      throw new ForbiddenException('审批操作需要独立管理员职责和显式权限')
+    }
+    if (!reading) {
+      const now = Date.now()
+      for (const value of [actor.mfaVerifiedAt, actor.reauthenticatedAt]) {
+        if (
+          !(value instanceof Date) ||
+          !Number.isFinite(value.getTime()) ||
+          now < value.getTime() ||
+          now - value.getTime() > APPROVAL_REAUTH_MS
+        ) {
+          throw new ForbiddenException('高危操作需要最近五分钟内完成 MFA 和重新认证')
+        }
+      }
+    }
+  }
+
+  private expiry(expiresAt: Date, createdAt = new Date(), requireFuture = true) {
+    const ttl = expiresAt.getTime() - createdAt.getTime()
+    if (!Number.isFinite(ttl) || ttl <= 0 || ttl > APPROVAL_MAX_TTL_MS || (requireFuture && expiresAt.getTime() <= Date.now())) {
+      throw new BadRequestException('审批或授权已过期，有效期必须明确且不超过二十四小时')
+    }
+  }
+
+  private async transaction<T>(fn: (tx: Tx) => Promise<T>) {
+    try {
+      return await this.prisma.$transaction(fn, {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      })
+    } catch (error) {
+      if (['P2034', 'P2002', 'P2025'].includes((error as { code?: string }).code || '')) {
+        throw new ConflictException('审批或目标数据已变化，请重新读取后操作')
+      }
+      throw error
+    }
+  }
+
+  async create(input: CreateApprovalDto, actor: ApprovalActor, context: ApprovalContext = {}) {
+    this.authorize(actor, 'create', input.kind)
+    const dto = approvalDto(CreateApprovalDto, input)
+    if (!dto.reason.trim()) throw new BadRequestException('必须填写申请原因')
+    const payload = approvalPayload(dto.kind, dto.payload)
+    const createdAt = new Date()
+    const expiresAt = new Date(dto.expiresAt)
+    this.expiry(expiresAt, createdAt)
+    return this.transaction(async (tx) => {
+      await this.validateTarget(tx, dto.kind, payload, [actor.userId])
+      const item = await tx.approvalRequest.create({
+        data: {
+          kind: dto.kind,
+          payload: json(payload),
+          reason: dto.reason.trim(),
+          expiresAt,
+          createdAt,
+          applicantId: actor.userId,
+        },
+      })
+      await this.audit(tx, actor, context, 'create', item.id, null, item)
+      return ok(item)
+    })
+  }
+
+  async list(query: ApprovalQueryDto, actor: ApprovalActor) {
+    this.authorize(actor, 'read')
+    const dto = approvalDto(ApprovalQueryDto, query)
+    const items = await this.prisma.approvalRequest.findMany({
+      where: { ...(dto.status ? { status: dto.status } : {}) },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: 51,
+      ...(dto.cursor ? { cursor: { id: dto.cursor }, skip: 1 } : {}),
+    })
+    return ok({ items: items.slice(0, 50), nextCursor: items.length > 50 ? items[49].id : null })
+  }
+
+  async detail(id: string, actor: ApprovalActor) {
+    this.authorize(actor, 'detail')
+    const item = await this.prisma.approvalRequest.findUnique({ where: { id } })
+    if (!item) throw new NotFoundException('审批单不存在')
+    return ok(item)
+  }
+
+  async transition(id: string, step: Step, input: ApprovalActionDto, actor: ApprovalActor, context: ApprovalContext = {}) {
+    this.authorize(actor, step)
+    const dto = approvalDto(ApprovalActionDto, input)
+    if (!dto.note.trim()) throw new BadRequestException('必须填写处理意见')
+    return this.transaction(async (tx) => {
+      const before = await tx.approvalRequest.findUnique({ where: { id } })
+      if (!before) throw new NotFoundException('审批单不存在')
+      this.authorize(actor, step, before.kind)
+      const expected = { approve: 'REQUESTED', execute: 'APPROVED', review: 'EXECUTED' } as const
+      const next = { approve: 'APPROVED', execute: 'EXECUTED', review: 'REVIEWED' } as const
+      if (before.status !== expected[step]) throw new ConflictException('审批状态不允许此操作')
+      this.expiry(before.expiresAt, before.createdAt, step !== 'review')
+      if (step === 'approve' && sameActor(before.applicantId, actor.userId)) throw new ForbiddenException('申请人不得审批自己的申请')
+      if (step === 'review' && [before.applicantId, before.approverId, before.executorId].some((id) => sameActor(id, actor.userId))) {
+        throw new ForbiddenException('审计复核人必须独立于申请人、审批人和执行人')
+      }
+      const payload = approvalPayload(before.kind, before.payload)
+      const actors = [
+        ...new Set([before.applicantId, before.approverId, before.executorId, actor.userId].filter((value): value is string => !!value)),
+      ]
+      if (step === 'review') await this.assertNotBeneficiary(tx, before.kind, payload, [actor.userId])
+      else await this.validateTarget(tx, before.kind, payload, actors)
+      const now = new Date()
+      const data: Prisma.ApprovalRequestUpdateManyMutationInput = {
+        status: next[step],
+        ...(step === 'approve' ? { approverId: actor.userId, approvedAt: now, approvalNote: dto.note.trim() } : {}),
+        ...(step === 'execute' ? { executorId: actor.userId, executedAt: now, executionNote: dto.note.trim() } : {}),
+        ...(step === 'review' ? { reviewerId: actor.userId, reviewedAt: now, reviewNote: dto.note.trim() } : {}),
+      }
+      const claimed = await tx.approvalRequest.updateMany({
+        where: {
+          id,
+          status: expected[step],
+          ...(step !== 'review' ? { expiresAt: { gt: now } } : {}),
+        },
+        data,
+      })
+      if (claimed.count !== 1) throw new ConflictException('审批已被其他操作处理或已过期')
+      const mutation = step === 'execute' ? await this.execute(tx, before, payload, actor, now) : undefined
+      const after = await tx.approvalRequest.findUniqueOrThrow({ where: { id } })
+      await this.audit(
+        tx,
+        actor,
+        context,
+        step,
+        id,
+        { approval: before, mutation: mutation?.before ?? null },
+        { approval: after, mutation: mutation?.after ?? null }
+      )
+      return ok(after)
+    })
+  }
+
+  private async role(tx: Tx, roleId: string) {
+    const role = await tx.role.findUnique({ where: { roleId } })
+    if (!role || role.status !== 'ACTIVE') throw new BadRequestException('目标角色不存在或已停用')
+    return role
+  }
+
+  private permissionPolicy(role: Role, permission: Permission) {
+    if (
+      permission.status !== 'ACTIVE' ||
+      permission.code.includes('*') ||
+      permission.code === 'system.permission.manage' ||
+      permission.method === 'ALL' ||
+      permission.path?.includes('*')
+    )
+      throw new ForbiddenException('禁止授予失效、通配或已停止使用的权限')
+    const administrative =
+      /^system\.(role|user|page|button|api|permission|approval|audit|session|config|runtime)\./.test(permission.code) ||
+      /^\/api\/v1\/(permission|roles|users|audit|auth|system)(\/|$)/.test(permission.path || '')
+    if (role.roleType === 'BUSINESS' && (permission.requiredRoleType !== 'BUSINESS' || administrative)) {
+      throw new ForbiddenException('业务角色不得获得管理权限')
+    }
+    if (permission.requiredRoleType !== 'BUSINESS' && permission.requiredRoleType !== role.roleType)
+      throw new ForbiddenException('权限职责与角色类型冲突')
+    // Deny escalation even if a legacy permission was incorrectly classified BUSINESS.
+    const code = permission.code
+    const sharedRead = ['system.approval.read', 'system.approval.detail'].includes(code)
+    if (sharedRead && !['SECURITY', 'AUDIT'].includes(role.roleType)) throw new ForbiddenException('审批查询仅限安全或审计管理员')
+    if (
+      /^system\.audit\./.test(code) &&
+      !['system.audit.read', 'system.audit.detail', 'system.audit.export', 'system.audit.review'].includes(code)
+    )
+      throw new ForbiddenException('禁止授予审计修改、删除或策略关闭权限')
+    const domain = /^system\.audit\./.test(code)
+      ? 'AUDIT'
+      : /^system\.(role|user|page|button|api|permission|approval)\./.test(code)
+      ? 'SECURITY'
+      : /^system\.(session|config|runtime)\./.test(code)
+      ? 'SYSTEM'
+      : undefined
+    const inferred = sharedRead ? undefined : code === 'system.approval.review' ? 'AUDIT' : domain
+    if (inferred && inferred !== role.roleType) throw new ForbiddenException('管理权限职责冲突')
+    const path = permission.path || ''
+    const sharedPath = /^\/api\/v1\/permission\/approvals(?:\/:id)?$/.test(path) && permission.method === 'GET'
+    const pathRole = sharedPath
+      ? undefined
+      : /^\/api\/v1\/permission\/approvals\/[^/]+\/review$/.test(path) || /^\/api\/v1\/audit(?:\/|$)/.test(path)
+      ? 'AUDIT'
+      : /^\/api\/v1\/(permission|roles|users)(?:\/|$)/.test(path)
+      ? 'SECURITY'
+      : undefined
+    if (pathRole && pathRole !== role.roleType) throw new ForbiddenException('接口路径管理职责冲突')
+    if (permission.type === 'API') assertApi({ code, method: permission.method || '', path: permission.path || '' })
+  }
+
+  private async assertNotBeneficiary(tx: Tx, kind: string, payload: ReturnType<typeof approvalPayload>, actors: string[]) {
+    if (kind === 'ROLE_GRANT' || kind === 'ROLE_REVOKE' || kind === 'MFA_RESET') {
+      const targetUserId = kind === 'MFA_RESET' ? (payload as MfaResetPayload).userId : (payload as RoleGrantPayload).userId
+      if (actors.some((actor) => sameActor(actor, targetUserId))) throw new ForbiddenException('禁止为自己申请、审批、执行或复核授权')
+      return
+    }
+    if (isRevocation(kind)) {
+      // Revocation reduces access: do not reject historic beneficiaries or unsafe grants.
+      // Still forbid participants from changing a role they currently hold.
+      let roleFilter: Prisma.UserRoleWhereInput
+      if (kind === 'ELEVATED_REVOKE') {
+        const scope = await tx.roleElevatedDataScope.findUnique({
+          where: { id: (payload as ElevatedRevokePayload).scopeId },
+          select: { roleId: true },
+        })
+        if (!scope) throw new NotFoundException('高权限数据范围不存在')
+        roleFilter = { roleId: scope.roleId }
+      } else roleFilter = { role: { roleId: (payload as RolePermissionsPayload).roleId } }
+      if (
+        await tx.userRole.findFirst({
+          where: { ...roleFilter, ...live(new Date()), user: { userId: { in: actors } } },
+          select: { userId: true },
+        })
+      ) {
+        throw new ForbiddenException('禁止申请、审批、执行或复核本人角色的回收')
+      }
+      return
+    }
+    // Include expired assignments: an actor cannot review their own past grant either.
+    const where: Prisma.UserRoleWhereInput = {
+      user: { userId: { in: actors } },
+      ...(kind === 'API_ROUTE_CHANGE'
+        ? {
+            role: {
+              permissions: { some: { permissionId: (payload as ApiRouteChangePayload).apiId } },
+            },
+          }
+        : { role: { roleId: (payload as RolePermissionsPayload).roleId } }),
+    }
+    if (await tx.userRole.findFirst({ where, select: { userId: true } }))
+      throw new ForbiddenException('禁止处理可使本人受益的角色或接口变更')
+  }
+
+  private async validateTarget(tx: Tx, kind: string, payload: ReturnType<typeof approvalPayload>, actors: string[]) {
+    await this.assertNotBeneficiary(tx, kind, payload, actors)
+    const now = new Date()
+    if (isRevocation(kind)) {
+      // Disabled accounts/roles, expired grants and forbidden legacy permissions must remain revocable.
+      if (kind === 'ELEVATED_REVOKE') {
+        const scope = await tx.roleElevatedDataScope.findUnique({
+          where: { id: (payload as ElevatedRevokePayload).scopeId },
+        })
+        if (!scope || scope.revokedAt) throw new ConflictException('数据范围不存在或已回收')
+      } else {
+        const input = payload as RoleGrantPayload | RolePermissionsPayload
+        const role = await tx.role.findUnique({ where: { roleId: input.roleId } })
+        if (!role) throw new NotFoundException('目标角色不存在')
+        if (kind === 'ROLE_REVOKE') {
+          const user = await tx.user.findUnique({
+            where: { userId: (input as RoleGrantPayload).userId },
+            select: { id: true },
+          })
+          const binding =
+            user &&
+            (await tx.userRole.findUnique({
+              where: { userId_roleId: { userId: user.id, roleId: role.id } },
+            }))
+          if (!binding || binding.revokedAt) throw new ConflictException('用户角色授权不存在或已回收')
+        } else {
+          const permissionIds = (input as RolePermissionsPayload).permissionIds
+          const count = await tx.rolePermission.count({
+            where: { roleId: role.id, permissionId: { in: permissionIds }, revokedAt: null },
+          })
+          if (count !== permissionIds.length) throw new ConflictException('存在未授权或已回收的角色权限')
+        }
+      }
+      return
+    }
+    if (kind === 'MFA_RESET') {
+      const input = payload as MfaResetPayload
+      const user = await tx.user.findUnique({
+        where: { userId: input.userId },
+        select: { id: true, status: true, expiresAt: true },
+      })
+      if (!user || user.status !== 'ACTIVE' || (user.expiresAt && user.expiresAt <= now))
+        throw new BadRequestException('目标账户不存在、已停用或已过期')
+      return
+    }
+    if (kind === 'API_ROUTE_CHANGE') {
+      const input = payload as ApiRouteChangePayload
+      const path = assertApi(input)
+      if (path !== input.path) throw new BadRequestException('请使用规范化路由模板')
+      const api = await tx.permission.findUnique({ where: { id: input.apiId } })
+      if (!api || api.type !== 'API' || api.status !== 'ACTIVE') throw new BadRequestException('目标接口不存在或已停用')
+      // Fastify registered routes are the source of truth, never arbitrary client paths.
+      const server = this.http?.httpAdapter?.getInstance()
+      if (!server?.hasRoute?.({ method: input.method, url: path })) throw new BadRequestException('目标方法和路径必须为已注册的后端路由')
+      // Changing an assigned endpoint would silently repurpose existing grants.
+      if (await tx.rolePermission.count({ where: { permissionId: api.id, ...live(now) } }))
+        throw new ConflictException('请先撤销接口现有角色授权，再变更路由并重新申请授权')
+      if (
+        await tx.permission.findFirst({
+          where: {
+            id: { not: api.id },
+            OR: [{ code: input.code }, { method: input.method, path }],
+          },
+        })
+      )
+        throw new ConflictException('权限码或路由已存在')
+      this.permissionPolicy({ roleType: api.requiredRoleType } as Role, { ...api, ...input, path })
+      return
+    }
+    const role = await this.role(tx, (payload as RoleGrantPayload).roleId)
+    const existing = await tx.rolePermission.findMany({
+      where: { roleId: role.id, ...live(now) },
+      include: { permission: true },
+    })
+    for (const binding of existing) this.permissionPolicy(role, binding.permission)
+    if (kind === 'ROLE_GRANT') {
+      const input = payload as RoleGrantPayload
+      const user = await tx.user.findUnique({
+        where: { userId: input.userId },
+        select: {
+          id: true,
+          status: true,
+          expiresAt: true,
+          roles: { where: live(now), include: { role: true } },
+        },
+      })
+      if (!user || user.status !== 'ACTIVE' || (user.expiresAt && user.expiresAt <= now))
+        throw new BadRequestException('目标账户不存在、已停用或已过期')
+      const types = new Set(
+        [...user.roles.filter((binding) => binding.role.status === 'ACTIVE').map((binding) => binding.role.roleType), role.roleType].filter(
+          (type) => type !== 'BUSINESS'
+        )
+      )
+      if (types.size > 1) throw new ForbiddenException('同一账户不得拥有互斥管理员角色')
+    } else if (kind === 'ROLE_PERMISSIONS') {
+      const input = payload as RolePermissionsPayload
+      const permissions = await tx.permission.findMany({
+        where: { id: { in: input.permissionIds } },
+      })
+      if (permissions.length !== input.permissionIds.length) throw new BadRequestException('存在无效权限 UUID')
+      for (const permission of permissions) this.permissionPolicy(role, permission)
+    } else if (kind === 'ELEVATED_SCOPE') {
+      const input = payload as ElevatedScopePayload
+      if (
+        !(await tx.permission.findFirst({
+          where: { resource: input.resource, status: 'ACTIVE' },
+          select: { id: true },
+        }))
+      )
+        throw new BadRequestException('数据资源不存在或未启用')
+      for (const target of input.targets) {
+        const exists =
+          target.targetType === 'USER'
+            ? await tx.user.findFirst({
+                where: {
+                  userId: target.targetId,
+                  status: 'ACTIVE',
+                  OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+                },
+                select: { id: true },
+              })
+            : target.targetType === 'TENANT'
+            ? await tx.tenant.findFirst({
+                where: { id: target.targetId, status: 'ACTIVE' },
+                select: { id: true },
+              })
+            : target.targetType === 'ORGANIZATION'
+            ? await tx.organization.findFirst({
+                where: { id: target.targetId, status: 'ACTIVE', tenant: { status: 'ACTIVE' } },
+                select: { id: true },
+              })
+            : await tx.department.findFirst({
+                where: {
+                  id: target.targetId,
+                  status: 'ACTIVE',
+                  tenant: { status: 'ACTIVE' },
+                  organization: { status: 'ACTIVE' },
+                },
+                select: { id: true },
+              })
+        if (!exists) throw new BadRequestException('数据范围目标不存在或目标及所属主数据已停用')
+      }
+    }
+  }
+
+  private async execute(tx: Tx, request: ApprovalRequest, payload: ReturnType<typeof approvalPayload>, actor: ApprovalActor, now: Date) {
+    if (isRevocation(request.kind)) return this.revoke(tx, request, payload, actor, now)
+    if (request.kind === 'MFA_RESET') {
+      const input = payload as MfaResetPayload
+      const user = await tx.user.findUniqueOrThrow({
+        where: { userId: input.userId },
+        select: {
+          id: true,
+          userId: true,
+          status: true,
+          mfaEnabled: true,
+          mfaSecret: true,
+          mfaLastStep: true,
+        },
+      })
+      const before = {
+        userId: user.userId,
+        status: user.status,
+        mfaEnabled: user.mfaEnabled,
+        hadMfaSecret: !!user.mfaSecret,
+        hadMfaLastStep: user.mfaLastStep !== null,
+      }
+      const changed = await tx.user.updateMany({
+        where: {
+          id: user.id,
+          status: 'ACTIVE',
+          mfaEnabled: user.mfaEnabled,
+          mfaSecret: user.mfaSecret,
+          mfaLastStep: user.mfaLastStep,
+        },
+        data: { mfaEnabled: false, mfaSecret: null, mfaLastStep: null, updatedAt: now },
+      })
+      if (changed.count !== 1) throw new ConflictException('目标账户 MFA 状态已变化，请重新读取后操作')
+      const revoked = await tx.session.updateMany({
+        where: { userId: user.id, revokedAt: null },
+        data: { revokedAt: now },
+      })
+      const after = {
+        userId: user.userId,
+        status: user.status,
+        mfaEnabled: false,
+        hadMfaSecret: false,
+        hadMfaLastStep: false,
+        revokedSessions: revoked.count,
+        resetBy: actor.userId,
+        approvalRef: request.id,
+      }
+      return { before, after }
+    }
+    const grant = {
+      assignedAt: now,
+      expiresAt: request.expiresAt,
+      revokedAt: null,
+      grantedBy: actor.userId,
+      revokedBy: null,
+      grantReason: request.reason,
+      revokeReason: null,
+      approvalRef: request.id,
+    }
+    if (request.kind === 'ROLE_GRANT') {
+      const input = payload as RoleGrantPayload
+      const role = await this.role(tx, input.roleId)
+      const user = await tx.user.findUniqueOrThrow({
+        where: { userId: input.userId },
+        select: { id: true },
+      })
+      const key = { userId: user.id, roleId: role.id }
+      const before = await tx.userRole.findUnique({ where: { userId_roleId: key } })
+      const after = await tx.userRole.upsert({
+        where: { userId_roleId: key },
+        create: { ...key, ...grant },
+        update: grant,
+      })
+      return { before, after }
+    }
+    if (request.kind === 'ROLE_PERMISSIONS') {
+      const input = payload as RolePermissionsPayload
+      const role = await this.role(tx, input.roleId)
+      const before = await tx.rolePermission.findMany({
+        where: { roleId: role.id, permissionId: { in: input.permissionIds } },
+      })
+      const after = []
+      for (const permissionId of input.permissionIds) {
+        const key = { roleId: role.id, permissionId }
+        after.push(
+          await tx.rolePermission.upsert({
+            where: { roleId_permissionId: key },
+            create: { ...key, ...grant },
+            update: grant,
+          })
+        )
+      }
+      return { before, after }
+    }
+    if (request.kind === 'API_ROUTE_CHANGE') {
+      const input = payload as ApiRouteChangePayload
+      const before = await tx.permission.findUniqueOrThrow({ where: { id: input.apiId } })
+      const after = await tx.permission.update({
+        where: { id: input.apiId },
+        data: { code: input.code, method: input.method, path: input.path },
+      })
+      return { before, after }
+    }
+    const input = payload as ElevatedScopePayload
+    const role = await this.role(tx, input.roleId)
+    const after = await tx.roleElevatedDataScope.create({
+      data: {
+        roleId: role.id,
+        resource: input.resource,
+        scopeType: input.scopeType,
+        reason: request.reason,
+        approvalRef: request.id,
+        validFrom: now,
+        expiresAt: request.expiresAt,
+        targets: {
+          create: input.targets.map((target) => ({
+            targetType: target.targetType,
+            targetId: target.targetId,
+            [TARGET_FOREIGN_KEY[target.targetType]]: target.targetId,
+          })),
+        },
+      },
+      include: { targets: true },
+    })
+    return { before: null, after }
+  }
+
+  private async revoke(tx: Tx, request: ApprovalRequest, payload: ReturnType<typeof approvalPayload>, actor: ApprovalActor, now: Date) {
+    const revocation = { revokedAt: now, revokedBy: actor.userId, revokeReason: request.reason }
+    if (request.kind === 'ELEVATED_REVOKE') {
+      const id = (payload as ElevatedRevokePayload).scopeId
+      const before = await tx.roleElevatedDataScope.findUniqueOrThrow({
+        where: { id },
+        include: { targets: true },
+      })
+      const changed = await tx.roleElevatedDataScope.updateMany({
+        where: { id, revokedAt: null },
+        data: { revokedAt: now },
+      })
+      if (changed.count !== 1) throw new ConflictException('数据范围已被其他操作回收')
+      const after = await tx.roleElevatedDataScope.findUniqueOrThrow({
+        where: { id },
+        include: { targets: true },
+      })
+      // The scope schema has no revoke actor/reason columns. Persist explicit provenance in the same atomic audit.
+      return { before, after: { ...after, revocation: { ...revocation, approvalRef: request.id } } }
+    }
+    const input = payload as RoleGrantPayload | RolePermissionsPayload
+    const role = await tx.role.findUniqueOrThrow({ where: { roleId: input.roleId } })
+    if (request.kind === 'ROLE_REVOKE') {
+      const user = await tx.user.findUniqueOrThrow({
+        where: { userId: (input as RoleGrantPayload).userId },
+        select: { id: true },
+      })
+      const key = { roleId: role.id, userId: user.id }
+      const before = await tx.userRole.findUniqueOrThrow({ where: { userId_roleId: key } })
+      const changed = await tx.userRole.updateMany({
+        where: { ...key, revokedAt: null },
+        data: revocation,
+      })
+      if (changed.count !== 1) throw new ConflictException('角色授权已被其他操作回收')
+      const after = await tx.userRole.findUniqueOrThrow({ where: { userId_roleId: key } })
+      return { before, after }
+    }
+    const permissionIds = (input as RolePermissionsPayload).permissionIds
+    const where = { roleId: role.id, permissionId: { in: permissionIds } }
+    const before = await tx.rolePermission.findMany({ where })
+    const changed = await tx.rolePermission.updateMany({
+      where: { ...where, revokedAt: null },
+      data: revocation,
+    })
+    if (changed.count !== permissionIds.length) throw new ConflictException('角色权限已被其他操作回收')
+    const after = await tx.rolePermission.findMany({ where })
+    return { before, after }
+  }
+
+  private async audit(tx: Tx, actor: ApprovalActor, context: ApprovalContext, action: string, id: string, before: unknown, after: unknown) {
+    await tx.auditLog.create({
+      data: {
+        traceId: context.traceId || randomUUID(),
+        actorId: actor.internalId,
+        action: `system.approval.${action}`,
+        resource: 'approval',
+        method: context.method || 'POST',
+        path: context.path || '/api/v1/permission/approvals',
+        result: 'SUCCESS',
+        statusCode: action === 'create' ? 201 : 200,
+        ip: context.ip,
+        userAgent: context.userAgent,
+        detail: json({
+          targetId: id,
+          actorId: actor.internalId,
+          actorUserId: actor.userId,
+          roleTypes: actor.roles.map((role) => (role as typeof role & { roleType?: string }).roleType),
+          before,
+          after,
+        }),
+      },
+    })
+  }
+}

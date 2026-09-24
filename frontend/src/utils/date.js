@@ -31,7 +31,7 @@ export function getRecentlyDateRange(day, unit, format) {
   const end = d.endOf('day')
   return [
     format ? start.format(format) : start.toDate(),
-    format ? end.format(format) : end.toDate()
+    format ? end.format(format) : end.toDate(),
   ]
 }
 
@@ -47,7 +47,7 @@ export function getCurrentDateRange(date, unit, format) {
   const end = dayjs(date).endOf(unit)
   return [
     format ? start.format(format) : start.toDate(),
-    format ? end.format(format) : end.toDate()
+    format ? end.format(format) : end.toDate(),
   ]
 }
 
@@ -69,7 +69,7 @@ export function getLastYearMonths(startDate, isContainCurrentMonth = false) {
     if (currentMonth >= start) {
       months.push({
         label: currentMonth.format('YYYY年MM月'),
-        value: currentMonth.format('YYYY-MM')
+        value: currentMonth.format('YYYY-MM'),
       })
     }
   }

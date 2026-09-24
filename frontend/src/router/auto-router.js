@@ -16,7 +16,7 @@ const ROUTE_FIELD_KEYS = new Set([
   'caseSensitive',
   'pathToRegexpOptions',
   'hidden',
-  'alwaysShow'
+  'alwaysShow',
 ])
 
 // 仅供自动路由生成器使用的配置字段
@@ -28,7 +28,7 @@ const CONTROL_FIELD_KEYS = new Set([
   'dynamic',
   'absoluteChildren',
   'ignore',
-  'meta'
+  'meta',
 ])
 
 // ========================================================
@@ -70,9 +70,7 @@ function resolveValue(ownConfig, parentConfig, key, defaultValue) {
  * => /redirect/:path(.*)
  */
 function filePathToRoutePath(filePath) {
-  let routePath = filePath
-    .replace(/^\/src\/views/, '')
-    .replace(/\.vue$/, '')
+  let routePath = filePath.replace(/^\/src\/views/, '').replace(/\.vue$/, '')
 
   if (routePath === '/index') {
     routePath = '/'
@@ -80,14 +78,10 @@ function filePathToRoutePath(filePath) {
     routePath = routePath.replace(/\/index$/, '')
   }
 
-  routePath = routePath
-    .replace(/\[\.\.\.([^\]]+)\]/g, ':$1(.*)')
-    .replace(/\[([^\]]+)\]/g, ':$1')
+  routePath = routePath.replace(/\[\.\.\.([^\]]+)\]/g, ':$1(.*)').replace(/\[([^\]]+)\]/g, ':$1')
 
   if (/[[\]]/.test(routePath)) {
-    throw new Error(
-      `[auto-router] 无法解析动态路由文件：${filePath}`
-    )
+    throw new Error(`[auto-router] 无法解析动态路由文件：${filePath}`)
   }
 
   return routePath || '/'
@@ -98,10 +92,7 @@ function splitRoutePath(routePath) {
     return []
   }
 
-  return routePath
-    .replace(/^\//, '')
-    .split('/')
-    .filter(Boolean)
+  return routePath.replace(/^\//, '').split('/').filter(Boolean)
 }
 
 /**
@@ -133,8 +124,7 @@ function createRouteName(routePath) {
     .replace(/^\//, '')
     .replace(
       /:([^/()]+)(\(\.\*\))?/g,
-      (_, paramName, catchAll) =>
-        `param-${paramName}${catchAll ? '-all' : ''}`
+      (_, paramName, catchAll) => `param-${paramName}${catchAll ? '-all' : ''}`
     )
     .replace(/[/.()*]+/g, '-')
     .replace(/-+/g, '-')
@@ -155,8 +145,7 @@ function getRouteWeight(routePath) {
 
 function sortRoutes(routes) {
   return routes.slice().sort((a, b) => {
-    const weightDiff =
-      getRouteWeight(a.path) - getRouteWeight(b.path)
+    const weightDiff = getRouteWeight(a.path) - getRouteWeight(b.path)
 
     if (weightDiff !== 0) {
       return weightDiff
@@ -180,25 +169,15 @@ function parseRouteConfig(routePath) {
   const ownConfig = pageMetaMap[routePath] || {}
   const parentConfig = getParentConfig(routePath)
 
-  const isPublic = resolveValue(
-    ownConfig,
-    parentConfig,
-    'public',
-    false
-  ) === true
+  const isPublic = resolveValue(ownConfig, parentConfig, 'public', false) === true
 
   // public:true 默认就是常量路由
-  const isDynamic = resolveValue(
-    ownConfig,
-    parentConfig,
-    'dynamic',
-    !isPublic
-  ) !== false
+  const isDynamic = resolveValue(ownConfig, parentConfig, 'dynamic', !isPublic) !== false
 
   if (isPublic && isDynamic) {
     throw new Error(
       `[auto-router] ${routePath} 同时配置了 public:true 和 dynamic:true。` +
-      '公开路由必须在应用启动时注册，请设置 dynamic:false。'
+        '公开路由必须在应用启动时注册，请设置 dynamic:false。'
     )
   }
 
@@ -218,14 +197,8 @@ function parseRouteConfig(routePath) {
   })
 
   if (ownConfig.meta !== undefined) {
-    if (
-      !ownConfig.meta ||
-      typeof ownConfig.meta !== 'object' ||
-      Array.isArray(ownConfig.meta)
-    ) {
-      throw new TypeError(
-        `[auto-router] ${routePath} 的 meta 必须是普通对象`
-      )
+    if (!ownConfig.meta || typeof ownConfig.meta !== 'object' || Array.isArray(ownConfig.meta)) {
+      throw new TypeError(`[auto-router] ${routePath} 的 meta 必须是普通对象`)
     }
 
     Object.assign(meta, ownConfig.meta)
@@ -238,27 +211,17 @@ function parseRouteConfig(routePath) {
     name: ownConfig.name,
     groupName: ownConfig.groupName,
 
-    useLayout: resolveValue(
-      ownConfig,
-      parentConfig,
-      'layout',
-      true
-    ) !== false,
+    useLayout: resolveValue(ownConfig, parentConfig, 'layout', true) !== false,
 
     isPublic,
     isDynamic,
 
-    absoluteChildren: resolveValue(
-      ownConfig,
-      parentConfig,
-      'absoluteChildren',
-      false
-    ) === true,
+    absoluteChildren: resolveValue(ownConfig, parentConfig, 'absoluteChildren', false) === true,
 
     ignore: ownConfig.ignore === true,
 
     meta,
-    routeFields
+    routeFields,
   }
 }
 
@@ -281,15 +244,14 @@ function createPages() {
         return
       }
 
-      const routeName =
-        config.name || createRouteName(routePath)
+      const routeName = config.name || createRouteName(routePath)
 
       if (pathOwners.has(routePath)) {
         throw new Error(
           [
             `[auto-router] 路由路径重复：${routePath}`,
             `- ${pathOwners.get(routePath)}`,
-            `- ${filePath}`
+            `- ${filePath}`,
           ].join('\n')
         )
       }
@@ -299,7 +261,7 @@ function createPages() {
           [
             `[auto-router] 路由名称重复：${routeName}`,
             `- ${nameOwners.get(routeName)}`,
-            `- ${filePath}`
+            `- ${filePath}`,
           ].join('\n')
         )
       }
@@ -321,8 +283,8 @@ function createPages() {
           name: routeName,
           component: modules[filePath],
           meta: config.meta,
-          ...config.routeFields
-        }
+          ...config.routeFields,
+        },
       })
     })
 
@@ -340,18 +302,14 @@ function createPages() {
 function validateGroupStrategies(pages) {
   const nestedRoots = new Set(
     pages
-      .filter(page => page.useLayout && page.segments.length > 1)
-      .map(page => page.segments[0])
+      .filter((page) => page.useLayout && page.segments.length > 1)
+      .map((page) => page.segments[0])
   )
 
   const strategyMap = new Map()
 
   pages.forEach((page) => {
-    if (
-      !page.useLayout ||
-      !page.segments.length ||
-      !nestedRoots.has(page.segments[0])
-    ) {
+    if (!page.useLayout || !page.segments.length || !nestedRoots.has(page.segments[0])) {
       return
     }
 
@@ -366,7 +324,7 @@ function validateGroupStrategies(pages) {
     if (current !== page.isDynamic) {
       throw new Error(
         `[auto-router] /${rootName} 下不能同时存在常量路由和动态路由。` +
-        `请在 pageMetaMap['/${rootName}'] 统一配置 dynamic。`
+          `请在 pageMetaMap['/${rootName}'] 统一配置 dynamic。`
       )
     }
   })
@@ -384,16 +342,14 @@ function createLayoutGroup(parentPath, hasIndexPage) {
     component: () => import('@/layout/index.vue'),
     meta: config.meta,
     ...config.routeFields,
-    children: []
+    children: [],
   }
 
   /**
    * 有 /system/index.vue 时，name 应保留给具体页面，
    * 父 Layout 如需名称，使用 groupName。
    */
-  const groupName =
-    config.groupName ||
-    (!hasIndexPage ? config.name : undefined)
+  const groupName = config.groupName || (!hasIndexPage ? config.name : undefined)
 
   if (groupName) {
     route.name = groupName
@@ -436,15 +392,11 @@ function buildRouteTable(pages) {
   })
 
   const nestedRoots = new Set(
-    layoutPages
-      .filter(page => page.segments.length > 1)
-      .map(page => page.segments[0])
+    layoutPages.filter((page) => page.segments.length > 1).map((page) => page.segments[0])
   )
 
   const indexRoots = new Set(
-    layoutPages
-      .filter(page => page.segments.length === 1)
-      .map(page => page.segments[0])
+    layoutPages.filter((page) => page.segments.length === 1).map((page) => page.segments[0])
   )
 
   const groupMap = new Map()
@@ -454,10 +406,7 @@ function buildRouteTable(pages) {
     const firstSegment = page.segments[0]
 
     // src/views 根目录页面保留 / 开头
-    if (
-      !firstSegment ||
-      !nestedRoots.has(firstSegment)
-    ) {
+    if (!firstSegment || !nestedRoots.has(firstSegment)) {
       rootLayoutChildren.push(page.route)
       return
     }
@@ -465,40 +414,30 @@ function buildRouteTable(pages) {
     const parentPath = `/${firstSegment}`
 
     if (!groupMap.has(parentPath)) {
-      groupMap.set(
-        parentPath,
-        createLayoutGroup(
-          parentPath,
-          indexRoots.has(firstSegment)
-        )
-      )
+      groupMap.set(parentPath, createLayoutGroup(parentPath, indexRoots.has(firstSegment)))
     }
 
     const group = groupMap.get(parentPath)
 
     group.children.push({
       ...page.route,
-      path: getGroupChildPath(page, parentPath)
+      path: getGroupChildPath(page, parentPath),
     })
   })
 
-  const groupRoutes = Array.from(groupMap.values())
-    .map(group => ({
-      ...group,
-      children: sortRoutes(group.children)
-    }))
+  const groupRoutes = Array.from(groupMap.values()).map((group) => ({
+    ...group,
+    children: sortRoutes(group.children),
+  }))
 
-  const routes = [
-    ...sortRoutes(independentRoutes),
-    ...sortRoutes(groupRoutes)
-  ]
+  const routes = [...sortRoutes(independentRoutes), ...sortRoutes(groupRoutes)]
 
   if (rootLayoutChildren.length) {
     routes.push({
       path: '/',
       component: () => import('@/layout/index.vue'),
       redirect: ROOT_REDIRECT,
-      children: sortRoutes(rootLayoutChildren)
+      children: sortRoutes(rootLayoutChildren),
     })
   }
 
@@ -511,17 +450,11 @@ function buildRouteTable(pages) {
 
 const pages = createPages()
 
-const constantPages = pages.filter(
-  page => !page.isDynamic
-)
+const constantPages = pages.filter((page) => !page.isDynamic)
 
-const dynamicPages = pages.filter(
-  page => page.isDynamic
-)
+const dynamicPages = pages.filter((page) => page.isDynamic)
 
-export const constantRoutes = buildRouteTable(
-  constantPages
-)
+export const constantRoutes = buildRouteTable(constantPages)
 
 export const asyncRoutes = [
   ...buildRouteTable(dynamicPages),
@@ -529,11 +462,9 @@ export const asyncRoutes = [
   // Vue Router 3 通配路由必须放在最后
   {
     path: '*',
-    redirect: pageMetaMap['/404']
-      ? '/404'
-      : '/error-page/404',
-    hidden: true
-  }
+    redirect: pageMetaMap['/404'] ? '/404' : '/error-page/404',
+    hidden: true,
+  },
 ]
 
 console.log('🔒 初始常量路由:', constantRoutes)
@@ -547,17 +478,17 @@ export function getAllMenu() {
   const menuList = []
 
   const menuListGroup = {
-    system: []
+    system: [],
   }
   let index = 0
   // 生成基于角色分类roleType的权限列表
-  asyncRoutes.map(item => {
+  asyncRoutes.map((item) => {
     if (item.meta) {
       const label = item.meta.title
       let children
       // 根路由包含ignore
       if (item.children) {
-        children = item.children.reduce((t, v, i) => {
+        children = item.children.reduce((t, v) => {
           const { title, api, buttons = [] } = v.meta || {}
           if (v.hidden) return t
           index++
@@ -599,6 +530,6 @@ export function getAllMenu() {
 
   return {
     menuList,
-    menuListGroup
+    menuListGroup,
   }
 }

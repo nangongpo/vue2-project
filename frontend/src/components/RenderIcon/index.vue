@@ -3,7 +3,7 @@ export default {
   functional: true,
   props: {
     icon: String,
-    className: String
+    className: String,
   },
   render(h, context) {
     const { icon, className } = context.props
@@ -21,6 +21,6 @@ export default {
     //   }
     // }
     return vnodes
-  }
+  },
 }
 </script>

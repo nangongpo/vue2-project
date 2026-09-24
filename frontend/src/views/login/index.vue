@@ -6,9 +6,15 @@
         <h1>{{ title }}</h1>
         <p class="intro-copy">后台管理系统</p>
         <div class="management-points">
-          <div class="management-point"><span class="point-icon">✓</span><span>用户与组织管理</span></div>
-          <div class="management-point"><span class="point-icon">✓</span><span>角色与权限配置</span></div>
-          <div class="management-point"><span class="point-icon">✓</span><span>系统运行信息查看</span></div>
+          <div class="management-point">
+            <span class="point-icon">✓</span><span>用户与组织管理</span>
+          </div>
+          <div class="management-point">
+            <span class="point-icon">✓</span><span>角色与权限配置</span>
+          </div>
+          <div class="management-point">
+            <span class="point-icon">✓</span><span>系统运行信息查看</span>
+          </div>
         </div>
         <div :class="['intro-status', 'is-' + systemStatus.state]">
           <span class="status-dot"></span>{{ systemStatus.text }}
@@ -29,8 +35,7 @@
             autocomplete="username"
             placeholder="请输入用户名/邮箱"
             @input="handleUsernameInput"
-            @blur="prepareCaptcha"
-          />
+            @blur="prepareCaptcha" />
         </div>
 
         <div class="input-group password-group">
@@ -41,8 +46,20 @@
             type="password"
             autocomplete="current-password"
             placeholder="请输入密码"
-            @input="clearLoginError"
-          />
+            @input="clearLoginError" />
+          <div v-if="!mfaEnabled" class="login-error">{{ loginError || ' ' }}</div>
+        </div>
+
+        <div v-if="mfaEnabled" class="input-group">
+          <label for="otp">动态验证码（已绑定认证器时必填）</label>
+          <input
+            id="otp"
+            v-model="loginModel.otp"
+            inputmode="numeric"
+            autocomplete="one-time-code"
+            maxlength="6"
+            placeholder="认证器中的 6 位验证码"
+            @input="clearLoginError" />
           <div class="login-error">{{ loginError || ' ' }}</div>
         </div>
 
@@ -51,7 +68,7 @@
             :class="['login-btn', { 'is-loading': loading, 'is-disabled': loading }]"
             :disabled="loading"
             type="primary"
-            style="width: 100%;"
+            style="width: 100%"
             @click="handleLogin">
             <span class="btn-loading-icon"></span>
             <span class="btn-text">{{ loadingText || '验证并登录' }}</span>
@@ -73,42 +90,84 @@
         <div ref="captchaContainer" class="captcha-container"></div>
       </div>
     </el-dialog>
+
+    <el-dialog
+      :visible.sync="securityPending"
+      width="520px"
+      custom-class="security-dialog"
+      append-to-body
+      top="5vh"
+      :show-close="false"
+      :close-on-click-modal="false"
+      :close-on-press-escape="false"
+      :before-close="blockSecurityDialogClose">
+      <session-security
+        security-only
+        :initial-security="mfaStatus"
+        @verified="finishLogin" />
+      <span slot="footer" class="dialog-footer">
+        <el-button type="danger" plain @click="cancelSecurity">退出登录</el-button>
+      </span>
+    </el-dialog>
   </div>
 </template>
 
 <script>
 import { createSliderCaptcha } from '@/utils/sliderCaptcha'
 import { REQUEST_CODE } from '@/api/codes'
-import { createCaptchaChallenge, reportCaptchaEvent, verifyCaptcha } from '@/api/user'
+import {
+  createCaptchaChallenge,
+  getMfaStatus,
+  reportCaptchaEvent,
+  verifyCaptcha,
+} from '@/api/user'
 import { getSystemHealth } from '@/api/system'
+import SessionSecurity from '@/views/system/session/index.vue'
 
 export default {
   name: 'login',
+  components: { SessionSecurity },
   data() {
     return {
       title: 'vue2-project',
       loading: false,
+      securityPending: false,
+      mfaStatus: null,
       loadingText: '',
       captchaDialogVisible: false,
       captchaLoading: false,
       captchaInitStartedAt: 0,
       systemStatus: {
         state: 'checking',
-        text: '系统状态检查中'
+        text: '系统状态检查中',
       },
       captchaVerified: false,
       captchaResult: null,
       captchaChallenge: null,
       captchaUsername: '',
       loginError: '',
+      mfaEnabled: false,
       sliderCaptcha: null,
       loginModel: {
         username: 'admin',
-        password: 'admin@123456'
+        password: 'admin@123456',
+        otp: '',
       },
     }
   },
   methods: {
+    async finishLogin() {
+      this.securityPending = false
+      await this.$router.replace({ name: 'dashboard' })
+    },
+    async cancelSecurity() {
+      await this.$store.dispatch('user/logout')
+      this.securityPending = false
+      this.mfaStatus = null
+    },
+    blockSecurityDialogClose(done) {
+      if (!this.securityPending && typeof done === 'function') done()
+    },
     async prepareCaptcha() {
       const username = (this.loginModel.username || '').trim()
       if (!username || !this.captchaDialogVisible) return
@@ -124,11 +183,19 @@ export default {
       this.initSliderCaptcha()
       try {
         this.captchaChallenge = await createCaptchaChallenge({ username })
-        if (this.sliderCaptcha && this.sliderCaptcha.SetChallenge) this.sliderCaptcha.SetChallenge(this.captchaChallenge.payload)
-        this.reportCaptchaEvent('INIT_SUCCESS', { attemptId: this.captchaChallenge.attemptId, challengeId: this.captchaChallenge.challengeId, durationMs: Date.now() - this.captchaInitStartedAt })
+        if (this.sliderCaptcha && this.sliderCaptcha.SetChallenge)
+          this.sliderCaptcha.SetChallenge(this.captchaChallenge.payload)
+        this.reportCaptchaEvent('INIT_SUCCESS', {
+          attemptId: this.captchaChallenge.attemptId,
+          challengeId: this.captchaChallenge.challengeId,
+          durationMs: Date.now() - this.captchaInitStartedAt,
+        })
       } catch (error) {
         this.loginError = error && error.message ? error.message : '验证码服务暂不可用'
-        this.reportCaptchaEvent('INIT_FAILURE', { durationMs: Date.now() - this.captchaInitStartedAt, reason: error && error.code ? String(error.code) : 'INIT_REQUEST_FAILED' })
+        this.reportCaptchaEvent('INIT_FAILURE', {
+          durationMs: Date.now() - this.captchaInitStartedAt,
+          reason: error && error.code ? String(error.code) : 'INIT_REQUEST_FAILED',
+        })
       } finally {
         this.captchaLoading = false
       }
@@ -137,25 +204,33 @@ export default {
       if (!this.$refs.captchaContainer) return
       if (this.sliderCaptcha) this.sliderCaptcha.destroy()
       this.sliderCaptcha = createSliderCaptcha(this.$refs.captchaContainer, {
-        verify: result => {
+        verify: (result) => {
           if (!this.captchaChallenge) return Promise.reject(new Error('验证码加载中，请稍候'))
           return verifyCaptcha({
             attemptId: this.captchaChallenge.attemptId,
             challengeId: this.captchaChallenge.challengeId,
             points: result.points,
             finalX: result.finalX,
-            trackWidth: result.trackWidth
+            trackWidth: result.trackWidth,
           })
         },
-        onSuccess: result => {
-          this.reportCaptchaEvent('VERIFY_SUCCESS', { attemptId: this.captchaChallenge && this.captchaChallenge.attemptId, challengeId: this.captchaChallenge && this.captchaChallenge.challengeId, durationMs: result.duration })
+        onSuccess: (result) => {
+          this.reportCaptchaEvent('VERIFY_SUCCESS', {
+            attemptId: this.captchaChallenge && this.captchaChallenge.attemptId,
+            challengeId: this.captchaChallenge && this.captchaChallenge.challengeId,
+            durationMs: result.duration,
+          })
           this.captchaVerified = true
           this.captchaResult = result
           this.captchaDialogVisible = false
           this.submitLogin()
         },
-        onFail: error => {
-          this.reportCaptchaEvent('VERIFY_FAILURE', { attemptId: this.captchaChallenge && this.captchaChallenge.attemptId, challengeId: this.captchaChallenge && this.captchaChallenge.challengeId, reason: error && error.code ? String(error.code) : 'VERIFY_FAILED' })
+        onFail: (error) => {
+          this.reportCaptchaEvent('VERIFY_FAILURE', {
+            attemptId: this.captchaChallenge && this.captchaChallenge.attemptId,
+            challengeId: this.captchaChallenge && this.captchaChallenge.challengeId,
+            reason: error && error.code ? String(error.code) : 'VERIFY_FAILED',
+          })
           this.captchaVerified = false
           this.captchaResult = null
           if (error && error.code === REQUEST_CODE.CAPTCHA_INVALID) {
@@ -163,11 +238,15 @@ export default {
             this.prepareCaptcha()
           }
         },
-        onEvent: event => {
+        onEvent: (event) => {
           if (event.event === 'RESOURCE_LOAD_FAILURE') {
-            this.reportCaptchaEvent(event.Event || event.event, { attemptId: this.captchaChallenge && this.captchaChallenge.attemptId, challengeId: this.captchaChallenge && this.captchaChallenge.challengeId, reason: event.reason })
+            this.reportCaptchaEvent(event.Event || event.event, {
+              attemptId: this.captchaChallenge && this.captchaChallenge.attemptId,
+              challengeId: this.captchaChallenge && this.captchaChallenge.challengeId,
+              reason: event.reason,
+            })
           }
-        }
+        },
       })
     },
     async handleLogin() {
@@ -184,21 +263,30 @@ export default {
       this.loadingText = '正在登录...'
       this.loading = true
       const loginPayload = { ...this.loginModel }
+      if (!loginPayload.otp) delete loginPayload.otp
       if (this.captchaResult && this.captchaResult.captchaToken) {
         loginPayload.captchaToken = this.captchaResult.captchaToken
         loginPayload.attemptId = this.captchaResult.attemptId
       }
       try {
         await this.$store.dispatch('user/login', loginPayload)
-        await this.$router.replace({ name: 'dashboard' })
+        this.loginModel.password = ''
+        this.loginModel.otp = ''
+        this.mfaStatus = await getMfaStatus()
+        if (this.mfaStatus.mfaRequired && (!this.mfaStatus.mfaEnabled || !this.mfaStatus.mfaVerifiedAt)) {
+          this.securityPending = true
+        } else {
+          await this.finishLogin()
+        }
       } catch (error) {
         this.loginError = error && error.message ? error.message : '登录失败，请重试'
+        if (this.loginError.includes('动态验证码')) this.mfaEnabled = true
         this.captchaVerified = false
         this.captchaResult = null
-        const needsCaptcha = error && (
-          error.code === REQUEST_CODE.CAPTCHA_REQUIRED
-          || error.code === REQUEST_CODE.CAPTCHA_INVALID
-        )
+        const needsCaptcha =
+          error &&
+          (error.code === REQUEST_CODE.CAPTCHA_REQUIRED ||
+            error.code === REQUEST_CODE.CAPTCHA_INVALID)
         if (needsCaptcha) {
           this.captchaChallenge = null
           this.captchaDialogVisible = true
@@ -226,6 +314,7 @@ export default {
     },
     handleUsernameInput() {
       this.loginError = ''
+      this.mfaEnabled = false
       const username = (this.loginModel.username || '').trim()
       if (this.captchaUsername && username !== this.captchaUsername) {
         this.captchaChallenge = null
@@ -247,14 +336,14 @@ export default {
       } catch {
         this.systemStatus = { state: 'error', text: '系统服务不可用' }
       }
-    }
+    },
   },
   mounted() {
     this.checkSystemHealth()
   },
   beforeDestroy() {
     if (this.sliderCaptcha) this.sliderCaptcha.destroy()
-  }
+  },
 }
 </script>
 <style scoped>
@@ -271,7 +360,7 @@ export default {
 
 /* 使用伪元素承载背景和动画 */
 .tech-bg::before {
-  content: "";
+  content: '';
   position: absolute;
   /* 将伪元素放大，模拟 400% 的 background-size 效果 */
   top: -50%;
@@ -285,9 +374,15 @@ export default {
 }
 
 @keyframes gradientMove {
-  0% { transform: translate(0, 0); }
-  50% { transform: translate(25%, 25%); }
-  100% { transform: translate(0, 0); }
+  0% {
+    transform: translate(0, 0);
+  }
+  50% {
+    transform: translate(25%, 25%);
+  }
+  100% {
+    transform: translate(0, 0);
+  }
 }
 
 .login-container {
@@ -301,10 +396,10 @@ export default {
   min-height: 420px;
   padding: 0;
   overflow: hidden;
-  background: rgba(11, 17, 30, .94);
-  border: 1px solid rgba(0, 242, 254, .52);
+  background: rgba(11, 17, 30, 0.94);
+  border: 1px solid rgba(0, 242, 254, 0.52);
   border-radius: 10px;
-  box-shadow: 0 24px 70px rgba(0, 0, 0, .72), 0 0 35px rgba(0, 242, 254, .08);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.72), 0 0 35px rgba(0, 242, 254, 0.08);
 }
 
 .login-intro {
@@ -314,7 +409,7 @@ export default {
   flex-direction: column;
   padding: 48px 48px 36px;
   overflow: hidden;
-  background: linear-gradient(145deg, rgba(12, 45, 75, .96), rgba(7, 18, 35, .98));
+  background: linear-gradient(145deg, rgba(12, 45, 75, 0.96), rgba(7, 18, 35, 0.98));
 }
 
 .login-intro::after {
@@ -323,9 +418,9 @@ export default {
   bottom: -110px;
   width: 270px;
   height: 270px;
-  border: 1px solid rgba(0, 242, 254, .22);
+  border: 1px solid rgba(0, 242, 254, 0.22);
   border-radius: 50%;
-  box-shadow: 0 0 0 22px rgba(0, 242, 254, .04), 0 0 0 44px rgba(0, 242, 254, .025);
+  box-shadow: 0 0 0 22px rgba(0, 242, 254, 0.04), 0 0 0 44px rgba(0, 242, 254, 0.025);
   content: '';
 }
 
@@ -386,7 +481,7 @@ export default {
   margin-right: 7px;
   background: #55d68b;
   border-radius: 50%;
-  box-shadow: 0 0 9px rgba(85, 214, 139, .8);
+  box-shadow: 0 0 9px rgba(85, 214, 139, 0.8);
 }
 
 .intro-status.is-checking {
@@ -395,7 +490,7 @@ export default {
 
 .intro-status.is-checking .status-dot {
   background: #e6a23c;
-  box-shadow: 0 0 9px rgba(230, 162, 60, .65);
+  box-shadow: 0 0 9px rgba(230, 162, 60, 0.65);
 }
 
 .intro-status.is-error {
@@ -404,13 +499,13 @@ export default {
 
 .intro-status.is-error .status-dot {
   background: #f56c6c;
-  box-shadow: 0 0 9px rgba(245, 108, 108, .7);
+  box-shadow: 0 0 9px rgba(245, 108, 108, 0.7);
 }
 
 .login-form-panel {
   flex: 1;
   padding: 38px 40px 28px;
-  background: rgba(8, 14, 25, .82);
+  background: rgba(8, 14, 25, 0.82);
 }
 
 .login-heading {
@@ -446,6 +541,39 @@ export default {
   color: #8495a6;
   font-size: 13px;
   line-height: 1.6;
+}
+
+::v-deep .security-dialog .page-title {
+  padding: 8px 0 10px 0;
+  line-height: 24px;
+  font-size: 18px;
+  font-weight: 700;
+  color: #303133;
+}
+
+::v-deep .security-dialog .el-dialog__header {
+  display: none;
+}
+
+::v-deep .security-dialog .el-dialog__body {
+  padding: 12px 22px 0;
+}
+
+::v-deep .security-dialog .page-container {
+  padding: 0;
+}
+
+::v-deep .security-dialog .security-card {
+  margin-bottom: 0;
+  border: 0;
+}
+
+::v-deep .security-dialog .security-card .el-card__body {
+  padding: 0;
+}
+
+::v-deep .security-dialog .security-card form {
+  max-width: none;
 }
 
 .login-error {
@@ -530,8 +658,12 @@ export default {
 }
 
 @keyframes btnSpinner {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
 }
 
 .login-btn.is-loading .btn-loading-icon {

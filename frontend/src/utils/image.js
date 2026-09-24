@@ -28,13 +28,13 @@ export function imageCompress(file, type) {
       success: (result) => {
         // 封装返回 File 对象
         const newFile = new File([result], file.name, {
-          type: result.type
+          type: result.type,
         })
         resolve(newFile)
       },
       error: (err) => {
         reject(err)
-      }
+      },
     })
   })
 }
@@ -84,7 +84,7 @@ export function base64ToFile(base64, filename) {
     u8arr[n] = bstr.charCodeAt(n)
   }
   return new File([u8arr], `${filename}.${suffix}`, {
-    type: mime
+    type: mime,
   })
 }
 
@@ -119,8 +119,9 @@ export function isBase64Image(str) {
  * @returns {Promise}
  */
 export function uploadImage(file, config = {}, otherOpts = {}) {
-  return imageCompress(file, file.type)
-    .then(file => uploadFile({ file, img_type: config.prop, ...otherOpts }))
+  return imageCompress(file, file.type).then((file) =>
+    uploadFile({ file, img_type: config.prop, ...otherOpts })
+  )
 }
 
 /**
@@ -129,7 +130,7 @@ export function uploadImage(file, config = {}, otherOpts = {}) {
  * @returns  {Promise<undefined>}
  */
 export function videoSeekReady(video) {
-  return new Promise(resolve => {
+  return new Promise((resolve) => {
     if (video.readyState >= 2) {
       resolve()
     } else {

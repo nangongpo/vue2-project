@@ -4,15 +4,14 @@
       id="hamburger-container"
       :is-active="sidebar.opened"
       class="hamburger-container"
-      @toggleClick="toggleSideBar"
-    />
+      @toggleClick="toggleSideBar" />
 
     <breadcrumb id="breadcrumb-container" class="breadcrumb-container" />
 
     <div class="right-menu">
       <template v-if="device !== 'mobile'">
         <el-tooltip content="应用检索" effect="dark" placement="bottom">
-          <search id="header-search" class="right-menu-item" />
+          <header-search id="header-search" class="right-menu-item"></header-search>
         </el-tooltip>
 
         <!-- <el-tooltip content="意见与建议" effect="dark" placement="bottom">
@@ -52,9 +51,7 @@
           <el-dropdown-item divided command="logout">退出</el-dropdown-item>
         </el-dropdown-menu>
       </el-dropdown>
-      <div
-        class="right-menu-item hover-effect logout-container"
-        @click="handleCommand('logout')">
+      <div class="right-menu-item hover-effect logout-container" @click="handleCommand('logout')">
         <svg-icon icon-class="exit" class="exit-icon" />
         <span> 退出</span>
       </div>
@@ -86,10 +83,7 @@
       </base-form>
       <template v-if="dialogConfig.showFooter" #footer>
         <el-button @click="dialogConfig.visible = false">关 闭</el-button>
-        <el-button
-          :loading="dialogConfig.loading"
-          type="primary"
-          @click="handleSubmit">
+        <el-button :loading="dialogConfig.loading" type="primary" @click="handleSubmit">
           确 定
         </el-button>
       </template>
@@ -120,7 +114,7 @@ import Hamburger from '@/components/Hamburger/index.vue'
 import ErrorLog from '@/components/ErrorLog/index.vue'
 import Screenfull from '@/components/Screenfull/index.vue'
 import SizeSelect from '@/components/SizeSelect/index.vue'
-import Search from '@/components/HeaderSearch/index.vue'
+import HeaderSearch from '@/components/HeaderSearch/index.vue'
 import BaseForm from '@/components/BaseForm/index.vue'
 import RenderJsx from '@/components/RenderJsx/index.vue'
 import allPatterns from '@/utils/patterns'
@@ -135,9 +129,9 @@ export default {
     ErrorLog,
     Screenfull,
     SizeSelect,
-    Search,
+    HeaderSearch,
     BaseForm,
-    RenderJsx
+    RenderJsx,
   },
   data() {
     return {
@@ -152,33 +146,33 @@ export default {
         fields: [],
         model: {},
         patterns: {},
-        showFooter: false
+        showFooter: false,
       },
       messageDialog: {
         visible: false,
         title: '',
         width: '',
-        message: ''
+        message: '',
       },
-      loginInfoShown: false
+      loginInfoShown: false,
     }
   },
   computed: {
     ...mapGetters(['sidebar', 'device', 'userInfo', 'loginInfoPending', 'allOptions']),
     roleNames() {
-      return (this.userInfo.roles || []).map(role => role.name).join('、') || '-'
-    }
+      return (this.userInfo.roles || []).map((role) => role.name).join('、') || '-'
+    },
   },
   watch: {
     userInfo: {
       immediate: true,
       handler() {
         this.tryShowLoginInfo()
-      }
+      },
     },
     loginInfoPending() {
       this.tryShowLoginInfo()
-    }
+    },
   },
   methods: {
     tryShowLoginInfo() {
@@ -222,7 +216,7 @@ export default {
                 editable: true,
                 required: true,
                 render: 'input',
-                type: 'password'
+                type: 'password',
               },
               {
                 label: '新密码',
@@ -234,7 +228,7 @@ export default {
                 editable: true,
                 required: true,
                 render: 'input',
-                type: 'password'
+                type: 'password',
               },
               {
                 label: '确认密码',
@@ -246,8 +240,8 @@ export default {
                 required: true,
                 render: 'input',
                 type: 'password',
-                placeholder: '再次输入新密码'
-              }
+                placeholder: '再次输入新密码',
+              },
             ],
             model: { password: '', confirm_password: '' },
             patterns: {
@@ -263,9 +257,9 @@ export default {
                   } else {
                     callback()
                   }
-                }
-              }
-            }
+                },
+              },
+            },
           }
           break
         case 'logout':
@@ -291,7 +285,7 @@ export default {
         { label: '上次登录失败地址', value: '-' },
         { label: '用户有效期剩余天数', value: user.userExpireDays ?? '-' },
         { label: '密码有效期剩余天数', value: user.passwordExpireDays ?? '-' },
-        { label: '上次成功访问之后用户身份鉴别失败次数', value: user.failedLogins ?? 0 }
+        { label: '上次成功访问之后用户身份鉴别失败次数', value: user.failedLogins ?? 0 },
       ]
 
       const vNodes = loginInfo.map((item) => {
@@ -310,11 +304,11 @@ export default {
         showCancelButton: false,
         showConfirmButton: false,
         closeOnClickModal: false,
-        callback: () => {}
+        callback: () => {},
       })
     },
     handleSubmit() {
-      const { dialogConfig, userInfo } = this
+      const { dialogConfig } = this
       const { title, action, model } = dialogConfig
       this.$refs.dialog.validate((valid) => {
         if (!valid) return
@@ -323,57 +317,60 @@ export default {
             dialogConfig.loading = true
             updatePassword({
               currentPassword: model.password,
-              newPassword: model.new_password
-            }).then(() => {
-              dialogConfig.visible = false
-              dialogConfig.loading = false
-
-              countDown((second) => {
-                const visible = second > 0
-                if (visible) {
-                  this.messageDialog = {
-                    visible,
-                    title,
-                    width: '400px',
-                    message: (h) => (
-                      h('div', [
-                        '操作成功, ',
-                        h('strong', { class: 'text-primary' }, `${second}s`),
-                        ' 后自动进入登录页面'
-                      ])
-                    )
-                  }
-                  return
-                }
-                this.messageDialog.visible = visible
-                this.$store.dispatch('user/resetToken').then(() => {
-                  this.$router.replace({ name: 'login' })
-                })
-              }, 3)
-            }).catch(() => {
-              dialogConfig.loading = false
+              newPassword: model.new_password,
             })
+              .then(() => {
+                dialogConfig.visible = false
+                dialogConfig.loading = false
+
+                countDown((second) => {
+                  const visible = second > 0
+                  if (visible) {
+                    this.messageDialog = {
+                      visible,
+                      title,
+                      width: '400px',
+                      message: (h) =>
+                        h('div', [
+                          '操作成功, ',
+                          h('strong', { class: 'text-primary' }, `${second}s`),
+                          ' 后自动进入登录页面',
+                        ]),
+                    }
+                    return
+                  }
+                  this.messageDialog.visible = visible
+                  this.$store.dispatch('user/resetToken').then(() => {
+                    this.$router.replace({ name: 'login' })
+                  })
+                }, 3)
+              })
+              .catch(() => {
+                dialogConfig.loading = false
+              })
             break
           case 'updateUnitInfo':
             dialogConfig.loading = true
-            updateUnitInfo(model).then(() => {
-              dialogConfig.visible = false
-              dialogConfig.loading = false
-              this.$notify.success({
-                title,
-                message: '操作成功'
+            updateUnitInfo(model)
+              .then(() => {
+                dialogConfig.visible = false
+                dialogConfig.loading = false
+                this.$notify.success({
+                  title,
+                  message: '操作成功',
+                })
               })
-            }).catch(() => {
-              dialogConfig.loading = false
-            })
+              .catch(() => {
+                dialogConfig.loading = false
+              })
             break
         }
       })
     },
     handleFormReset(formName) {
-      this.$refs[formName] && this.$refs[formName].resetFields()
-    }
-  }
+      if (this.$refs[formName]) this.$refs[formName].resetFields()
+    },
+  },
 }
 </script>
 

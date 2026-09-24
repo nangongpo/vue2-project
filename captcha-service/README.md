@@ -1,37 +1,84 @@
 # captcha-service
 
-独立的一次性验证码服务。当前生产类型只有 `SLIDER`，服务端生成资源、保存答案、校验轨迹并签发一次性 `CaptchaToken`；浏览器不访问内部接口。
+独立的一次性验证码服务。目前提供 `SLIDER` 类型验证码：服务端生成挑战资源、保存答案上下文、校验滑动轨迹并签发一次性 `CaptchaToken`。
 
-配置参数说明见 [`CONFIGURATION.md`](CONFIGURATION.md)。
+浏览器只能访问 backend 的 `/api/v1/captcha/*` 接口，不能直接访问本服务的 `/internal/*` 接口。backend 使用服务身份和 HMAC-SHA256 签名调用本服务。
 
-## 运行
+## 环境要求与运行
 
-项目使用 `.nvmrc` 中的 Node 版本：
+- Node.js：使用仓库根目录 `.nvmrc` 指定的版本。
+- Redis：必需，保存 Challenge、Token、Nonce 和限流状态。
+- backend 和 captcha-service 必须使用一致的 `CAPTCHA_SERVICE_ID`、`CAPTCHA_SERVICE_SECRET`。
 
 ```bash
 nvm use
-cp .env.example .env
 pnpm install
+cp captcha-service/.env.example captcha-service/.env
 pnpm dev:captcha
 ```
 
-服务默认监听 `127.0.0.1:3100`。`/health` 只表示进程存活，`/ready` 同时检查 Redis。
+默认监听 `127.0.0.1:3100`：
+
+- `GET /health`：进程存活检查。
+- `GET /ready`：检查 Redis、资源和协议是否就绪。
+
+生产构建和启动：
+
+```bash
+pnpm --filter captcha-service build
+node captcha-service/dist/main.js
+```
+
+## 配置
+
+主要配置位于 `captcha-service/.env`：
+
+| 参数 | 默认值 | 说明 |
+| --- | --- | --- |
+| `NODE_ENV` | `development` | 环境名称，也用于 Redis key 隔离。 |
+| `CAPTCHA_HOST` | `127.0.0.1` | 监听地址；生产环境禁止绑定 `0.0.0.0` 或 `::`。 |
+| `CAPTCHA_PORT` | `3100` | 服务端口。 |
+| `CAPTCHA_SERVICE_ID` | `backend-admin` | backend 调用方 ID。 |
+| `CAPTCHA_SERVICE_SECRET` | 无安全默认值 | HMAC 密钥；生产环境至少 32 位。 |
+| `CAPTCHA_PREFIX` | `yaxbgo` | 服务端实例和 Redis 状态隔离标识。 |
+| `CAPTCHA_SERVICE_BINDINGS` | 空 | 多 backend 的 JSON 绑定配置。 |
+| `REDIS_URL` | `redis://127.0.0.1:6379` | Redis 连接串，必填。 |
+| `REDIS_ENABLED` | `true` | 生产环境必须为 `true`。 |
+| `CAPTCHA_CHALLENGE_TTL` | `120` | Challenge 有效期，秒。 |
+| `CAPTCHA_TOKEN_TTL` | `120` | 一次性 Token 有效期，秒。 |
+| `CAPTCHA_MAX_TRACK_POINTS` | `300` | 单次轨迹最大点数。 |
+
+完整参数见 [`CONFIGURATION.md`](CONFIGURATION.md)。
 
 ## 内部协议
 
-接口使用扁平 PascalCase JSON：
+接口使用 PascalCase JSON：
 
-- `POST /internal/v1/challenges` / `CreateChallenge`
-- `POST /internal/v1/verify` / `VerifyChallenge`
-- `POST /internal/v1/tokens/consume` / `ConsumeToken`
-- `POST /internal/v1/events` / `ReportEvent`
+- `POST /internal/v1/challenges`：`CreateChallenge`
+- `POST /internal/v1/verify`：`VerifyChallenge`
+- `POST /internal/v1/tokens/consume`：`ConsumeToken`
+- `POST /internal/v1/events`：`ReportEvent`
 
-请求必须包含 `ApiVersion=1`、`ProtocolVersion=1.0`、`ServiceId`、`Timestamp`、`SignatureMethod=HMAC-SHA1`、`SignatureVersion=1.0`、`SignatureNonce` 和 `Signature`。签名按 RFC3986 规范化除 `Signature` 外的所有参数，并使用 `HMAC-SHA1(ServiceSecret + "&")`。服务端使用 Redis `SET NX EX` 防止 nonce 重放；不使用自定义请求头。
+请求包含 `ApiVersion`、`ProtocolVersion`、`ServiceId`、`Timestamp`、`SignatureMethod=HMAC-SHA256`、`SignatureVersion=1.0`、`SignatureNonce` 和 `Signature`。签名使用 RFC3986 规范化参数，并计算：
 
-`Prefix` 只存在于 captcha-service 服务端绑定、Redis key、日志和监控中，不注入前端配置、不返回浏览器、不进入内部请求体，也不参与签名。`ServiceId` 到 `Prefix`、`ServiceSecret` 和 `SceneId` 的绑定通过环境变量或受保护配置注入。
+```text
+HMAC-SHA256(secret + "&", METHOD + "&%2F&" + encodedCanonicalQuery)
+```
 
-## 状态和安全边界
+Nonce 使用 Redis 原子写入防止重放；Challenge 和 Token 只能按协议消费一次。无效签名、过期请求、Redis 故障或验证码校验不确定时默认拒绝。
 
-Challenge、Token、Nonce 和限流计数均使用带环境及 Prefix 的 Redis key。挑战验证成功或失败都会被原子消费；Token 最多成功消费一次；Redis 或验证码引擎无法确认结果时默认拒绝。日志只输出结构化技术事件，不记录密钥、签名、答案、目标坐标、完整 IP、完整 User-Agent 或验证码资源内容。
+## 安全边界
 
-`ROTATE`、`CONCAT`、`WORD_IMAGE_CLICK` 尚未实现，不会被场景配置误允许。
+- captcha-service 不实现登录、用户、角色、权限或业务数据库。
+- 浏览器不得直接访问 captcha-service。
+- 生产环境应通过网络 ACL 只允许 backend 访问本服务；本服务不应暴露公网。
+- 非本机的生产 `CAPTCHA_SERVICE_URL` 必须使用 HTTPS；同机回环通信可使用 `127.0.0.1`。
+- 不记录 ServiceSecret、签名、验证码答案、完整轨迹、CaptchaToken 或完整用户代理。
+- `CAPTCHA_PREFIX` 只存在于服务端绑定、Redis key、日志和监控中，不下发浏览器。
+
+## 测试
+
+```bash
+pnpm --filter captcha-service test
+pnpm --filter captcha-service build
+```

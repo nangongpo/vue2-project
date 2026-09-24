@@ -1,5 +1,5 @@
 <template>
-  <div :class="{'show':show}" class="header-search">
+  <div :class="{ show: show }" class="header-search">
     <svg-icon class-name="search-icon" icon-class="search" @click.stop="click" />
     <el-select
       v-if="show"
@@ -12,7 +12,11 @@
       placeholder="请输入应用关键词"
       class="header-search-select"
       @change="change">
-      <el-option v-for="item in options" :key="item.path" :value="item" :label="item.title.join(' > ')" />
+      <el-option
+        v-for="item in options"
+        :key="item.path"
+        :value="item"
+        :label="item.title.join(' > ')" />
     </el-select>
   </div>
 </template>
@@ -31,13 +35,13 @@ export default {
       options: [],
       searchPool: [],
       show: false,
-      fuse: undefined
+      fuse: undefined,
     }
   },
   computed: {
     routes() {
       return this.$store.getters.permission_routes
-    }
+    },
   },
   watch: {
     routes() {
@@ -52,7 +56,7 @@ export default {
       } else {
         document.body.removeEventListener('click', this.close)
       }
-    }
+    },
   },
   mounted() {
     this.searchPool = this.generateRoutes(this.routes)
@@ -62,12 +66,12 @@ export default {
       this.show = !this.show
       if (this.show) {
         this.$nextTick(() => {
-          this.$refs.headerSearchSelect && this.$refs.headerSearchSelect.focus()
+          if (this.$refs.headerSearchSelect) this.$refs.headerSearchSelect.focus()
         })
       }
     },
     close() {
-      this.$refs.headerSearchSelect && this.$refs.headerSearchSelect.blur()
+      if (this.$refs.headerSearchSelect) this.$refs.headerSearchSelect.blur()
       this.options = []
       this.show = false
     },
@@ -87,13 +91,16 @@ export default {
         distance: 100,
         maxPatternLength: 32,
         minMatchCharLength: 1,
-        keys: [{
-          name: 'title',
-          weight: 0.7
-        }, {
-          name: 'path',
-          weight: 0.3
-        }]
+        keys: [
+          {
+            name: 'title',
+            weight: 0.7,
+          },
+          {
+            name: 'path',
+            weight: 0.3,
+          },
+        ],
       })
     },
     // Filter out the routes that can be displayed in the sidebar
@@ -103,11 +110,13 @@ export default {
 
       for (const router of routes) {
         // skip hidden router
-        if (router.hidden) { continue }
+        if (router.hidden) {
+          continue
+        }
 
         const data = {
           path: path.resolve(basePath, router.path),
-          title: [...prefixTitle]
+          title: [...prefixTitle],
         }
 
         if (router.meta && router.meta.title) {
@@ -136,8 +145,8 @@ export default {
       } else {
         this.options = []
       }
-    }
-  }
+    },
+  },
 }
 </script>
 

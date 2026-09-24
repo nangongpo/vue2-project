@@ -11,7 +11,7 @@ export const REQUEST_CODE = Object.freeze({
   CAPTCHA_REQUIRED: '100007',
   CAPTCHA_INVALID: '100008',
   INTERNAL_ERROR: '200000',
-  DATABASE_ERROR: '200001'
+  DATABASE_ERROR: '200001',
 })
 
 export const REQUEST_MESSAGE = Object.freeze({
@@ -26,7 +26,7 @@ export const REQUEST_MESSAGE = Object.freeze({
   [REQUEST_CODE.CAPTCHA_REQUIRED]: '请先完成滑块验证',
   [REQUEST_CODE.CAPTCHA_INVALID]: '滑块验证失败，请重试',
   [REQUEST_CODE.INTERNAL_ERROR]: '服务器内部错误',
-  [REQUEST_CODE.DATABASE_ERROR]: '数据服务暂不可用'
+  [REQUEST_CODE.DATABASE_ERROR]: '数据服务暂不可用',
 })
 
-export const isSuccessCode = code => code === REQUEST_CODE.SUCCESS
+export const isSuccessCode = (code) => code === REQUEST_CODE.SUCCESS

@@ -5,21 +5,16 @@ import { fileToBase64 } from '@/utils/image'
  * 公用请求
  * @param {object} options { url, method, params, header, config }
  * {
-    * url @param {string} 请求地址
-    * method @param {string} 请求方法
-    * params @param {object} 请求参数
-    * headers @param {object} 自定义请求头, 如上传文件 { 'Content-Type': 'multipart/form-data' }
-    * config @param {object} 自定义配置项
+ * url @param {string} 请求地址
+ * method @param {string} 请求方法
+ * params @param {object} 请求参数
+ * headers @param {object} 自定义请求头, 如上传文件 { 'Content-Type': 'multipart/form-data' }
+ * config @param {object} 自定义配置项
  * }
  * @returns {promise}
  */
 export async function sendRequest(options = {}) {
-  const {
-    url = '',
-    method = '',
-    params = {},
-    config = { showNotify: true }
-  } = options
+  const { url = '', method = '', params = {}, config = { showNotify: true } } = options
   // 是否是url传參(get,delete请求为url传參)
   const isUrlParams = /(get|delete|head)/.test(method)
   // url传参，需传递params参数
@@ -39,7 +34,7 @@ export async function sendRequest(options = {}) {
           file_name: value.name,
           file_size: value.size,
           file_type: value.type,
-          base64: base64Str.split(',')[1]
+          base64: base64Str.split(',')[1],
         }
       } else {
         _data[key] = params[key]
@@ -58,18 +53,22 @@ export async function sendRequest(options = {}) {
     }
     service({
       ...baseConfig,
-      ...config
-    }).then(data => {
-      resolve(data)
-    }).catch(error => {
-      const traceID = error?.traceId
-      config.showNotify && error.message && notify({
-        dangerouslyUseHTMLString: true,
-        title: '操作提示',
-        message: `<strong>错误信息:${error.message}</strong></br>消息码:${traceID}`
-      })
-      reject(error)
+      ...config,
     })
+      .then((data) => {
+        resolve(data)
+      })
+      .catch((error) => {
+        const traceID = error?.traceId
+        if (config.showNotify && error.message) {
+          notify({
+            dangerouslyUseHTMLString: false,
+            title: '操作提示',
+            message: `错误信息：${error.message}\n请求标识：${traceID || '未提供'}`,
+          })
+        }
+        reject(error)
+      })
   })
 }
 
@@ -79,7 +78,7 @@ export function axiosGet(url, params, config) {
     url,
     method: 'get',
     params,
-    config
+    config,
   })
 }
 
@@ -89,7 +88,7 @@ export function axiosPost(url, params, config) {
     url,
     method: 'post',
     params,
-    config
+    config,
   })
 }
 
@@ -115,7 +114,7 @@ export async function uploadFile(params = {}) {
         file_name: value.name,
         file_size: value.size,
         file_type: value.type,
-        base64: base64Str.split(',')[1]
+        base64: base64Str.split(',')[1],
       }
     } else {
       data[key] = value
@@ -126,9 +125,11 @@ export async function uploadFile(params = {}) {
     sendRequest({
       url: '/upload_img/',
       method: 'post',
-      params: data
-    }).then(res => {
-      resolve(res.url)
-    }).catch(reject)
+      params: data,
+    })
+      .then((res) => {
+        resolve(res.url)
+      })
+      .catch(reject)
   })
 }

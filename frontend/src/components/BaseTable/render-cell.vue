@@ -8,13 +8,17 @@ export default {
     scope: Object,
     config: Object,
     item: Object,
-    parent: Object
+    parent: Object,
   },
   renderError,
   render(h, context) {
     const { scope = {}, config = {}, item = {}, parent = {} } = context.props
     const { render, prop, editable } = config
-    const { value, cellValue, options, defaultValue } = getTableColumnValue(config, scope.row, parent)
+    const { value, cellValue, options, defaultValue } = getTableColumnValue(
+      config,
+      scope.row,
+      parent
+    )
 
     scope['value'] = value
     scope['prop'] = prop
@@ -25,11 +29,11 @@ export default {
       scope.row[prop] = newValue
     }
 
-    if (typeof (render) === 'function') {
+    if (typeof render === 'function') {
       return render(h, scope) || [defaultValue]
     }
 
     return [isValidValue(cellValue) ? cellValue : defaultValue]
-  }
+  },
 }
 </script>

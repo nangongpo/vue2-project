@@ -1,5 +1,5 @@
-import '@/theme/base.css';
-import '@/theme/icon.css';
+import '@/theme/base.css'
+import '@/theme/icon.css'
 import '@/theme/message.css'
 import '@/theme/message-box.css'
 import '@/theme/notification.css'
@@ -19,7 +19,7 @@ export default {
     Vue.component('el-table-column', TableColumn)
     Vue.prototype.$ELEMENT = {
       size: opts.size || '',
-      zIndex: opts.zIndex || 2000
+      zIndex: opts.zIndex || 2000,
     }
 
     Vue.use(Loading.directive)
@@ -32,5 +32,5 @@ export default {
     // Vue.prototype.$prompt = MessageBox.prompt
     Vue.prototype.$notify = Notification
     Vue.prototype.$message = Message
-  }
+  },
 }
