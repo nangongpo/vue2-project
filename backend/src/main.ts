@@ -9,6 +9,7 @@ import { ApiExceptionFilter } from './common/filters/api-exception.filter.js'
 import Joi from 'joi'
 import { AuditService } from './audit/services/audit.service.js'
 import { TraceIdInterceptor } from './common/interceptors/trace-id.interceptor.js'
+import { ApiResponseInterceptor } from './common/interceptors/api-response.interceptor.js'
 
 try {
   loadEnvFile()
@@ -32,12 +33,16 @@ const env = Joi.object({
   SESSION_TTL_SECONDS: Joi.number().integer().min(300).max(86400).default(1800),
   SESSION_MAX_CONCURRENT: Joi.number().integer().min(1).max(100).default(3),
   SESSION_IDLE_TTL_SECONDS: Joi.number().integer().min(300).max(86400).default(1800),
+  PREAUTH_TTL_SECONDS: Joi.number().integer().min(60).max(900).default(300),
   API_RATE_LIMIT: Joi.number().integer().min(1).max(10000).default(120),
   API_RATE_WINDOW_SECONDS: Joi.number().integer().min(1).max(3600).default(60),
   LOGIN_FAILURE_LIMIT: Joi.number().integer().min(1).max(20).default(5),
   LOGIN_LOCK_MINUTES: Joi.number().integer().min(1).max(1440).default(15),
   LOGIN_RATE_LIMIT: Joi.number().integer().min(1).max(1000).default(10),
   LOGIN_RATE_WINDOW_SECONDS: Joi.number().integer().min(1).max(3600).default(60),
+  CAPTCHA_RATE_WINDOW_SECONDS: Joi.number().integer().min(1).max(3600).default(60),
+  CAPTCHA_CHALLENGE_RATE_LIMIT: Joi.number().integer().min(1).max(1000).default(10),
+  CAPTCHA_VERIFY_RATE_LIMIT: Joi.number().integer().min(1).max(1000).default(30),
   IDEMPOTENCY_LOCK_SECONDS: Joi.number().integer().min(2).max(60).default(15),
   CAPTCHA_SERVICE_URL: Joi.string()
     .uri({ scheme: ['http', 'https'] })
@@ -80,9 +85,12 @@ if (env.value.NODE_ENV === 'production') {
   } catch {
     throw new Error('生产环境必须配置有效的 PUBLIC_HTTPS_ORIGIN')
   }
-  if (publicOrigin.protocol !== 'https:') throw new Error('生产环境 PUBLIC_HTTPS_ORIGIN 必须使用 HTTPS')
-  if (!env.value.TRUST_PROXY) throw new Error('生产环境必须显式配置 TRUST_PROXY=true，以校验反向代理的 HTTPS 协议')
-  if (env.value.COOKIE_DOMAIN) throw new Error('生产环境 COOKIE_DOMAIN 必须留空，避免扩大会话 Cookie 的作用域')
+  if (publicOrigin.protocol !== 'https:')
+    throw new Error('生产环境 PUBLIC_HTTPS_ORIGIN 必须使用 HTTPS')
+  if (!env.value.TRUST_PROXY)
+    throw new Error('生产环境必须显式配置 TRUST_PROXY=true，以校验反向代理的 HTTPS 协议')
+  if (env.value.COOKIE_DOMAIN)
+    throw new Error('生产环境 COOKIE_DOMAIN 必须留空，避免扩大会话 Cookie 的作用域')
   const origins = env.value.CSRF_ALLOWED_ORIGINS.split(',').map((item: string) => item.trim())
   for (const origin of origins) {
     let parsed: URL
@@ -136,14 +144,25 @@ async function bootstrap() {
   })
   app.setGlobalPrefix('api/v1')
   app.enableCors({ origin: false, credentials: true })
-  const allowedCustomHeaders = new Set(['x-forwarded-for', 'x-forwarded-host', 'x-forwarded-proto', 'x-idempotency-key', 'idempotency-key'])
+  const allowedCustomHeaders = new Set([
+    'x-forwarded-for',
+    'x-forwarded-host',
+    'x-forwarded-proto',
+    'x-idempotency-key',
+    'idempotency-key',
+  ])
   app
     .getHttpAdapter()
     .getInstance()
-    .addHook('onRequest', async (request: { headers: Record<string, string | string[] | undefined> }) => {
-      const unsupported = Object.keys(request.headers).find((name) => name.startsWith('x-') && !allowedCustomHeaders.has(name))
-      if (unsupported) throw new BadRequestException(`不支持的请求头: ${unsupported}`)
-    })
+    .addHook(
+      'onRequest',
+      async (request: { headers: Record<string, string | string[] | undefined> }) => {
+        const unsupported = Object.keys(request.headers).find(
+          (name) => name.startsWith('x-') && !allowedCustomHeaders.has(name)
+        )
+        if (unsupported) throw new BadRequestException(`不支持的请求头: ${unsupported}`)
+      }
+    )
   if (isProduction && enableHttps) {
     app
       .getHttpAdapter()
@@ -163,6 +182,7 @@ async function bootstrap() {
     })
   )
   app.useGlobalInterceptors(new TraceIdInterceptor())
+  app.useGlobalInterceptors(new ApiResponseInterceptor())
   app.useGlobalFilters(new ApiExceptionFilter(app.get(AuditService)))
 
   const port = Number(process.env.PORT || 3000)

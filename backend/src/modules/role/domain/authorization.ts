@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException, UnauthorizedException } from '
 import { Prisma } from '@prisma/client'
 import { randomUUID } from 'node:crypto'
 import { isUUID } from 'class-validator'
+import { riskLevelForOperation } from '../../../security/policies/risk-policy.js'
 
 export type Actor = {
   internalId: bigint
@@ -119,6 +120,7 @@ export async function audit(
       actorId: actor.internalId,
       traceId: actor.traceId || randomUUID(),
       action,
+      riskLevel: riskLevelForOperation(action),
       resource,
       method:
         actor.method ||

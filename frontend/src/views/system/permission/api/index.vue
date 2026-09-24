@@ -30,12 +30,12 @@
       </el-form>
       <el-alert v-if="loadError" :title="loadError" type="error" :closable="false" />
       <el-table v-loading="loading" :data="items" border stripe>
-        <el-table-column prop="name" label="接口名称" min-width="150" />
+        <el-table-column prop="name" label="接口名称" min-width="180" />
         <el-table-column prop="code" label="权限码" min-width="190" />
         <el-table-column prop="method" label="方法" width="90" />
         <el-table-column prop="path" label="请求路径" min-width="220" />
         <el-table-column prop="resource" label="资源" min-width="120" />
-        <el-table-column prop="action" label="动作" width="100" />
+        <el-table-column prop="action" label="动作" width="120" />
         <el-table-column label="状态" width="85">
           <template slot-scope="{ row }"
             ><el-tag :type="row.status === 'ACTIVE' ? 'success' : 'info'">{{
@@ -346,10 +346,11 @@ export default {
       this.saving = true
       try {
         const { name } = this.form
-        if (this.editingId) await updatePermissionApi(this.editingId, { name })
-        else await createPermissionApi({ ...this.form })
+        const result = this.editingId
+          ? await updatePermissionApi(this.editingId, { name })
+          : await createPermissionApi({ ...this.form })
         this.dialogVisible = false
-        this.$message.success('接口已保存')
+        this.$message.success(result?.status === 'REQUESTED' ? '接口变更已提交审批，审批执行后生效' : '接口已保存')
         await this.load()
       } catch {
         /* API layer reports the failure; keep the form for retry. */
@@ -376,8 +377,8 @@ export default {
         return
       this.saving = true
       try {
-        await setPermissionApiStatus(row.id, status)
-        this.$message.success('状态已更新')
+        const result = await setPermissionApiStatus(row.id, status)
+        this.$message.success(result?.status === 'REQUESTED' ? '状态变更已提交审批，审批执行后生效' : '状态已更新')
         await this.load()
       } catch {
         /* Reported by API layer. */
@@ -424,9 +425,9 @@ export default {
           this.$message.warning('引用关系已变化，禁止删除')
           return
         }
-        await deletePermissionApi(target.id)
+        const result = await deletePermissionApi(target.id)
         this.referencesVisible = false
-        this.$message.success('接口已删除')
+        this.$message.success(result?.status === 'REQUESTED' ? '删除申请已提交审批，审批执行后生效' : '接口已删除')
         await this.load()
       } catch {
         /* Server also checks references atomically. */

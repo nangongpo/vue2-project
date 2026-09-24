@@ -5,6 +5,9 @@ import { AuditService } from '../services/audit.service.js'
 import { sanitizeAuditRequest } from '../utils/audit-sanitizer.js'
 import { Reflector } from '@nestjs/core'
 import { AUDIT_ACTION } from '../decorators/audit.decorator.js'
+import { REQUIRED_PERMISSIONS } from '../../security/decorators/permission.decorator.js'
+import { SECURITY_OPERATION } from '../../security/decorators/operation.decorator.js'
+import { resolveRiskLevel } from '../../security/policies/risk-policy.js'
 
 @Injectable()
 export class AuditInterceptor implements NestInterceptor {
@@ -25,6 +28,9 @@ export class AuditInterceptor implements NestInterceptor {
     const resource = request.routeOptions?.url || request.routerPath || path
     const action =
       this.reflector.getAllAndOverride<string>(AUDIT_ACTION, [context.getHandler(), context.getClass()]) || `${request.method} ${resource}`
+    const permissions = this.reflector.getAllAndOverride<string[]>(REQUIRED_PERMISSIONS, [context.getHandler(), context.getClass()]) || []
+    const operationCode = request.operationCode || this.reflector.getAllAndOverride<string>(SECURITY_OPERATION, [context.getHandler(), context.getClass()])
+    const riskLevel = request.riskLevel || resolveRiskLevel({ permissions, operation: action })
     const requestDetail = sanitizeAuditRequest(request.query, request.body)
     const requestState = request as { auditRecorded?: boolean }
     const base = {
@@ -42,6 +48,8 @@ export class AuditInterceptor implements NestInterceptor {
         try {
           await this.audit.record({
             ...base,
+            operationCode,
+            riskLevel,
             result: 'SUCCESS',
             statusCode: response.statusCode,
             detail: {
@@ -59,6 +67,8 @@ export class AuditInterceptor implements NestInterceptor {
         try {
           await this.audit.record({
             ...base,
+            operationCode,
+            riskLevel,
             result: 'FAILURE',
             statusCode: error.status || 500,
             detail: { request: requestDetail, error: { status: error.status || 500 } },

@@ -4,6 +4,7 @@ import { PrismaService } from '../../../database/prisma.service.js'
 import { PasswordService } from '../../../security/services/password.service.js'
 import { PasswordPolicyService } from '../../../security/services/password-policy.service.js'
 import { API_CODE } from '../../../common/constants/api-code.js'
+import { normalizePagination, paginationData } from '../../../common/pagination.js'
 import {
   activeGrant,
   audit,
@@ -30,8 +31,8 @@ export class UserService {
   constructor(private readonly prisma: PrismaService, private readonly passwords: PasswordService) {}
 
   async page(query: { keyword?: string; status?: UserStatus; page?: number; pageSize?: number }) {
-    const page = query.page || 1
-    const pageSize = query.pageSize || 20
+    const pagination = normalizePagination(query)
+    const { page, pageSize } = pagination
     const where: Prisma.UserWhereInput = {
       ...(query.status ? { status: query.status } : {}),
       ...(query.keyword
@@ -62,20 +63,16 @@ export class UserService {
         },
       }),
     ])
+    const pageItems = items.map((item) => ({
+      ...item,
+      roles: item.roles.map(({ role }) => ({
+        role: { roleId: role.roleId, code: role.code, name: role.name },
+      })),
+    }))
     return {
       code: API_CODE.SUCCESS,
       message: 'success',
-      data: {
-        items: items.map((item) => ({
-          ...item,
-          roles: item.roles.map(({ role }) => ({
-            role: { roleId: role.roleId, code: role.code, name: role.name },
-          })),
-        })),
-        total,
-        page,
-        pageSize,
-      },
+      data: paginationData(pageItems, total, pagination),
     }
   }
 

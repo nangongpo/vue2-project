@@ -3,16 +3,6 @@ import { RedisService } from './redis.service.js'
 
 export type CaptchaType = 'SLIDER'
 export type CaptchaPoint = { x: number; y: number; t: number }
-export type CaptchaEvent =
-  | 'INIT_SUCCESS'
-  | 'INIT_FAILURE'
-  | 'RESOURCE_LOAD_FAILURE'
-  | 'VERIFY_SUCCESS'
-  | 'VERIFY_FAILURE'
-  | 'TOKEN_CONSUME_SUCCESS'
-  | 'TOKEN_CONSUME_FAILURE'
-  | 'SERVICE_AUTH_FAILURE'
-  | 'RATE_LIMITED'
 export type SceneConfig = {
   allowedCaptchaTypes: CaptchaType[]
   defaultCaptchaType: CaptchaType
@@ -54,6 +44,7 @@ type Challenge = {
   targetX: number
   targetY: number
   createdAt: number
+  verifyAttempts?: number
 }
 type Token = {
   prefix: string
@@ -92,9 +83,25 @@ export class CaptchaEngine {
     const scene = this.scene(binding, input.sceneId)
     const captchaType = input.captchaType || scene.defaultCaptchaType
     const mode = input.mode || scene.defaultMode
-    if (!scene.allowedCaptchaTypes.includes(captchaType)) throw new CaptchaError('SCENE_NOT_FOUND', '验证码类型不被该场景允许')
-    if (!scene.allowedModes.includes(mode)) throw new CaptchaError('SCENE_NOT_FOUND', '展示模式不被该场景允许')
+    if (!scene.allowedCaptchaTypes.includes(captchaType))
+      throw new CaptchaError('SCENE_NOT_FOUND', '验证码类型不被该场景允许')
+    if (!scene.allowedModes.includes(mode))
+      throw new CaptchaError('SCENE_NOT_FOUND', '展示模式不被该场景允许')
     const ip = input.clientIp || 'unknown'
+    const subject = input.subject || 'unknown'
+    const cooldownSeconds = Number(process.env.CAPTCHA_FAILURE_COOLDOWN_SECONDS || 30)
+    const cooldownKeys = [
+      this.cooldownKey(binding.prefix, 'ip', ip),
+      this.cooldownKey(binding.prefix, 'subject', subject.toLowerCase()),
+    ]
+    for (const key of cooldownKeys) {
+      if (await this.redis.get(key))
+        throw new CaptchaError(
+          'RATE_LIMITED',
+          `验证码失败次数过多，请${cooldownSeconds}秒后重试`,
+          true
+        )
+    }
     const count = await this.redis.increment(this.rateKey(binding.prefix, 'create-ip', ip), 60)
     if (count === null) throw new CaptchaError('SERVICE_UNAVAILABLE', '验证码服务暂不可用', true)
     if (count > Number(process.env.CAPTCHA_CHALLENGE_RATE_LIMIT || 10))
@@ -124,7 +131,13 @@ export class CaptchaEngine {
       targetY: this.randomInt(18, this.canvasHeight - this.pieceSize - 10),
       createdAt: Date.now(),
     }
-    if (!(await this.redis.set(this.challengeKey(binding.prefix, id), JSON.stringify(challenge), scene.ttl)))
+    if (
+      !(await this.redis.set(
+        this.challengeKey(binding.prefix, id),
+        JSON.stringify(challenge),
+        scene.ttl
+      ))
+    )
       throw new CaptchaError('SERVICE_UNAVAILABLE', '验证码服务暂不可用', true)
     const seed = this.hash(`${id}:${challenge.targetX}:${challenge.targetY}`).slice(0, 12)
     return {
@@ -163,11 +176,17 @@ export class CaptchaEngine {
       trackWidth: number
     }
   ) {
-    const verifyCount = await this.redis.increment(this.rateKey(binding.prefix, 'verify-ip', input.clientIp || 'unknown'), 60)
-    if (verifyCount === null) throw new CaptchaError('SERVICE_UNAVAILABLE', '验证码服务暂不可用', true)
+    const scene = this.scene(binding, input.sceneId)
+    const verifyCount = await this.redis.increment(
+      this.rateKey(binding.prefix, 'verify-ip', input.clientIp || 'unknown'),
+      60
+    )
+    if (verifyCount === null)
+      throw new CaptchaError('SERVICE_UNAVAILABLE', '验证码服务暂不可用', true)
     if (verifyCount > Number(process.env.CAPTCHA_VERIFY_RATE_LIMIT || 30))
       throw new CaptchaError('RATE_LIMITED', '验证码请求过于频繁，请稍后重试', true)
-    const raw = await this.redis.getAndDelete(this.challengeKey(binding.prefix, input.challengeId))
+    const challengeKey = this.challengeKey(binding.prefix, input.challengeId)
+    const raw = await this.redis.get(challengeKey)
     if (!raw) throw new CaptchaError('CHALLENGE_NOT_FOUND', '验证码挑战不存在或已被使用', true)
     let c: Challenge
     try {
@@ -183,11 +202,62 @@ export class CaptchaEngine {
       c.userAgentHash === this.hash(input.userAgent || 'unknown') &&
       (!c.deviceIdHash || c.deviceIdHash === this.hash(input.deviceId || '')) &&
       Math.abs(c.trackWidth - input.trackWidth) <= 2
-    if (!context) throw new CaptchaError('CONTEXT_MISMATCH', '验证码上下文不一致')
+    if (!context) {
+      await this.redis.getAndDelete(challengeKey)
+      throw new CaptchaError('CONTEXT_MISMATCH', '验证码上下文不一致')
+    }
+    const registerFailedAttempt = async (code: string, message: string) => {
+      const remainingTtl = Math.ceil((c.createdAt + scene.ttl * 1000 - Date.now()) / 1000)
+      const attempts = await this.redis.incrementJsonField(
+        challengeKey,
+        'verifyAttempts',
+        Number(process.env.CAPTCHA_VERIFY_ATTEMPT_LIMIT || 3)
+      )
+      if (attempts === null)
+        throw new CaptchaError('SERVICE_UNAVAILABLE', '验证码服务暂不可用', true)
+      if (attempts < 0 || remainingTtl <= 0) {
+        await this.redis.getAndDelete(challengeKey)
+        throw new CaptchaError('CHALLENGE_EXPIRED', '验证码挑战已失效，请重新获取', true)
+      }
+      if (attempts >= Number(process.env.CAPTCHA_VERIFY_ATTEMPT_LIMIT || 3)) {
+        await this.redis.getAndDelete(challengeKey)
+        const cooldownSeconds = Number(process.env.CAPTCHA_FAILURE_COOLDOWN_SECONDS || 30)
+        const cooldownResults = await Promise.all([
+          this.redis.set(
+            this.cooldownKey(binding.prefix, 'ip', input.clientIp || 'unknown'),
+            '1',
+            cooldownSeconds
+          ),
+          this.redis.set(
+            this.cooldownKey(binding.prefix, 'subject', (input.subject || 'unknown').toLowerCase()),
+            '1',
+            cooldownSeconds
+          ),
+        ])
+        if (cooldownResults.some((result) => !result))
+          throw new CaptchaError('SERVICE_UNAVAILABLE', '验证码服务暂不可用', true)
+        throw new CaptchaError(
+          'CHALLENGE_EXPIRED',
+          `验证码尝试次数已用尽，请${cooldownSeconds}秒后重试`,
+          true
+        )
+      }
+      if (
+        !(await this.redis.set(
+          challengeKey,
+          JSON.stringify({ ...c, verifyAttempts: attempts }),
+          remainingTtl
+        ))
+      )
+        throw new CaptchaError('SERVICE_UNAVAILABLE', '验证码服务暂不可用', true)
+      throw new CaptchaError(code, message, true)
+    }
     if (Math.abs(input.finalX - c.targetX) > Math.max(6, Math.round(c.pieceSize * 0.18)))
-      throw new CaptchaError('ANSWER_INVALID', '验证码答案错误')
+      await registerFailedAttempt('ANSWER_INVALID', '验证码答案错误')
     if (!this.human(input.points, input.finalX, c.trackWidth, c.buttonWidth))
-      throw new CaptchaError('TRACK_INVALID', '验证码轨迹校验失败', true)
+      await registerFailedAttempt('TRACK_INVALID', '验证码轨迹校验失败')
+    if (!(await this.redis.getAndDelete(challengeKey)))
+      throw new CaptchaError('CHALLENGE_NOT_FOUND', '验证码挑战不存在或已被使用', true)
     const token = randomBytes(32).toString('base64url')
     const data: Token = {
       prefix: binding.prefix,
@@ -198,7 +268,13 @@ export class CaptchaEngine {
       deviceIdHash: c.deviceIdHash,
       issuedAt: Date.now(),
     }
-    if (!(await this.redis.set(this.tokenKey(binding.prefix, token), JSON.stringify(data), this.tokenTtl)))
+    if (
+      !(await this.redis.set(
+        this.tokenKey(binding.prefix, token),
+        JSON.stringify(data),
+        this.tokenTtl
+      ))
+    )
       throw new CaptchaError('SERVICE_UNAVAILABLE', '验证码服务暂不可用', true)
     return { Verified: true, CaptchaToken: token, ExpiresIn: this.tokenTtl }
   }
@@ -214,11 +290,16 @@ export class CaptchaEngine {
       deviceId?: string
     }
   ) {
-    const count = await this.redis.increment(this.rateKey(binding.prefix, 'consume-subject', input.subject || 'unknown'), 60)
+    const count = await this.redis.increment(
+      this.rateKey(binding.prefix, 'consume-subject', input.subject || 'unknown'),
+      60
+    )
     if (count === null) throw new CaptchaError('SERVICE_UNAVAILABLE', '验证码服务暂不可用', true)
     if (count > Number(process.env.CAPTCHA_CONSUME_RATE_LIMIT || 30))
       throw new CaptchaError('RATE_LIMITED', '验证码请求过于频繁，请稍后重试', true)
-    const raw = input.token ? await this.redis.getAndDelete(this.tokenKey(binding.prefix, input.token)) : null
+    const raw = input.token
+      ? await this.redis.getAndDelete(this.tokenKey(binding.prefix, input.token))
+      : null
     if (!raw) return false
     try {
       const d = JSON.parse(raw) as Token
@@ -234,43 +315,6 @@ export class CaptchaEngine {
       return false
     }
   }
-  async recordEvent(
-    binding: ServiceBinding,
-    i: {
-      requestId: string
-      eventId: string
-      sceneId: string
-      event: CaptchaEvent
-      result?: string
-      durationMs?: number
-      reason?: string
-    }
-  ) {
-    const count = await this.redis.increment(this.rateKey(binding.prefix, 'event', i.event), 60)
-    if (count === null) throw new CaptchaError('SERVICE_UNAVAILABLE', '验证码服务暂不可用', true)
-    if (count > Number(process.env.CAPTCHA_EVENT_RATE_LIMIT || 120))
-      throw new CaptchaError('RATE_LIMITED', '事件上报过于频繁，请稍后重试', true)
-    await this.redis.increment(
-      `captcha:${process.env.NODE_ENV || 'development'}:${binding.prefix}:metric:${i.event}:${new Date().toISOString().slice(0, 10)}`,
-      691200
-    )
-    console.info(
-      JSON.stringify({
-        service: 'captcha-service',
-        eventId: i.eventId,
-        requestId: i.requestId,
-        prefix: binding.prefix,
-        sceneId: i.sceneId,
-        event: i.event,
-        result: i.result,
-        durationMs: Number.isFinite(i.durationMs) ? i.durationMs : undefined,
-        reason: i.reason?.slice(0, 120),
-        timestamp: new Date().toISOString(),
-      })
-    )
-    return { Accepted: true }
-  }
-
   private scene(b: ServiceBinding, id: string) {
     const s = b.scenes[id]
     if (!s) throw new CaptchaError('SCENE_NOT_FOUND', '业务场景不存在')
@@ -328,9 +372,9 @@ export class CaptchaEngine {
     return this.svg(
       c.canvasWidth,
       c.canvasHeight,
-      `<defs><linearGradient id="g"><stop stop-color="${colors[0]}"/><stop offset=".52" stop-color="${
-        colors[1]
-      }"/><stop offset="1" stop-color="${
+      `<defs><linearGradient id="g"><stop stop-color="${
+        colors[0]
+      }"/><stop offset=".52" stop-color="${colors[1]}"/><stop offset="1" stop-color="${
         colors[2]
       }"/></linearGradient></defs><rect width="100%" height="100%" rx="8" fill="url(#g)"/><circle cx="${this.number(
         seed,
@@ -364,9 +408,11 @@ export class CaptchaEngine {
   }
   private path(x: number, y: number, s: number) {
     const n = Math.round(s * 0.18)
-    return `M${x},${y}h${s * 0.38}c-${n},-${n} ${n * 2},-${n} ${s * 0.22},0h${s * 0.4}v${s * 0.34}c${n},-${n} ${n},${n * 2} 0,${n * 1.2}v${
-      s * 0.44
-    }h-${s * 0.42}c${n},${n} -${n * 2},-${n} -${n * 0.8},0h-${s * 0.38}v-${s * 0.42}c-${n},${n} -${n},-${n * 2} 0,-${n * 1.1}z`
+    return `M${x},${y}h${s * 0.38}c-${n},-${n} ${n * 2},-${n} ${s * 0.22},0h${s * 0.4}v${
+      s * 0.34
+    }c${n},-${n} ${n},${n * 2} 0,${n * 1.2}v${s * 0.44}h-${s * 0.42}c${n},${n} -${n * 2},-${n} -${
+      n * 0.8
+    },0h-${s * 0.38}v-${s * 0.42}c-${n},${n} -${n},-${n * 2} 0,-${n * 1.1}z`
   }
   private svg(w: number, h: number, body: string) {
     return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">${body}</svg>`
@@ -399,6 +445,13 @@ export class CaptchaEngine {
     return `captcha:${process.env.NODE_ENV || 'development'}:${prefix}:token:${this.hash(token)}`
   }
   private rateKey(prefix: string, dimension: string, value: string) {
-    return `captcha:${process.env.NODE_ENV || 'development'}:${prefix}:rate:${dimension}:${this.hash(value)}`
+    return `captcha:${
+      process.env.NODE_ENV || 'development'
+    }:${prefix}:rate:${dimension}:${this.hash(value)}`
+  }
+  private cooldownKey(prefix: string, dimension: string, value: string) {
+    return `captcha:${
+      process.env.NODE_ENV || 'development'
+    }:${prefix}:cooldown:${dimension}:${this.hash(value)}`
   }
 }

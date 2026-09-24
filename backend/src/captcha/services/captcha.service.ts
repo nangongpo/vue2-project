@@ -1,16 +1,8 @@
-import { createHmac, randomUUID } from 'node:crypto'
+import { createHash, createHmac, randomUUID } from 'node:crypto'
 import { HttpException, Injectable, ServiceUnavailableException } from '@nestjs/common'
 import { API_CODE } from '../../common/constants/api-code.js'
 import { RedisService } from '../../cache/services/redis.service.js'
 export type CaptchaPoint = { x: number; y: number; t: number }
-export type CaptchaEvent =
-  | 'INIT_SUCCESS'
-  | 'INIT_FAILURE'
-  | 'RESOURCE_LOAD_FAILURE'
-  | 'VERIFY_SUCCESS'
-  | 'VERIFY_FAILURE'
-  | 'TOKEN_CONSUME_SUCCESS'
-  | 'TOKEN_CONSUME_FAILURE'
 type Attempt = {
   username: string
   scene: 'login'
@@ -18,9 +10,12 @@ type Attempt = {
   tokenHash?: string
   expiresAt: number
 }
-const encode = (v: string) => encodeURIComponent(v).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)
+const encode = (v: string) =>
+  encodeURIComponent(v).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)
 const value = (input: unknown) =>
-  Array.isArray(input) || (input !== null && typeof input === 'object') ? JSON.stringify(input) : String(input)
+  Array.isArray(input) || (input !== null && typeof input === 'object')
+    ? JSON.stringify(input)
+    : String(input)
 function sign(body: Record<string, unknown>, secret: string) {
   const canonical = Object.keys(body)
     .filter((k) => k !== 'Signature' && body[k] !== undefined)
@@ -35,7 +30,10 @@ function sign(body: Record<string, unknown>, secret: string) {
 @Injectable()
 export class CaptchaService {
   constructor(private readonly redis: RedisService) {}
-  private readonly baseUrl = (process.env.CAPTCHA_SERVICE_URL || 'http://127.0.0.1:3100').replace(/\/$/, '')
+  private readonly baseUrl = (process.env.CAPTCHA_SERVICE_URL || 'http://127.0.0.1:3100').replace(
+    /\/$/,
+    ''
+  )
   private readonly timeout = Number(process.env.CAPTCHA_SERVICE_TIMEOUT_MS || 2000)
   private common(action: string, attemptId: string) {
     return {
@@ -58,6 +56,16 @@ export class CaptchaService {
   private attemptKey(id: string) {
     return `security:captcha:attempt:${id}`
   }
+  private async rateLimit(scope: string, identity: string, envName: string, fallback: number) {
+    const limit = Number(process.env[envName] || fallback)
+    const windowSeconds = Number(process.env.CAPTCHA_RATE_WINDOW_SECONDS || 60)
+    const key = `security:captcha:rate:${scope}:${createHash('sha256')
+      .update(identity)
+      .digest('hex')}`
+    const count = await this.redis.increment(key, windowSeconds)
+    if (count === null) throw new ServiceUnavailableException('验证码限频服务不可用')
+    if (count > limit) throw new HttpException('验证码请求过于频繁，请稍后重试', 429)
+  }
   private async readAttempt(attemptId: string) {
     const raw = await this.redis.get(this.attemptKey(attemptId))
     if (!raw) throw new ServiceUnavailableException('验证码流程已失效')
@@ -71,6 +79,13 @@ export class CaptchaService {
   }
   async createChallenge(username: string, ip?: string, userAgent?: string) {
     const normalized = this.normalizeUsername(username)
+    await this.rateLimit('challenge-ip', ip || 'unknown', 'CAPTCHA_CHALLENGE_RATE_LIMIT', 10)
+    await this.rateLimit(
+      'challenge-user',
+      normalized.toLowerCase(),
+      'CAPTCHA_CHALLENGE_RATE_LIMIT',
+      10
+    )
     const attemptId = randomUUID()
     const ttl = Number(process.env.CAPTCHA_CHALLENGE_TTL || 120)
     const attempt: Attempt = {
@@ -114,6 +129,8 @@ export class CaptchaService {
     finalX: number
     trackWidth: number
   }) {
+    await this.rateLimit('verify-ip', input.ip || 'unknown', 'CAPTCHA_VERIFY_RATE_LIMIT', 30)
+    await this.rateLimit('verify-attempt', input.attemptId, 'CAPTCHA_VERIFY_RATE_LIMIT', 30)
     const attempt = await this.readAttempt(input.attemptId)
     if (attempt.challengeId !== input.challengeId)
       throw new HttpException({ code: API_CODE.CAPTCHA_INVALID, message: '验证码流程无效' }, 400)
@@ -133,7 +150,11 @@ export class CaptchaService {
       ...attempt,
       tokenHash: createHmac('sha256', 'attempt-token').update(token).digest('hex'),
     }
-    await this.redis.set(this.attemptKey(input.attemptId), JSON.stringify(updated), Math.max(30, Number(result.ExpiresIn || 120)))
+    await this.redis.set(
+      this.attemptKey(input.attemptId),
+      JSON.stringify(updated),
+      Math.max(30, Number(result.ExpiresIn || 120))
+    )
     return {
       attemptId: input.attemptId,
       verified: result.Verified === true,
@@ -141,7 +162,12 @@ export class CaptchaService {
       expiresIn: result.ExpiresIn,
     }
   }
-  async consumeToken(token: string | undefined, attemptId: string | undefined, username: string, ip?: string) {
+  async consumeToken(
+    token: string | undefined,
+    attemptId: string | undefined,
+    username: string,
+    ip?: string
+  ) {
     if (!token || !attemptId) return false
     const attempt = await this.readAttempt(attemptId)
     if (attempt.username !== this.normalizeUsername(username) || !attempt.tokenHash) return false
@@ -161,20 +187,10 @@ export class CaptchaService {
       throw error
     }
   }
-  async reportEvent(input: { event: CaptchaEvent; attemptId?: string; challengeId?: string; durationMs?: number; reason?: string }) {
-    const attemptId = input.attemptId || randomUUID()
-    const body = {
-      ...this.common('ReportEvent', attemptId),
-      EventId: randomUUID(),
-      Event: input.event,
-      ChallengeId: input.challengeId,
-      DurationMs: input.durationMs,
-      Reason: input.reason,
-    }
-    const result = await this.request<{ Accepted?: boolean }>('/internal/v1/events', body)
-    return { accepted: result.Accepted === true }
-  }
-  private async request<T = Record<string, unknown>>(path: string, body: Record<string, unknown>): Promise<T> {
+  private async request<T = Record<string, unknown>>(
+    path: string,
+    body: Record<string, unknown>
+  ): Promise<T> {
     const secret = process.env.CAPTCHA_SERVICE_SECRET
     if (!secret) throw new ServiceUnavailableException('验证码服务密钥未配置')
     let timer: ReturnType<typeof setTimeout> | undefined
@@ -200,7 +216,11 @@ export class CaptchaService {
         const unavailable = payload.Code === 'SERVICE_UNAVAILABLE'
         const status = response.status >= 500 || unavailable ? 503 : 400
         const code =
-          payload.Code === 'RATE_LIMITED' ? API_CODE.RATE_LIMITED : status >= 500 ? API_CODE.INTERNAL_ERROR : API_CODE.CAPTCHA_INVALID
+          payload.Code === 'RATE_LIMITED'
+            ? API_CODE.RATE_LIMITED
+            : status >= 500
+            ? API_CODE.INTERNAL_ERROR
+            : API_CODE.CAPTCHA_INVALID
         throw new HttpException({ code, message: payload.Message || '验证码服务校验失败' }, status)
       }
       return payload as T

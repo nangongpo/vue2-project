@@ -15,6 +15,12 @@
         title="页面、按钮与接口独立选择，不自动授予关联权限。高危授权请通过独立审批页面申请。"
         type="info"
         :closable="false" />
+      <el-alert
+        v-if="!loading && !blocked && !options.length"
+        title="当前没有可直接授权的业务权限"
+        description="请先在“页面权限”中创建业务页面，并配置业务按钮和接口。系统、安全、审计权限属于受保护管理权限，不能通过普通角色授权直接下发。"
+        type="warning"
+        :closable="false" />
       <el-alert v-if="error" :title="error" type="error" :closable="false" />
       <el-form ref="grantForm" :model="form" :rules="rules" label-width="100px">
         <el-form-item v-for="group in groups" :key="group.type" :label="group.label">

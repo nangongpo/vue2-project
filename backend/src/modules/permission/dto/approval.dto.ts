@@ -15,18 +15,24 @@ import {
   validateSync,
 } from 'class-validator'
 import { BadRequestException } from '@nestjs/common'
+import type { ApprovalKind } from '@prisma/client'
 
 export const APPROVAL_KINDS = [
   'ROLE_GRANT',
   'ROLE_PERMISSIONS',
   'API_ROUTE_CHANGE',
+  'API_CREATE',
+  'API_UPDATE',
+  'API_STATUS',
+  'API_DELETE',
+  'PAGE_ROUTE_CHANGE',
   'ELEVATED_SCOPE',
   'ROLE_REVOKE',
   'ROLE_PERMISSION_REVOKE',
   'ELEVATED_REVOKE',
   'MFA_RESET',
-] as const
-export type ApprovalKindInput = (typeof APPROVAL_KINDS)[number]
+] as const satisfies readonly ApprovalKind[]
+export type ApprovalKindInput = ApprovalKind
 
 export class CreateApprovalDto {
   @IsIn(APPROVAL_KINDS) kind!: ApprovalKindInput
@@ -38,7 +44,11 @@ export class ApprovalActionDto {
   @IsString() @MinLength(1) @MaxLength(255) note!: string
 }
 export class ApprovalQueryDto {
-  @IsOptional() @IsIn(['REQUESTED', 'APPROVED', 'EXECUTED', 'REVIEWED']) status?: 'REQUESTED' | 'APPROVED' | 'EXECUTED' | 'REVIEWED'
+  @IsOptional() @IsIn(['REQUESTED', 'APPROVED', 'EXECUTED', 'REVIEWED']) status?:
+    | 'REQUESTED'
+    | 'APPROVED'
+    | 'EXECUTED'
+    | 'REVIEWED'
   @IsOptional() @IsUUID() cursor?: string
 }
 export class RoleGrantPayload {
@@ -66,8 +76,35 @@ export class ApiRouteChangePayload {
   @IsIn(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']) method!: string
   @IsString() @MaxLength(255) path!: string
 }
+export class ApiUpdatePayload {
+  @IsUUID() apiId!: string
+  @IsString() @MinLength(1) @MaxLength(128) name!: string
+}
+export class ApiCreatePayload {
+  @IsString() @MinLength(2) @MaxLength(128) code!: string
+  @IsString() @MinLength(1) @MaxLength(128) name!: string
+  @IsIn(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']) method!: string
+  @IsString() @MinLength(1) @MaxLength(255) path!: string
+  @IsString() @MinLength(1) @MaxLength(128) resource!: string
+  @IsString() @MinLength(1) @MaxLength(64) action!: string
+}
+export class ApiStatusPayload {
+  @IsUUID() apiId!: string
+  @IsIn(['ACTIVE', 'DISABLED']) status!: 'ACTIVE' | 'DISABLED'
+}
+export class ApiDeletePayload {
+  @IsUUID() apiId!: string
+}
+export class PageRouteChangePayload {
+  @IsUUID() pageId!: string
+  @IsString() @MinLength(1) @MaxLength(255) route!: string
+}
 export class ScopeTarget {
-  @IsIn(['USER', 'DEPARTMENT', 'ORGANIZATION', 'TENANT']) targetType!: 'USER' | 'DEPARTMENT' | 'ORGANIZATION' | 'TENANT'
+  @IsIn(['USER', 'DEPARTMENT', 'ORGANIZATION', 'TENANT']) targetType!:
+    | 'USER'
+    | 'DEPARTMENT'
+    | 'ORGANIZATION'
+    | 'TENANT'
   @IsUUID() targetId!: string
 }
 export class ElevatedScopePayload {
@@ -79,9 +116,13 @@ export class ElevatedScopePayload {
 
 /** Also validate service callers and persisted JSON; DTO validation alone is not a trust boundary. */
 export function approvalDto<T extends object>(type: new () => T, value: unknown): T {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new BadRequestException('审批参数必须为对象')
+  if (!value || typeof value !== 'object' || Array.isArray(value))
+    throw new BadRequestException('审批参数必须为对象')
   const dto = plainToInstance(type, value)
-  if (validateSync(dto, { whitelist: true, forbidNonWhitelisted: true, forbidUnknownValues: true }).length) {
+  if (
+    validateSync(dto, { whitelist: true, forbidNonWhitelisted: true, forbidUnknownValues: true })
+      .length
+  ) {
     throw new BadRequestException('审批参数无效或包含未允许的字段')
   }
   return dto
@@ -100,15 +141,28 @@ export function approvalPayload(kind: ApprovalKindInput, payload: unknown) {
       return approvalDto(ElevatedRevokePayload, payload)
     case 'API_ROUTE_CHANGE':
       return approvalDto(ApiRouteChangePayload, payload)
+    case 'API_UPDATE':
+      return approvalDto(ApiUpdatePayload, payload)
+    case 'API_CREATE':
+      return approvalDto(ApiCreatePayload, payload)
+    case 'API_STATUS':
+      return approvalDto(ApiStatusPayload, payload)
+    case 'API_DELETE':
+      return approvalDto(ApiDeletePayload, payload)
+    case 'PAGE_ROUTE_CHANGE':
+      return approvalDto(PageRouteChangePayload, payload)
     case 'ELEVATED_SCOPE': {
       const data = approvalDto(ElevatedScopePayload, payload)
       data.targets = data.targets.map((target) => approvalDto(ScopeTarget, target))
       if (
         !/^[a-zA-Z][a-zA-Z0-9_.:-]*$/.test(data.resource) ||
         (data.scopeType === 'CUSTOM' ? !data.targets.length : !!data.targets.length) ||
-        new Set(data.targets.map((target) => `${target.targetType}:${target.targetId}`)).size !== data.targets.length
+        new Set(data.targets.map((target) => `${target.targetType}:${target.targetId}`)).size !==
+          data.targets.length
       ) {
-        throw new BadRequestException('数据资源或目标集合无效；CUSTOM 必须有目标，ALL 必须为空目标集合')
+        throw new BadRequestException(
+          '数据资源或目标集合无效；CUSTOM 必须有目标，ALL 必须为空目标集合'
+        )
       }
       return data
     }

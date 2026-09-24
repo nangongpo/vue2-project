@@ -1,14 +1,26 @@
-import { Body, Controller, Get, Inject, Post, Req, Res, ServiceUnavailableException } from '@nestjs/common'
+import {
+  Body,
+  Controller,
+  Get,
+  Inject,
+  Post,
+  Req,
+  Res,
+  ServiceUnavailableException,
+} from '@nestjs/common'
 import { randomUUID } from 'node:crypto'
 import { FastifyReply, FastifyRequest } from 'fastify'
-import { CaptchaEngine, CaptchaError, CaptchaEvent, CaptchaPoint } from '../services/captcha.engine.js'
+import { CaptchaEngine, CaptchaError, CaptchaPoint } from '../services/captcha.engine.js'
 import { findBinding, loadBindings } from '../config/config.js'
 import { requiredVersion, signRequest, signaturesMatch } from '../protocol/protocol.js'
 import { RedisService } from '../services/redis.service.js'
 
 @Controller()
 export class CaptchaController {
-  constructor(@Inject(CaptchaEngine) private readonly engine: CaptchaEngine, @Inject(RedisService) private readonly redis: RedisService) {}
+  constructor(
+    @Inject(CaptchaEngine) private readonly engine: CaptchaEngine,
+    @Inject(RedisService) private readonly redis: RedisService
+  ) {}
 
   @Get('health') health() {
     return { status: 'ok', service: 'captcha-service' }
@@ -20,7 +32,11 @@ export class CaptchaController {
   }
 
   @Post('internal/v1/challenges')
-  create(@Body() body: Record<string, unknown>, @Req() req: FastifyRequest, @Res({ passthrough: true }) reply: FastifyReply) {
+  create(
+    @Body() body: Record<string, unknown>,
+    @Req() req: FastifyRequest,
+    @Res({ passthrough: true }) reply: FastifyReply
+  ) {
     return this.run(
       'CreateChallenge',
       body,
@@ -43,7 +59,11 @@ export class CaptchaController {
   }
 
   @Post('internal/v1/verify')
-  verify(@Body() body: Record<string, unknown>, @Req() req: FastifyRequest, @Res({ passthrough: true }) reply: FastifyReply) {
+  verify(
+    @Body() body: Record<string, unknown>,
+    @Req() req: FastifyRequest,
+    @Res({ passthrough: true }) reply: FastifyReply
+  ) {
     return this.run(
       'VerifyChallenge',
       body,
@@ -68,7 +88,11 @@ export class CaptchaController {
   }
 
   @Post('internal/v1/tokens/consume')
-  consume(@Body() body: Record<string, unknown>, @Req() req: FastifyRequest, @Res({ passthrough: true }) reply: FastifyReply) {
+  consume(
+    @Body() body: Record<string, unknown>,
+    @Req() req: FastifyRequest,
+    @Res({ passthrough: true }) reply: FastifyReply
+  ) {
     return this.run(
       'ConsumeToken',
       body,
@@ -90,28 +114,6 @@ export class CaptchaController {
     )
   }
 
-  @Post('internal/v1/events')
-  event(@Body() body: Record<string, unknown>, @Res({ passthrough: true }) reply: FastifyReply) {
-    return this.run(
-      'ReportEvent',
-      body,
-      async (b) => {
-        const binding = await this.auth(b)
-        this.validate('ReportEvent', b)
-        return this.engine.recordEvent(binding, {
-          requestId: String(b.RequestId),
-          eventId: String(b.EventId),
-          sceneId: String(b.SceneId),
-          event: b.Event as CaptchaEvent,
-          result: b.Result ? String(b.Result) : undefined,
-          durationMs: b.DurationMs === undefined ? undefined : Number(b.DurationMs),
-          reason: b.Reason ? String(b.Reason) : undefined,
-        })
-      },
-      reply
-    )
-  }
-
   private async run(
     action: string,
     body: Record<string, unknown>,
@@ -127,7 +129,10 @@ export class CaptchaController {
       reply.status(200)
       return { ApiVersion: '1', ProtocolVersion: '1.0', RequestId: requestId, ...result }
     } catch (e) {
-      const error = e instanceof CaptchaError ? e : new CaptchaError('SERVICE_UNAVAILABLE', '验证码服务暂不可用', true)
+      const error =
+        e instanceof CaptchaError
+          ? e
+          : new CaptchaError('SERVICE_UNAVAILABLE', '验证码服务暂不可用', true)
       console.error(
         JSON.stringify({
           service: 'captcha-service',
@@ -138,7 +143,9 @@ export class CaptchaController {
           timestamp: new Date().toISOString(),
         })
       )
-      reply.status(error.code === 'SERVICE_UNAVAILABLE' ? 503 : error.code === 'RATE_LIMITED' ? 429 : 400)
+      reply.status(
+        error.code === 'SERVICE_UNAVAILABLE' ? 503 : error.code === 'RATE_LIMITED' ? 429 : 400
+      )
       return {
         ApiVersion: '1',
         ProtocolVersion: '1.0',
@@ -151,16 +158,27 @@ export class CaptchaController {
   }
 
   private validate(action: string, b: Record<string, unknown>) {
-    const required = ['ServiceId', 'SignatureMethod', 'SignatureVersion', 'SignatureNonce', 'Signature', 'SceneId', 'AttemptId']
+    const required = [
+      'ServiceId',
+      'SignatureMethod',
+      'SignatureVersion',
+      'SignatureNonce',
+      'Signature',
+      'SceneId',
+      'AttemptId',
+    ]
     for (const key of required)
       if (typeof b[key] !== 'string' || !String(b[key]).length || String(b[key]).length > 256)
         throw new CaptchaError('SERVICE_AUTH_FAILED', '服务认证失败')
     if (b.SceneId !== 'login' || !/^[A-Za-z0-9_-]{1,64}$/.test(String(b.AttemptId)))
       throw new CaptchaError('SCENE_NOT_FOUND', '业务场景不存在')
     if (action === 'CreateChallenge') {
-      if (b.Subject !== undefined && String(b.Subject).length > 64) throw new CaptchaError('CONTEXT_MISMATCH', '请求参数无效')
-      if (b.CaptchaType !== undefined && b.CaptchaType !== 'SLIDER') throw new CaptchaError('VERSION_UNSUPPORTED', '验证码类型暂不支持')
-      if (b.Mode !== undefined && b.Mode !== 'EMBED' && b.Mode !== 'POPUP') throw new CaptchaError('SCENE_NOT_FOUND', '展示模式无效')
+      if (b.Subject !== undefined && String(b.Subject).length > 64)
+        throw new CaptchaError('CONTEXT_MISMATCH', '请求参数无效')
+      if (b.CaptchaType !== undefined && b.CaptchaType !== 'SLIDER')
+        throw new CaptchaError('VERSION_UNSUPPORTED', '验证码类型暂不支持')
+      if (b.Mode !== undefined && b.Mode !== 'EMBED' && b.Mode !== 'POPUP')
+        throw new CaptchaError('SCENE_NOT_FOUND', '展示模式无效')
     } else if (action === 'VerifyChallenge') {
       if (
         typeof b.ChallengeId !== 'string' ||
@@ -173,29 +191,12 @@ export class CaptchaController {
       )
         throw new CaptchaError('TRACK_INVALID', '请求轨迹无效')
     } else if (action === 'ConsumeToken') {
-      if (typeof b.CaptchaToken !== 'string' || !b.CaptchaToken.length || String(b.CaptchaToken).length > 256)
-        throw new CaptchaError('CHALLENGE_NOT_FOUND', '一次性令牌无效')
-    } else if (action === 'ReportEvent') {
-      const events = [
-        'INIT_SUCCESS',
-        'INIT_FAILURE',
-        'RESOURCE_LOAD_FAILURE',
-        'VERIFY_SUCCESS',
-        'VERIFY_FAILURE',
-        'TOKEN_CONSUME_SUCCESS',
-        'TOKEN_CONSUME_FAILURE',
-        'SERVICE_AUTH_FAILURE',
-        'RATE_LIMITED',
-      ]
       if (
-        typeof b.Event !== 'string' ||
-        !events.includes(b.Event) ||
-        typeof b.EventId !== 'string' ||
-        typeof b.RequestId !== 'string' ||
-        (b.DurationMs !== undefined &&
-          (!Number.isFinite(Number(b.DurationMs)) || Number(b.DurationMs) < 0 || Number(b.DurationMs) > 120000))
+        typeof b.CaptchaToken !== 'string' ||
+        !b.CaptchaToken.length ||
+        String(b.CaptchaToken).length > 256
       )
-        throw new CaptchaError('VERSION_UNSUPPORTED', '事件参数无效')
+        throw new CaptchaError('CHALLENGE_NOT_FOUND', '一次性令牌无效')
     }
   }
 
@@ -216,7 +217,9 @@ export class CaptchaController {
     )
       throw new CaptchaError('SERVICE_AUTH_FAILED', '服务认证失败')
     const nonce = await this.redis.setOnce(
-      `captcha:${process.env.NODE_ENV || 'development'}:${binding.prefix}:nonce:${String(body.SignatureNonce)}`,
+      `captcha:${process.env.NODE_ENV || 'development'}:${binding.prefix}:nonce:${String(
+        body.SignatureNonce
+      )}`,
       300
     )
     if (nonce === null) throw new CaptchaError('SERVICE_UNAVAILABLE', '验证码服务暂不可用', true)

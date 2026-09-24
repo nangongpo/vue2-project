@@ -11,9 +11,11 @@ import { effectivePermissions } from './effective-permissions.js'
 import { MfaService } from './mfa.service.js'
 import { roleAllowsPermission } from '../policies/permission-catalog.js'
 import { PasswordPolicyService } from './password-policy.service.js'
+import { riskLevelForOperation } from '../policies/risk-policy.js'
 
 export const SESSION_COOKIE = 'app_session'
 export const PREAUTH_COOKIE = 'app_pre_auth'
+export type SessionKind = 'PRE_AUTH' | 'AUTHENTICATED'
 
 type AuthUserRecord = Prisma.UserGetPayload<{
   include: {
@@ -60,8 +62,7 @@ export class AuthService {
     ip?: string,
     userAgent?: string,
     captchaToken?: string,
-    attemptId?: string,
-    otp?: string
+    attemptId?: string
   ) {
     const loginUsername = username.trim()
     const rateKey = `security:login:ip:${ip || 'unknown'}`
@@ -146,11 +147,7 @@ export class AuthService {
 
     const loginUser = await this.toUser(user)
     const enrollRequired = loginUser.mfaRequired && !user.mfaEnabled
-    const otpRequired = user.mfaEnabled && !otp
-    if (user.mfaEnabled) {
-      if (!this.mfa) throw new UnauthorizedException('多因素认证服务不可用')
-      if (!otpRequired) await this.mfa.verify(user.id, otp!)
-    }
+    const otpRequired = Boolean(user.mfaEnabled)
     const rawToken = randomBytes(32).toString('base64url')
     const sessionId = this.hashToken(rawToken)
     const sessionTtl = Number(process.env.SESSION_TTL_SECONDS || 1800)
@@ -202,10 +199,10 @@ export class AuthService {
               data: {
                 id: sessionId,
                 userId: user.id,
+                kind: requiresPreAuth ? 'PRE_AUTH' : 'AUTHENTICATED',
                 expiresAt: new Date(now.getTime() + ttl * 1000),
                 ip,
                 userAgent,
-                ...(user.mfaEnabled && otp ? { mfaVerifiedAt: now, reauthenticatedAt: now } : {}),
               },
             })
             await tx.user.update({
@@ -231,7 +228,7 @@ export class AuthService {
 
   async completeLogin(rawToken: string | undefined, otp: string) {
     if (!rawToken) throw new UnauthorizedException('临时登录状态不存在')
-    const user = await this.authenticate(rawToken)
+    const user = await this.authenticate(rawToken, 'PRE_AUTH')
     if (user.mfaVerifiedAt) throw new UnauthorizedException('临时登录状态无效')
     if (!user.mfaEnabled) throw new UnauthorizedException('账号尚未绑定认证器')
     if (!this.mfa) throw new UnauthorizedException('多因素认证服务不可用')
@@ -243,6 +240,7 @@ export class AuthService {
       where: {
         id: this.hashToken(rawToken),
         userId: user.internalId,
+        kind: 'PRE_AUTH',
         revokedAt: null,
         expiresAt: { gt: now },
       },
@@ -263,18 +261,18 @@ export class AuthService {
         data: {
           id: this.hashToken(formalToken),
           userId: user.internalId,
+          kind: 'AUTHENTICATED',
           expiresAt: new Date(now.getTime() + expiresIn * 1000),
           ip: current.ip,
           userAgent: current.userAgent,
           mfaVerifiedAt: now,
-          reauthenticatedAt: now,
         },
       })
     })
     return { token: formalToken, expiresIn, user: await this.authenticate(formalToken) }
   }
 
-  async authenticate(rawToken?: string): Promise<AuthenticatedUser> {
+  async authenticate(rawToken?: string, expectedKind?: SessionKind): Promise<AuthenticatedUser> {
     if (!rawToken) throw new UnauthorizedException('登录状态不存在')
     const session = await this.prisma.session.findUnique({
       where: { id: this.hashToken(rawToken) },
@@ -319,6 +317,7 @@ export class AuthService {
     ) {
       throw new UnauthorizedException('登录状态已失效')
     }
+    if (expectedKind && session.kind !== expectedKind) throw new UnauthorizedException('登录状态类型不匹配')
     if (idleExpired) {
       await this.prisma.session.update({ where: { id: session.id }, data: { revokedAt: now } })
       throw new UnauthorizedException('登录状态因闲置超时已失效')
@@ -342,7 +341,7 @@ export class AuthService {
   async listSessions(userId: bigint, currentRawToken?: string) {
     const currentSessionId = currentRawToken ? this.hashToken(currentRawToken) : undefined
     const sessions = await this.prisma.session.findMany({
-      where: { userId, revokedAt: null, expiresAt: { gt: new Date() } },
+      where: { userId, kind: 'AUTHENTICATED', revokedAt: null, expiresAt: { gt: new Date() } },
       orderBy: { lastSeenAt: 'desc' },
       select: {
         id: true,
@@ -358,7 +357,7 @@ export class AuthService {
 
   async revokeSession(userId: bigint, sessionId: string) {
     const result = await this.prisma.session.updateMany({
-      where: { id: sessionId, userId, revokedAt: null },
+      where: { id: sessionId, userId, kind: 'AUTHENTICATED', revokedAt: null },
       data: { revokedAt: new Date() },
     })
     if (!result.count) throw new UnauthorizedException('会话不存在或已失效')
@@ -409,6 +408,7 @@ export class AuthService {
               traceId: auditContext.traceId || randomUUID(),
               actorId: userId,
               action: 'auth.password.change',
+              riskLevel: riskLevelForOperation('auth.password.change'),
               resource: 'user',
               method: 'POST',
               path: '/api/v1/auth/password',

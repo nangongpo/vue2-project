@@ -115,13 +115,14 @@ export class MfaService {
     )
   }
 
-  private sessionWhere(userId: bigint, rawToken?: string) {
+  private sessionWhere(userId: bigint, rawToken?: string, kind?: 'PRE_AUTH' | 'AUTHENTICATED') {
     if (!rawToken) throw new UnauthorizedException('登录状态不存在')
     const now = new Date()
     const idleTtl = Number(process.env.SESSION_IDLE_TTL_SECONDS || process.env.SESSION_TTL_SECONDS || 1800)
     return {
       id: createHash('sha256').update(rawToken).digest('hex'),
       userId,
+      ...(kind ? { kind } : {}),
       revokedAt: null,
       expiresAt: { gt: now },
       lastSeenAt: { gt: new Date(now.getTime() - idleTtl * 1000) },
@@ -176,10 +177,10 @@ export class MfaService {
       })
       if (changed.count !== 1) throw new ForbiddenException('绑定状态已变化，请重新登录')
       if (rotatedToken) {
-        const current = await tx.session.findFirst({ where: this.sessionWhere(userId, rawToken) })
+        const current = await tx.session.findFirst({ where: this.sessionWhere(userId, rawToken, 'PRE_AUTH') })
         if (!current) throw new UnauthorizedException('临时登录状态已失效')
         const revoked = await tx.session.updateMany({
-          where: this.sessionWhere(userId, rawToken),
+          where: this.sessionWhere(userId, rawToken, 'PRE_AUTH'),
           data: { revokedAt: now, lastSeenAt: now },
         })
         if (revoked.count !== 1) throw new UnauthorizedException('临时登录状态已失效')
@@ -187,11 +188,11 @@ export class MfaService {
           data: {
             id: createHash('sha256').update(rotatedToken).digest('hex'),
             userId,
+            kind: 'AUTHENTICATED',
             expiresAt: new Date(now.getTime() + sessionTtl * 1000),
             ip: current.ip,
             userAgent: current.userAgent,
             mfaVerifiedAt: now,
-            reauthenticatedAt: now,
           },
         })
       } else {
@@ -199,7 +200,6 @@ export class MfaService {
           where: this.sessionWhere(userId, rawToken),
           data: {
             mfaVerifiedAt: now,
-            reauthenticatedAt: now,
             lastSeenAt: now,
             expiresAt: new Date(now.getTime() + sessionTtl * 1000),
           },
@@ -212,7 +212,6 @@ export class MfaService {
     return {
       mfaEnabled: true,
       mfaVerifiedAt: now,
-      reauthenticatedAt: now,
       ...(rotatedToken ? { sessionToken: rotatedToken, expiresIn: sessionTtl } : {}),
     }
   }

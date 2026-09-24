@@ -17,13 +17,18 @@ Creation body:
 
 ```ts
 type CreateApproval = {
-  kind: 'ROLE_GRANT' | 'ROLE_PERMISSIONS' | 'API_ROUTE_CHANGE' | 'ELEVATED_SCOPE' | 'ROLE_REVOKE' | 'ROLE_PERMISSION_REVOKE' | 'ELEVATED_REVOKE' | 'MFA_RESET'
+  kind: 'ROLE_GRANT' | 'ROLE_PERMISSIONS' | 'API_ROUTE_CHANGE' | 'API_CREATE' | 'API_UPDATE' | 'API_STATUS' | 'API_DELETE' | 'PAGE_ROUTE_CHANGE' | 'ELEVATED_SCOPE' | 'ROLE_REVOKE' | 'ROLE_PERMISSION_REVOKE' | 'ELEVATED_REVOKE' | 'MFA_RESET'
   reason: string // nonblank, <=255 characters
   expiresAt: string // ISO-8601 timestamp; future, at most 24 hours after creation
   payload:
     | { userId: string; roleId: string }
     | { roleId: string; permissionIds: string[] }
     | { apiId: string; code: string; method: 'GET'|'POST'|'PUT'|'PATCH'|'DELETE'; path: string }
+    | { code: string; name: string; method: 'GET'|'POST'|'PUT'|'PATCH'|'DELETE'; path: string; resource: string; action: string } // API_CREATE
+    | { apiId: string; name: string } // API_UPDATE
+    | { apiId: string; status: 'ACTIVE'|'DISABLED' } // API_STATUS
+    | { apiId: string } // API_DELETE
+    | { pageId: string; route: string } // PAGE_ROUTE_CHANGE
     | { roleId: string; scopeType: 'CUSTOM'|'ALL'; resource: string;
         targets: { targetType: 'USER'|'DEPARTMENT'|'ORGANIZATION'|'TENANT'; targetId: string }[] }
     | { scopeId: string } // ELEVATED_REVOKE
@@ -39,7 +44,7 @@ Approve/execute/review body: `{ "note": "nonblank reason, max 255 characters" }`
 
 Lifecycle: `REQUESTED → APPROVED → EXECUTED → REVIEWED`. Applicant cannot approve. AUDIT reviewer must differ from applicant, approver and executor. Applicant/approver/executor/reviewer cannot be a beneficiary; for MFA_RESET, the target user cannot participate in any stage. Role/API changes also check role assignments. Approver and executor may be the same SECURITY account. Post-expiry review remains permitted; post-expiry approval/execution is rejected.
 
-Success: `{ code: "000000", message: "success", data }`. Creation returns HTTP 201; other operations return HTTP 200. Mutation/detail data is the ApprovalRequest with `id`, `kind`, `status`, `payload`, `reason`, `expiresAt`, `applicantId`, nullable `approverId/executorId/reviewerId`, nullable stage timestamps/notes, and `createdAt/updatedAt`. Dates serialize as ISO strings. No internal numeric user IDs are returned.
+Success: `{ code: "000000", message: "success", data }`. Creation returns HTTP 201; other operations return HTTP 200. Mutation/detail data is the ApprovalRequest with `id`, human-readable `requestNo` (for example `20260925-8F3K2M7P`), `kind`, `status`, `payload`, `reason`, `expiresAt`, `applicantId`, nullable `approverId/executorId/reviewerId`, nullable stage timestamps/notes, and `createdAt/updatedAt`. Dates serialize as ISO strings. No internal numeric user IDs are returned. `id` remains the internal API identifier; operators should use `requestNo` when communicating about an approval.
 
 List query: optional `status` and UUID `cursor`. List data: `{ items: ApprovalRequest[], nextCursor: string | null }`, fixed page size 50, newest first. Errors use the application's Problem Details envelope: 400 invalid payload/expiry/target, 403 permission/separation/reauth failure, 404 missing approval, 409 state race/serialization conflict or conflicting endpoint. On 409 refresh the record; never assume execution succeeded. State claim, target mutation and before/after audit all commit or roll back together in a Serializable transaction.
 

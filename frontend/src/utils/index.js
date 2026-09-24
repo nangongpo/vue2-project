@@ -3,6 +3,27 @@ export function isNotEmpty(value) {
 }
 
 /**
+ * 复制文本到系统剪贴板，兼容非安全上下文。
+ * @param {string} value
+ * @returns {Promise<void>}
+ */
+export function copyText(value) {
+  if (navigator.clipboard && window.isSecureContext) {
+    return navigator.clipboard.writeText(value)
+  }
+  const input = document.createElement('textarea')
+  input.value = value
+  input.setAttribute('readonly', '')
+  input.style.position = 'fixed'
+  input.style.opacity = '0'
+  document.body.appendChild(input)
+  input.select()
+  document.execCommand('copy')
+  document.body.removeChild(input)
+  return Promise.resolve()
+}
+
+/**
  * 检测有效值的通用方法， 排除 '', null、undefined、[]、[undefined]、[null]、[''] 的情况
  * @param {*} value
  * @returns {Boolean}

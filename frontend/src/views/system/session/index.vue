@@ -1,120 +1,78 @@
 <template>
   <div class="page-container">
-    <el-card class="security-card" shadow="never">
-      <div class="page-title">账号安全验证</div>
-      <p v-if="securityUser.mfaRequired && !securityUser.mfaEnabled">
-        管理员需绑定认证器后才能使用管理功能。
-      </p>
-      <p v-if="securityUser.mfaEnabled">多因素认证已启用。高风险操作前请重新验证身份。</p>
-      <p v-if="securityUser.reauthenticatedAt">
+    <div class="page-header">
+      <div>
+        <h2>账号安全中心</h2>
+        <p>管理认证器、登录设备和账号安全状态。</p>
+      </div>
+      <el-button icon="el-icon-refresh" :loading="securityBusy || loading" @click="refreshAll">刷新状态</el-button>
+    </div>
+
+    <el-alert v-if="securityError" :title="securityError" type="error" :closable="false" />
+
+    <status-card :security-user="securityUser" :sessions-count="sessions.length" :format-date="formatDate" />
+
+    <el-card class="section-card" shadow="never">
+      <div class="section-heading">
+        <div>
+          <div class="section-title">认证器管理</div>
+          <p class="section-hint">使用认证器保护登录和高风险操作。</p>
+        </div>
+        <el-tag :type="securityUser.mfaEnabled ? 'success' : 'warning'">
+          {{ securityUser.mfaEnabled ? '认证器已绑定' : '尚未绑定' }}
+        </el-tag>
+      </div>
+      <div v-if="securityUser.mfaEnabled" class="security-action-row">
+        <div>
+          <p>多因素认证已启用。</p>
+          <p v-if="securityUser.mfaVerifiedAt" class="muted">
+            最近验证：{{ formatDate(securityUser.mfaVerifiedAt) }}
+          </p>
+        </div>
+        <span class="muted">认证器丢失请联系安全管理员，通过受控流程重置。</span>
+      </div>
+      <div v-else class="security-action-row">
+        <p>绑定认证器后，账号即使密码泄露也能获得额外保护。</p>
+        <el-button type="primary" @click="openEnrollment">开始绑定</el-button>
+      </div>
+    </el-card>
+
+    <el-card class="section-card" shadow="never">
+      <div class="section-heading">
+        <div>
+          <div class="section-title">高风险操作验证</div>
+          <p class="section-hint">敏感操作会通过全局弹窗要求重新验证身份。</p>
+        </div>
+        <el-button type="primary" plain @click="openReauth">重新认证</el-button>
+      </div>
+      <p v-if="securityUser.reauthenticatedAt" class="muted">
         最近重新认证：{{ formatDate(securityUser.reauthenticatedAt) }}
       </p>
-      <form
-        v-if="securityLoaded && !securityUser.mfaEnabled"
-        @submit.prevent="enrollment ? confirmMfa() : enrollMfa()">
-        <template v-if="!enrollment">
-          <label for="enrollment-password">当前密码</label>
-          <el-input
-            id="enrollment-password"
-            v-model="password"
-            type="password"
-            autocomplete="current-password"
-            maxlength="128" />
-          <el-button native-type="submit" type="primary" :loading="securityBusy"
-            >验证密码并绑定认证器</el-button
-          >
-        </template>
-        <template v-else>
-          <p>使用认证器扫描二维码添加 TOTP 账号（{{ enrollment.expiresIn / 60 }} 分钟内有效）：</p>
-          <div class="mfa-qr-panel">
-            <img v-if="qrCodeUrl" class="mfa-qr-code" :src="qrCodeUrl" alt="TOTP 绑定二维码" />
-            <p v-else class="mfa-qr-error">二维码生成失败，请使用下方密钥手动添加。</p>
-          </div>
-          <p>无法扫码时，在认证器中手动输入以下密钥：</p>
-          <code class="mfa-secret">{{ enrollment.secret }}</code>
-          <details>
-            <summary>手动导入 URI</summary>
-            <code class="mfa-secret">{{ enrollment.uri }}</code>
-          </details>
-          <p>使用 6 位验证码、SHA1 算法及 30 秒周期。请勿分享密钥或导入 URI。</p>
-          <label for="enrollment-otp">动态验证码</label>
-          <el-input
-            id="enrollment-otp"
-            v-model="otp"
-            inputmode="numeric"
-            autocomplete="one-time-code"
-            maxlength="6" />
-          <el-button native-type="submit" type="primary" :loading="securityBusy"
-            >确认绑定</el-button
-          >
-          <el-button :disabled="securityBusy" @click="resetEnrollment">重新绑定</el-button>
-        </template>
-      </form>
-      <form
-        v-if="
-          securityLoaded && (securityUser.mfaEnabled || !securityUser.mfaRequired) && !enrollment
-        "
-        @submit.prevent="reauthenticate">
-        <label for="reauth-password">重新认证密码</label>
-        <el-input
-          id="reauth-password"
-          v-model="reauthPassword"
-          type="password"
-          autocomplete="current-password"
-          maxlength="128" />
-        <template v-if="securityUser.mfaEnabled">
-          <label for="reauth-otp">新的动态验证码</label>
-          <el-input
-            id="reauth-otp"
-            v-model="reauthOtp"
-            inputmode="numeric"
-            autocomplete="one-time-code"
-            maxlength="6" />
-          <p>已用验证码不能重复使用，请等待认证器更新后提交。</p>
-        </template>
-        <el-button native-type="submit" type="primary" :loading="securityBusy">重新认证</el-button>
-      </form>
-      <p v-if="securityError" role="alert" class="security-error">{{ securityError }}</p>
-      <el-button v-if="!securityLoaded" :loading="securityBusy" @click="loadSecurity"
-        >重试加载</el-button
-      >
     </el-card>
-    <el-card v-if="!securityOnly && canListSessions" shadow="never">
-      <div class="page-title">当前账号的登录会话</div>
-      <el-table v-loading="loading" :data="sessions" border stripe>
-        <el-table-column label="状态" width="100">
-          <template #default="scope">
-            <el-tag :type="scope.row.current ? 'success' : 'info'">
-              {{ scope.row.current ? '当前会话' : '其他设备' }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="ip" label="登录地址" width="100" />
-        <el-table-column prop="userAgent" label="设备信息" min-width="300" show-overflow-tooltip />
-        <el-table-column label="登录时间" width="150">
-          <template #default="scope">
-            {{ formatDate(scope.row.createdAt) }}
-          </template>
-        </el-table-column>
-        <el-table-column label="最近活跃" width="150">
-          <template #default="scope">
-            {{ formatDate(scope.row.lastSeenAt) }}
-          </template>
-        </el-table-column>
-        <el-table-column label="过期时间" width="150">
-          <template #default="scope">
-            {{ formatDate(scope.row.expiresAt) }}
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" min-width="100">
-          <template slot-scope="scope">
-            <el-button type="text" :disabled="scope.row.current" @click="revoke(scope.row)">
-              撤销
-            </el-button>
-          </template>
-        </el-table-column>
-      </el-table>
+
+    <el-card class="section-card" shadow="never">
+      <div class="section-heading">
+        <div>
+          <div class="section-title">登录设备</div>
+          <p class="section-hint">当前账号的有效登录会话，当前设备不能从这里撤销。</p>
+        </div>
+        <el-button :loading="loading" @click="loadSessions">刷新设备</el-button>
+      </div>
+      <session-list :sessions="sessions" :loading="loading" :format-date="formatDate" @revoke="revoke" />
     </el-card>
+
+    <p class="audit-hint">安全登录和认证记录由审计日志统一保存。</p>
+    <el-dialog title="绑定认证器" :visible.sync="enrollmentVisible" width="520px" append-to-body
+      :close-on-click-modal="false" :before-close="closeEnrollment">
+      <mfa-enrollment-flow :step="enrollmentStep" :enrollment="enrollment" :qr-code-url="qrCodeUrl"
+        :password.sync="password" :otp.sync="otp" :busy="securityBusy" :error="securityError" @next="enrollMfa"
+        @confirm="confirmMfa" @confirm-step="enrollmentStep = 3"
+        @previous="enrollmentStep = 2; otp = ''; securityError = ''" @reset="resetEnrollment" />
+    </el-dialog>
+
+    <reauth-dialog :visible.sync="reauthVisible" :mfa-enabled="securityUser.mfaEnabled" :password.sync="reauthPassword"
+      :otp.sync="reauthOtp" :busy="securityBusy" :error="securityError" @cancel="clearReauth"
+      @submit="reauthenticate" />
   </div>
 </template>
 
@@ -123,13 +81,14 @@ import { getMfaStatus, getSessions, revokeSession } from '@/api/user'
 import { axiosPost } from '@/api/index'
 import { dateFormat } from '@/utils/date'
 import { qrSvgDataUrl } from '@/utils/qrcode'
+import MfaEnrollmentFlow from '@/components/Security/MfaEnrollmentFlow.vue'
+import ReauthDialog from '@/components/Security/ReauthDialog.vue'
+import SessionList from '@/components/Security/SessionList.vue'
+import StatusCard from '@/components/Security/StatusCard.vue'
 
 export default {
   name: 'SystemSession',
-  props: {
-    securityOnly: { type: Boolean, default: false },
-    initialSecurity: { type: Object, default: null },
-  },
+  components: { MfaEnrollmentFlow, ReauthDialog, SessionList, StatusCard },
   data() {
     return {
       loading: false,
@@ -143,16 +102,12 @@ export default {
       reauthPassword: '',
       reauthOtp: '',
       enrollment: null,
+      enrollmentStep: 1,
+      enrollmentVisible: false,
+      reauthVisible: false,
     }
   },
   computed: {
-    canListSessions() {
-      return (
-        this.securityLoaded &&
-        (!this.securityUser.mfaRequired ||
-          (this.securityUser.mfaEnabled && this.securityUser.mfaVerifiedAt))
-      )
-    },
     qrCodeUrl() {
       if (!this.enrollment?.uri) return ''
       try {
@@ -164,19 +119,18 @@ export default {
   },
   async created() {
     await this.loadSecurity()
-    if (!this.securityOnly && this.canListSessions) await this.loadSessions()
+    if (this.securityLoaded) await this.loadSessions()
   },
   beforeDestroy() {
-    this.resetEnrollment()
-    this.reauthPassword = ''
-    this.reauthOtp = ''
+    this.closeEnrollment()
+    this.clearReauth()
   },
   methods: {
     async loadSecurity() {
       this.securityBusy = true
       this.securityError = ''
       try {
-        this.securityUser = this.initialSecurity || (await getMfaStatus())
+        this.securityUser = await getMfaStatus()
         this.securityLoaded = true
       } catch (error) {
         this.securityError = error.message || '账号安全信息加载失败'
@@ -184,24 +138,41 @@ export default {
         this.securityBusy = false
       }
     },
+    async refreshAll() {
+      await this.loadSecurity()
+      if (this.securityLoaded) await this.loadSessions()
+    },
+    openEnrollment() {
+      this.securityError = ''
+      this.enrollmentStep = 1
+      this.enrollment = null
+      this.password = ''
+      this.otp = ''
+      this.enrollmentVisible = true
+    },
+    closeEnrollment(done) {
+      if (this.securityBusy) return
+      this.enrollmentVisible = false
+      this.resetEnrollment()
+      if (typeof done === 'function') done()
+    },
     resetEnrollment() {
       this.password = ''
       this.otp = ''
       this.enrollment = null
+      this.enrollmentStep = 1
     },
     async securityAction(action) {
-      if (this.securityBusy) return
+      if (this.securityBusy) return false
       this.securityBusy = true
       this.securityError = ''
       try {
         await action()
+        return true
       } catch (error) {
         this.securityError = error.message || '验证失败，请重试'
+        return false
       } finally {
-        this.password = ''
-        this.otp = ''
-        this.reauthPassword = ''
-        this.reauthOtp = ''
         this.securityBusy = false
       }
     },
@@ -212,6 +183,8 @@ export default {
       }
       await this.securityAction(async () => {
         this.enrollment = await axiosPost('/auth/mfa/enroll', { password: this.password })
+        this.enrollmentStep = 2
+        this.password = ''
       })
     },
     async confirmMfa() {
@@ -219,15 +192,28 @@ export default {
         this.securityError = '请输入 6 位验证码'
         return
       }
-      await this.securityAction(async () => {
-        const result = await axiosPost('/auth/mfa/confirm', { otp: this.otp })
-        this.resetEnrollment()
-        this.securityUser = { ...this.securityUser, ...result }
-        this.$store.commit('user/SET_USER_INFO', { ...this.$store.state.user.user_info, ...result })
+      const success = await this.securityAction(async () => {
+        await axiosPost('/auth/mfa/confirm', { otp: this.otp })
+        await this.loadSecurity()
         this.$message.success('认证器绑定成功')
-        if (!this.securityOnly && this.canListSessions) await this.loadSessions()
         this.$emit('verified')
       })
+      if (success) {
+        this.enrollmentVisible = false
+        this.resetEnrollment()
+        await this.loadSessions()
+      }
+    },
+    openReauth() {
+      this.securityError = ''
+      this.reauthPassword = ''
+      this.reauthOtp = ''
+      this.reauthVisible = true
+    },
+    clearReauth() {
+      this.reauthPassword = ''
+      this.reauthOtp = ''
+      this.reauthVisible = false
     },
     async reauthenticate() {
       if (
@@ -237,17 +223,17 @@ export default {
         this.securityError = '请输入密码和有效的动态验证码'
         return
       }
-      await this.securityAction(async () => {
+      const success = await this.securityAction(async () => {
         const result = await axiosPost('/auth/reauth', {
           password: this.reauthPassword,
           ...(this.securityUser.mfaEnabled ? { otp: this.reauthOtp } : {}),
         })
         this.securityUser = { ...this.securityUser, ...result }
         this.$store.commit('user/SET_USER_INFO', { ...this.$store.state.user.user_info, ...result })
-        this.$message.success('身份验证成功，请返回并重新执行操作')
-        if (!this.securityOnly && this.canListSessions) await this.loadSessions()
+        this.$message.success('身份验证成功')
         this.$emit('verified')
       })
+      if (success) this.clearReauth()
     },
     formatDate(value) {
       return dateFormat(value) || '未知'
@@ -256,15 +242,23 @@ export default {
       this.loading = true
       try {
         this.sessions = (await getSessions()) || []
+      } catch (error) {
+        this.securityError = error.message || '登录设备加载失败'
       } finally {
         this.loading = false
       }
     },
     async revoke(session) {
-      await this.$confirm('确认撤销该登录会话？', '提示', { type: 'warning' })
-      await revokeSession(session.id)
-      this.$message.success('会话已撤销')
-      await this.loadSessions()
+      try {
+        await this.$confirm('确认撤销该设备的登录会话？撤销后需要重新登录。', '撤销登录会话', {
+          type: 'warning',
+        })
+        await revokeSession(session.id)
+        this.$message.success('登录会话已撤销')
+        await this.loadSessions()
+      } catch {
+        /* 用户取消或请求失败时由请求层提示。 */
+      }
     },
   },
 }
@@ -274,50 +268,75 @@ export default {
 .page-container {
   padding: 20px;
 }
-.page-title {
-  margin-bottom: 16px;
-  font-size: 16px;
-  font-weight: 600;
+
+.page-header,
+.section-heading,
+.security-action-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
 }
-.security-card {
+
+.page-header {
   margin-bottom: 20px;
 }
-.security-card form {
-  max-width: 460px;
-  margin: 16px 0;
+
+.page-header h2 {
+  margin: 0 0 8px;
+  font-size: 24px;
 }
-.security-card label {
-  display: block;
-  margin: 12px 0 6px;
+
+.page-header p,
+.section-hint,
+.muted,
+.audit-hint {
+  color: #7a8492;
 }
-.security-card .el-button {
-  margin-top: 12px;
-}
-.mfa-qr-panel {
-  display: flex;
-  justify-content: center;
-  margin: 12px 0 16px;
-  padding: 16px;
-  background: #f6f8fb;
-  border: 1px solid #e4e7ed;
-  border-radius: 4px;
-}
-.mfa-qr-code {
-  width: 188px;
-  height: 188px;
-  image-rendering: pixelated;
-}
-.mfa-qr-error {
+
+.page-header p,
+.section-hint {
   margin: 0;
-  color: #d93025;
 }
-.mfa-secret {
-  display: block;
-  overflow-wrap: anywhere;
-  user-select: all;
-  margin: 12px 0;
+
+.section-card {
+  margin-bottom: 16px;
 }
+
+.section-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #303133;
+}
+
+.security-action-row {
+  margin-top: 18px;
+}
+
+.security-action-row p {
+  margin: 4px 0;
+}
+
+.audit-hint {
+  margin: 18px 0;
+  text-align: center;
+  font-size: 13px;
+}
+
 .security-error {
   color: #d93025;
+}
+
+@media (max-width: 768px) {
+  .page-container {
+    padding: 12px;
+  }
+
+  .page-header,
+  .section-heading,
+  .security-action-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
 }
 </style>

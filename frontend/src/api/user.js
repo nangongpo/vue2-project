@@ -10,15 +10,11 @@ export function completeLogin(data) {
 }
 
 export function createCaptchaChallenge(data) {
-  return axiosPost('/captcha/challenges', data)
+  return axiosPost('/captcha/challenges', data, { showNotify: false })
 }
 
 export function verifyCaptcha(data) {
-  return axiosPost('/captcha/verify', data)
-}
-
-export function reportCaptchaEvent(data) {
-  return axiosPost('/captcha/events', data, { showNotify: false })
+  return axiosPost('/captcha/verify', data, { showNotify: false })
 }
 
 export function getInfo() {

@@ -2,8 +2,10 @@ import { ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus, Logge
 import { randomUUID } from 'node:crypto'
 import { FastifyReply, FastifyRequest } from 'fastify'
 import { API_CODE, API_MESSAGE, API_TITLE, ApiCode } from '../constants/api-code.js'
+import { ApiResponse } from '../http/api-response.js'
 import { AuditService } from '../../audit/services/audit.service.js'
 import { sanitizeAuditRequest } from '../../audit/utils/audit-sanitizer.js'
+import { resolveRiskLevel, type RiskLevel } from '../../security/policies/risk-policy.js'
 
 export function codeForStatus(status: number): ApiCode {
   if (status === HttpStatus.BAD_REQUEST) return API_CODE.INVALID_PARAMS
@@ -12,6 +14,7 @@ export function codeForStatus(status: number): ApiCode {
   if (status === HttpStatus.NOT_FOUND) return API_CODE.NOT_FOUND
   if (status === HttpStatus.CONFLICT) return API_CODE.CONFLICT
   if (status === HttpStatus.TOO_MANY_REQUESTS) return API_CODE.RATE_LIMITED
+  if (status === HttpStatus.SERVICE_UNAVAILABLE) return API_CODE.SERVICE_UNAVAILABLE
   return API_CODE.INTERNAL_ERROR
 }
 
@@ -27,9 +30,11 @@ export class ApiExceptionFilter implements ExceptionFilter {
       FastifyRequest & {
         traceId?: string
         auditRecorded?: boolean
+        riskLevel?: RiskLevel
+        operationCode?: string
         user?: { internalId?: bigint }
       }
-    >()
+      >()
     const databaseError =
       typeof exception === 'object' &&
       exception !== null &&
@@ -49,8 +54,14 @@ export class ApiExceptionFilter implements ExceptionFilter {
       : typeof rawMessage === 'string'
       ? rawMessage
       : API_MESSAGE[codeForStatus(status)]
-    const code = typeof rawBody.code === 'string' ? rawBody.code : databaseError ? API_CODE.DATABASE_ERROR : codeForStatus(status)
-    const safeMessage = databaseError ? API_MESSAGE[API_CODE.DATABASE_ERROR] : message
+    let code = typeof rawBody.code === 'string' ? rawBody.code : databaseError ? API_CODE.DATABASE_ERROR : codeForStatus(status)
+    if (databaseError) code = API_CODE.DATABASE_ERROR
+    else if (status === HttpStatus.SERVICE_UNAVAILABLE) code = API_CODE.SERVICE_UNAVAILABLE
+    const apiCode: ApiCode = Object.values(API_CODE).includes(code as ApiCode) ? (code as ApiCode) : API_CODE.INTERNAL_ERROR
+    const safeMessage = status >= HttpStatus.INTERNAL_SERVER_ERROR ? API_MESSAGE[apiCode] : databaseError ? API_MESSAGE[API_CODE.DATABASE_ERROR] : message
+    const rawData = rawBody.data && typeof rawBody.data === 'object' && !Array.isArray(rawBody.data)
+      ? (rawBody.data as Record<string, unknown>)
+      : {}
 
     // Do not fall back to the client-controlled header. Errors must carry the
     // server-generated id created by TraceIdInterceptor (or a fresh fallback).
@@ -62,7 +73,9 @@ export class ApiExceptionFilter implements ExceptionFilter {
         .record({
           traceId,
           actorId: request.user?.internalId,
+          operationCode: request.operationCode,
           action: `${request.method} ${request.url.split('?')[0]}`,
+          riskLevel: request.riskLevel || resolveRiskLevel({ operation: `${request.method} ${request.url.split('?')[0]}` }),
           resource: request.url.split('?')[0],
           method: request.method,
           path: request.url.split('?')[0],
@@ -81,17 +94,23 @@ export class ApiExceptionFilter implements ExceptionFilter {
       const errorMessage = exception instanceof Error ? exception.stack || exception.message : String(exception)
       this.logger.error(`[${traceId}] ${request.method} ${request.url}\n${errorMessage}`)
     }
-    response
-      .type('application/problem+json')
-      .status(status)
-      .send({
-        type: `urn:vue2-project:problem:${code}`,
-        title: API_TITLE[code as ApiCode] || '请求失败',
-        status,
-        detail: safeMessage,
-        instance: request.url,
-        code,
-        traceId,
-      })
+    const errorData = {
+      traceId,
+      status,
+      ...(Array.isArray(rawMessage) ? { details: rawMessage } : {}),
+      ...(apiCode === API_CODE.SECURITY_STEP_UP_REQUIRED
+        ? {
+            riskLevel: rawData.riskLevel,
+            operationCode: rawData.operationCode,
+            requiredFactors: rawData.requiredFactors,
+          }
+        : {}),
+    }
+    const payload: ApiResponse<typeof errorData> = {
+      code: apiCode,
+      message: safeMessage || API_TITLE[apiCode] || '请求失败',
+      data: errorData,
+    }
+    response.type('application/json').status(status).send(payload)
   }
 }

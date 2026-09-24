@@ -77,12 +77,52 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  async get(key: string) {
+    if (!this.client) return null
+    try {
+      return await this.client.get(key)
+    } catch (error) {
+      console.error('[captcha-redis] get failed:', (error as Error).message)
+      return null
+    }
+  }
+
   async getAndDelete(key: string) {
     if (!this.client) return null
     try {
       return await this.client.getdel(key)
     } catch (error) {
       console.error('[captcha-redis] consume failed:', (error as Error).message)
+      return null
+    }
+  }
+
+  async incrementJsonField(key: string, field: string, max: number) {
+    if (!this.client) return null
+    try {
+      const result = await this.client.eval(
+        `local raw = redis.call('get', KEYS[1])
+if not raw then return -1 end
+local value = cjson.decode(raw)
+local current = tonumber(value[ARGV[1]]) or 0
+local next = current + 1
+if next >= tonumber(ARGV[2]) then
+  redis.call('del', KEYS[1])
+  return next
+end
+value[ARGV[1]] = next
+local ttl = redis.call('ttl', KEYS[1])
+redis.call('set', KEYS[1], cjson.encode(value))
+if ttl > 0 then redis.call('expire', KEYS[1], ttl) end
+return next`,
+        1,
+        key,
+        field,
+        String(max)
+      )
+      return Number(result)
+    } catch (error) {
+      console.error('[captcha-redis] atomic json increment failed:', (error as Error).message)
       return null
     }
   }

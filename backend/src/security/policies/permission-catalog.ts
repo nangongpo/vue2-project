@@ -26,7 +26,8 @@ for (const [domain, base] of [
   ['button', '/permission/buttons'],
   ['api', '/permission/apis'],
 ] as const) {
-  if (domain !== 'button') api(`system.${domain}.read`, 'GET', base)
+  if (domain === 'button') api('system.button.read', 'GET', '/permission/functions/:functionId/buttons')
+  else api(`system.${domain}.read`, 'GET', base)
   api(`system.${domain}.create`, 'POST', base)
   api(`system.${domain}.update`, 'PATCH', `${base}/:id`)
   api(`system.${domain}.disable`, 'PATCH', `${base}/:id/status`)
@@ -53,6 +54,7 @@ api('system.audit.read', 'GET', '/audit-logs', 'AUDIT')
 api('system.audit.detail', 'GET', '/audit-logs/:id', 'AUDIT')
 api('system.audit.integrity', 'GET', '/audit-logs/:id/integrity', 'AUDIT')
 api('system.audit.export', 'GET', '/audit-logs/export', 'AUDIT')
+api('system.health.read', 'GET', '/system/health', 'SYSTEM')
 api('system.approval.create', 'POST', '/permission/approvals')
 api('system.approval.read', 'GET', '/permission/approvals', 'BUSINESS')
 api('system.approval.detail', 'GET', '/permission/approvals/:id', 'BUSINESS')
@@ -76,6 +78,10 @@ for (const [action, method, path, roleType] of [
   api(`system.ops-ticket.${action}`, method, path, roleType)
 api('system.ops-ticket.evidence', 'POST', '/ops-tickets/:id/evidence', 'SECURITY')
 api('system.ops-ticket.executions', 'POST', '/ops-tickets/:id/executions', 'SECURITY')
+api('system.operation-policy.read', 'GET', '/security/operation-policies', 'SECURITY')
+api('system.operation-policy.manage', 'POST', '/security/operation-policies', 'SECURITY')
+api('system.operation-policy.activate', 'POST', '/security/operation-policies/:id/activate', 'SECURITY')
+api('system.operation-policy.disable', 'PATCH', '/security/operation-policies/:id/disable', 'SECURITY')
 
 export const SHARED_ADMIN_CODES = [
   'system.approval.read',

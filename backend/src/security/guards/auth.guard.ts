@@ -9,7 +9,7 @@ export class AuthGuard implements CanActivate {
   async canActivate(context: ExecutionContext) {
     const request = context.switchToHttp().getRequest()
     if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method)) assertSameOrigin(request)
-    request.user = await this.auth.authenticate(request.cookies?.[SESSION_COOKIE])
+    request.user = await this.auth.authenticate(request.cookies?.[SESSION_COOKIE], 'AUTHENTICATED')
     const route = request.routeOptions?.url || request.routerPath
     const enrollmentRoutes = new Set([
       '/api/v1/auth/logout',
@@ -34,12 +34,12 @@ export class MfaAuthGuard implements CanActivate {
     const formalToken = request.cookies?.[SESSION_COOKIE]
     const preAuthToken = request.cookies?.[PREAUTH_COOKIE]
     if (formalToken) {
-      request.user = await this.auth.authenticate(formalToken)
+      request.user = await this.auth.authenticate(formalToken, 'AUTHENTICATED')
       request.authToken = formalToken
       request.authCookie = SESSION_COOKIE
       return true
     }
-    request.user = await this.auth.authenticate(preAuthToken)
+    request.user = await this.auth.authenticate(preAuthToken, 'PRE_AUTH')
     request.authToken = preAuthToken
     request.authCookie = PREAUTH_COOKIE
     return true

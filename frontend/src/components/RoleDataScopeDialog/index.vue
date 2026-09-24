@@ -1,86 +1,46 @@
 <template>
-  <el-dialog
-    title="角色数据范围"
-    :visible="visible"
-    width="820px"
-    :close-on-click-modal="false"
-    :before-close="close"
+  <el-dialog title="角色数据范围" :visible="visible" width="820px" :close-on-click-modal="false" :before-close="close"
     @open="load">
     <p>{{ role ? role.name : '' }} · {{ role ? role.status : '' }}</p>
     <p>
-      需安全管理员权限与五分钟内的 MFA、重新认证。<router-link to="/system/session"
-        >前往账号安全验证</router-link
-      >
+      需安全管理员权限与五分钟内的 MFA、重新认证。<router-link to="/system/session">前往账号安全验证</router-link>
     </p>
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
-    <el-button v-permission="'system.data.read'" :disabled="loading || saving" @click="load"
-      >刷新</el-button
-    >
+    <el-button v-permission="'system.data.read'" :disabled="loading || saving" @click="load">刷新</el-button>
     <el-table v-loading="loading" :data="scopes" border class="scope-table">
       <el-table-column prop="resource" label="资源" min-width="140" />
-      <el-table-column label="范围" min-width="140"
-        ><template slot-scope="{ row }">{{ scopeLabel(row.scopeType) }}</template></el-table-column
-      >
-      <el-table-column label="到期" min-width="190"
-        ><template slot-scope="{ row }">{{
-          row.expiresAt || '无到期时间'
-        }}</template></el-table-column
-      >
-      <el-table-column label="状态" width="100"
-        ><template slot-scope="{ row }">{{
-          row.revokedAt ? '已撤销' : expired(row) ? '已过期' : '有效'
-        }}</template></el-table-column
-      >
-      <el-table-column label="操作" width="80"
-        ><template slot-scope="{ row }"
-          ><el-button
-            v-permission="'system.data.revoke'"
-            type="text"
+      <el-table-column label="范围" min-width="140"><template slot-scope="{ row }">{{ scopeLabel(row.scopeType)
+      }}</template></el-table-column>
+      <el-table-column label="到期" min-width="190"><template slot-scope="{ row }">{{
+        row.expiresAt || '无到期时间'
+          }}</template></el-table-column>
+      <el-table-column label="状态" width="100"><template slot-scope="{ row }">{{
+        row.revokedAt ? '已撤销' : expired(row) ? '已过期' : '有效'
+          }}</template></el-table-column>
+      <el-table-column label="操作" width="80"><template slot-scope="{ row }"><el-button
+            v-permission="'system.data.revoke'" type="text"
             :disabled="!!row.revokedAt || saving || !role || role.status !== 'ACTIVE'"
-            @click="revoke(row)"
-            >撤销</el-button
-          ></template
-        ></el-table-column
-      >
+            @click="revoke(row)">撤销</el-button></template></el-table-column>
     </el-table>
     <template v-if="can('system.data.update')">
       <h4>新增普通数据范围</h4>
       <el-form ref="scopeForm" :model="form" :rules="rules" label-width="100px">
-        <el-form-item label="资源" prop="resource"
-          ><el-input v-model.trim="form.resource" maxlength="128" placeholder="明确的业务资源标识"
-        /></el-form-item>
-        <el-form-item label="范围"
-          ><el-select v-model="form.scopeType"
-            ><el-option
-              v-for="scope in options"
-              :key="scope.value"
-              :label="scope.label"
-              :value="scope.value" /></el-select
-        ></el-form-item>
-        <el-form-item label="操作原因" prop="reason"
-          ><el-input v-model.trim="form.reason" type="textarea" maxlength="255"
-        /></el-form-item>
-        <el-form-item label="到期时间"
-          ><el-date-picker v-model="form.expiresAt" type="datetime" placeholder="可选，必须在未来"
-        /></el-form-item>
+        <el-form-item label="资源" prop="resource"><el-input v-model.trim="form.resource" maxlength="128"
+            placeholder="明确的业务资源标识" /></el-form-item>
+        <el-form-item label="范围"><el-select v-model="form.scopeType"><el-option v-for="scope in options"
+              :key="scope.value" :label="scope.label" :value="scope.value" /></el-select></el-form-item>
+        <el-form-item label="操作原因" prop="reason"><el-input v-model.trim="form.reason" type="textarea"
+            maxlength="255" /></el-form-item>
+        <el-form-item label="到期时间"><el-date-picker v-model="form.expiresAt" type="datetime"
+            placeholder="可选，必须在未来" /></el-form-item>
       </el-form>
     </template>
     <p>
-      组织和租户范围由服务端计算；CUSTOM / ALL 只能通过<router-link to="/system/permission/approval"
-        >受控审批</router-link
-      >申请。
+      组织和租户范围由服务端计算；CUSTOM / ALL 只能通过<router-link to="/system/permission/approval">受控审批</router-link>申请。
     </p>
-    <span slot="footer"
-      ><el-button :disabled="saving" @click="close">关闭</el-button
-      ><el-button
-        v-permission="'system.data.update'"
-        type="primary"
-        :loading="saving"
-        :disabled="loading || !role || role.status !== 'ACTIVE'"
-        @click="grant"
-        >新增数据范围</el-button
-      ></span
-    >
+    <span slot="footer"><el-button :disabled="saving" @click="close">关闭</el-button><el-button
+        v-permission="'system.data.update'" type="primary" :loading="saving"
+        :disabled="loading || !role || role.status !== 'ACTIVE'" @click="grant">新增数据范围</el-button></span>
   </el-dialog>
 </template>
 
@@ -158,12 +118,12 @@ export default {
       if (
         !(await this.$confirm(
           '为“' +
-            this.role.name +
-            '”新增资源“' +
-            this.form.resource +
-            '”的“' +
-            this.scopeLabel(this.form.scopeType) +
-            '”范围，确认执行？',
+          this.role.name +
+          '”新增资源“' +
+          this.form.resource +
+          '”的“' +
+          this.scopeLabel(this.form.scopeType) +
+          '”范围，确认执行？',
           '数据范围影响',
           { type: 'warning' }
         )
@@ -194,10 +154,10 @@ export default {
         this,
         '撤销数据范围',
         '确认撤销资源“' +
-          scope.resource +
-          '”的“' +
-          this.scopeLabel(scope.scopeType) +
-          '”范围？请填写原因。'
+        scope.resource +
+        '”的“' +
+        this.scopeLabel(scope.scopeType) +
+        '”范围？请填写原因。'
       )
       if (!reason) return
       this.saving = true

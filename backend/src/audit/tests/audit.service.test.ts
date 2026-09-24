@@ -71,7 +71,7 @@ describe('AuditService', () => {
       pageSize: 10,
     })
 
-    expect(result.data).toEqual({ items: [{ id: 'log-1' }], total: 1, page: 2, pageSize: 10 })
+    expect(result.data).toEqual({ items: [{ id: 'log-1' }], total: 1, page: 2, pageSize: 10, totalPages: 1 })
     expect(count).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({ result: 'FAILURE', createdAt: { gte: from } }),

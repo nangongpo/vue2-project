@@ -26,12 +26,17 @@ backend 默认监听 `0.0.0.0:3000`，接口前缀为 `/api/v1`。
 | `REDIS_ENABLED` | `true` | 是否启用 Redis；生产环境必须启用。 |
 | `SESSION_TTL_SECONDS` | `1800` | 会话绝对有效期，范围 300–86400 秒。 |
 | `SESSION_IDLE_TTL_SECONDS` | `1800` | 会话空闲有效期，范围 300–86400 秒。 |
+| `PREAUTH_TTL_SECONDS` | `300` | MFA 完成前的 PRE_AUTH 临时会话有效期，范围 60–900 秒。 |
 | `API_RATE_LIMIT` | `120` | 单接口/IP 的请求次数。 |
 | `API_RATE_WINDOW_SECONDS` | `60` | backend 全局限流窗口。 |
 | `LOGIN_FAILURE_LIMIT` | `5` | 触发账号登录锁定的失败次数。 |
 | `LOGIN_LOCK_MINUTES` | `15` | 账号锁定时长。 |
 | `LOGIN_RATE_LIMIT` | `10` | 登录接口限流次数。 |
 | `LOGIN_RATE_WINDOW_SECONDS` | `60` | 登录限流窗口。 |
+| `CAPTCHA_RATE_WINDOW_SECONDS` | `60` | 行为验证码公开接口独立限流窗口。 |
+| `CAPTCHA_CHALLENGE_RATE_LIMIT` | `10` | 单 IP/账号创建挑战次数上限。 |
+| `CAPTCHA_VERIFY_RATE_LIMIT` | `30` | 单 IP/挑战校验次数上限。 |
+| `CAPTCHA_EVENT_RATE_LIMIT` | `120` | 单 IP 事件上报次数上限。 |
 | `LOGIN_CAPTCHA_FAILURE_LIMIT` | `3` | 达到连续失败次数后要求验证码。 |
 | `IDEMPOTENCY_LOCK_SECONDS` | `15` | 幂等请求锁定时长。 |
 | `CAPTCHA_SERVICE_URL` | `http://127.0.0.1:3100` | captcha-service 内网地址。 |

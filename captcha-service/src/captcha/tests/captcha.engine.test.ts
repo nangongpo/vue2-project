@@ -9,10 +9,22 @@ class MemoryRedis {
     this.values.set(k, v)
     return true
   }
+  async get(k: string) {
+    return this.values.get(k) || null
+  }
   async getAndDelete(k: string) {
     const v = this.values.get(k) || null
     this.values.delete(k)
     return v
+  }
+  async incrementJsonField(k: string, field: string, max: number) {
+    const raw = this.values.get(k)
+    if (!raw) return -1
+    const value = JSON.parse(raw) as Record<string, number>
+    const next = Number(value[field] || 0) + 1
+    if (next >= max) this.values.delete(k)
+    else this.values.set(k, JSON.stringify({ ...value, [field]: next }))
+    return next
   }
 }
 const binding: ServiceBinding = {
@@ -80,5 +92,35 @@ describe('CaptchaEngine', () => {
         clientIp: '127.0.0.1',
       })
     ).toBe(false)
+  })
+
+  it('keeps a challenge for limited answer retries', async () => {
+    const redis = new MemoryRedis()
+    const engine = new CaptchaEngine(redis as never)
+    const c = await engine.createChallenge(binding, {
+      attemptId: 'attempt-retry',
+      sceneId: 'login',
+      subject: 'admin',
+      clientIp: '127.0.0.2',
+      userAgent: 'Chrome',
+    })
+    const stored = JSON.parse([...redis.values.values()][1] || [...redis.values.values()][0]) as {
+      targetX: number
+    }
+    const invalidInput = {
+      attemptId: 'attempt-retry',
+      challengeId: c.ChallengeId,
+      sceneId: 'login' as const,
+      subject: 'admin',
+      clientIp: '127.0.0.2',
+      userAgent: 'Chrome',
+      points: Array.from({ length: 11 }, (_, i) => ({ x: i, y: 20, t: i * 100 })),
+      finalX: stored.targetX + 100,
+      trackWidth: c.Payload.trackWidth,
+    }
+    await expect(engine.verifyChallenge(binding, invalidInput)).rejects.toMatchObject({
+      code: 'ANSWER_INVALID',
+    })
+    expect([...redis.values.values()].some((value) => value.includes('verifyAttempts'))).toBe(true)
   })
 })

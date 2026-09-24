@@ -52,13 +52,19 @@
 
         <div class="login-action">
           <button
-            :class="['login-btn', { 'is-loading': loading, 'is-disabled': loading }]"
-            :disabled="loading"
+            :class="[
+              'login-btn',
+              { 'is-loading': loading, 'is-disabled': loading || captchaCooldownSeconds > 0 },
+            ]"
+            :disabled="loading || captchaCooldownSeconds > 0"
             type="primary"
             style="width: 100%"
             @click="handleLogin">
             <span class="btn-loading-icon"></span>
-            <span class="btn-text">{{ loadingText || '验证并登录' }}</span>
+            <span class="btn-text">{{
+              loadingText ||
+              (captchaCooldownSeconds ? `${captchaCooldownSeconds} 秒后可重新验证` : '验证并登录')
+            }}</span>
           </button>
         </div>
       </section>
@@ -80,41 +86,20 @@
       </div>
     </el-dialog>
 
-    <el-dialog
-      title="输入动态验证码"
+    <otp-verification-dialog
+      ref="otpVerificationDialog"
       :visible.sync="otpDialogVisible"
-      width="420px"
-      custom-class="otp-dialog"
-      append-to-body
-      :show-close="false"
-      :close-on-click-modal="false"
-      :close-on-press-escape="false"
-      :destroy-on-close="true"
-      @opened="focusOtpInput"
-      @close="handleOtpDialogClose">
-      <div class="otp-dialog-body">
-        <p class="otp-dialog-tip">请输入认证器中当前显示的 6 位动态验证码</p>
-        <input
-          ref="otpInput"
-          v-model="loginModel.otp"
-          class="otp-dialog-input"
-          autocomplete="one-time-code"
-          maxlength="6"
-          placeholder="请输入 6 位验证码"
-          :disabled="loading"
-          @input="handleOtpInput"
-          @keyup.enter="submitOtpLogin" />
-        <div class="login-error">{{ loginError || ' ' }}</div>
-      </div>
-      <span slot="footer" class="dialog-footer">
-        <el-button :disabled="loading" @click="cancelOtpLogin">取消</el-button>
-        <el-button type="primary" :loading="loading" @click="submitOtpLogin">验证并登录</el-button>
-      </span>
-    </el-dialog>
+      :otp.sync="loginModel.otp"
+      :busy="loading"
+      :error="loginError"
+      @clear-error="clearLoginError"
+      @cancel="cancelOtpLogin"
+      @submit="submitOtpLogin" />
 
     <el-dialog
+      title="账号安全验证"
       :visible.sync="securityPending"
-      width="520px"
+      width="420px"
       custom-class="security-dialog"
       append-to-body
       :show-close="false"
@@ -122,10 +107,19 @@
       :close-on-press-escape="false"
       :destroy-on-close="true"
       :before-close="blockSecurityDialogClose">
-      <session-security
-        security-only
-        :initial-security="mfaStatus"
-        @verified="finishLogin" />
+      <mfa-enrollment-flow
+        :step="mfaEnrollmentStep"
+        :enrollment="mfaEnrollment"
+        :qr-code-url="mfaQrCodeUrl"
+        :password.sync="mfaEnrollmentPassword"
+        :otp.sync="mfaEnrollmentOtp"
+        :busy="mfaEnrollmentBusy"
+        :error="mfaEnrollmentError"
+        @next="startMfaEnrollment"
+        @confirm-step="mfaEnrollmentStep = 3"
+        @previous="mfaEnrollmentStep = 2; mfaEnrollmentOtp = ''; mfaEnrollmentError = ''"
+        @confirm="confirmMfaEnrollment"
+        @reset="resetMfaEnrollment" />
       <span slot="footer" class="dialog-footer">
         <el-button type="danger" plain @click="cancelSecurity">退出登录</el-button>
       </span>
@@ -136,28 +130,34 @@
 <script>
 import { createSliderCaptcha } from '@/utils/sliderCaptcha'
 import { REQUEST_CODE } from '@/api/codes'
-import {
-  createCaptchaChallenge,
-  reportCaptchaEvent,
-  verifyCaptcha,
-} from '@/api/user'
+import { createCaptchaChallenge, verifyCaptcha } from '@/api/user'
+import { axiosPost } from '@/api/index'
 import { getSystemHealth } from '@/api/system'
-import SessionSecurity from '@/views/system/session/index.vue'
+import MfaEnrollmentFlow from '@/components/Security/MfaEnrollmentFlow.vue'
+import OtpVerificationDialog from '@/components/Security/OtpVerificationDialog.vue'
+import { qrSvgDataUrl } from '@/utils/qrcode'
 
 export default {
   name: 'login',
-  components: { SessionSecurity },
+  components: { MfaEnrollmentFlow, OtpVerificationDialog },
   data() {
     return {
       title: 'vue2-project',
       loading: false,
       securityPending: false,
+      mfaEnrollment: null,
+      mfaEnrollmentStep: 1,
+      mfaEnrollmentPassword: '',
+      mfaEnrollmentOtp: '',
+      mfaEnrollmentBusy: false,
+      mfaEnrollmentError: '',
       otpDialogVisible: false,
-      mfaStatus: null,
       loadingText: '',
       captchaDialogVisible: false,
       captchaLoading: false,
       captchaInitStartedAt: 0,
+      captchaCooldownSeconds: 0,
+      captchaCooldownTimer: null,
       systemStatus: {
         state: 'checking',
         text: '系统状态检查中',
@@ -175,6 +175,16 @@ export default {
       },
     }
   },
+  computed: {
+    mfaQrCodeUrl() {
+      if (!this.mfaEnrollment?.uri) return ''
+      try {
+        return qrSvgDataUrl(this.mfaEnrollment.uri, { title: 'TOTP 绑定二维码' })
+      } catch {
+        return ''
+      }
+    },
+  },
   methods: {
     async finishLogin() {
       this.securityPending = false
@@ -183,24 +193,63 @@ export default {
     async cancelSecurity() {
       await this.$store.dispatch('user/logout')
       this.securityPending = false
-      this.mfaStatus = null
+      this.resetMfaEnrollment()
     },
-    focusOtpInput() {
-      this.$nextTick(() => {
-        if (this.$refs.otpInput) this.$refs.otpInput.focus()
-      })
+    async startMfaEnrollment() {
+      if (!this.mfaEnrollmentPassword) {
+        this.mfaEnrollmentError = '请输入当前密码'
+        return
+      }
+      if (this.mfaEnrollmentBusy) return
+      this.mfaEnrollmentBusy = true
+      this.mfaEnrollmentError = ''
+      try {
+        this.mfaEnrollment = await axiosPost('/auth/mfa/enroll', {
+          password: this.mfaEnrollmentPassword,
+        })
+        this.mfaEnrollmentPassword = ''
+        this.mfaEnrollmentStep = 2
+      } catch (error) {
+        this.mfaEnrollmentError = error.message || '认证器绑定初始化失败，请重试'
+      } finally {
+        this.mfaEnrollmentBusy = false
+      }
     },
-    handleOtpInput() {
-      this.loginModel.otp = (this.loginModel.otp || '').replace(/\D/g, '').slice(0, 6)
-      this.loginError = ''
+    async confirmMfaEnrollment() {
+      if (!/^\d{6}$/.test(this.mfaEnrollmentOtp)) {
+        this.mfaEnrollmentError = '请输入 6 位验证码'
+        return
+      }
+      if (this.mfaEnrollmentBusy) return
+      this.mfaEnrollmentBusy = true
+      this.mfaEnrollmentError = ''
+      try {
+        await axiosPost('/auth/mfa/confirm', { otp: this.mfaEnrollmentOtp })
+        this.resetMfaEnrollment()
+        await this.finishLogin()
+      } catch (error) {
+        this.mfaEnrollmentError = error.message || '验证码错误或绑定失败，请重试'
+      } finally {
+        this.mfaEnrollmentBusy = false
+      }
     },
-    handleOtpDialogClose() {
-      this.loginModel.otp = ''
+    resetMfaEnrollment() {
+      this.mfaEnrollment = null
+      this.mfaEnrollmentStep = 1
+      this.mfaEnrollmentPassword = ''
+      this.mfaEnrollmentOtp = ''
+      this.mfaEnrollmentError = ''
     },
     cancelOtpLogin() {
       this.otpDialogVisible = false
       this.loginModel.otp = ''
       this.loginError = ''
+      this.captchaVerified = false
+      this.captchaResult = null
+      this.captchaChallenge = null
+      this.captchaUsername = ''
+      if (this.sliderCaptcha) this.sliderCaptcha.destroy()
+      this.sliderCaptcha = null
     },
     blockSecurityDialogClose(done) {
       if (!this.securityPending && typeof done === 'function') done()
@@ -223,17 +272,16 @@ export default {
         if (this.sliderCaptcha && this.sliderCaptcha.SetChallenge) {
           this.sliderCaptcha.SetChallenge(this.captchaChallenge.payload)
         }
-        this.reportCaptchaEvent('INIT_SUCCESS', {
-          attemptId: this.captchaChallenge.attemptId,
-          challengeId: this.captchaChallenge.challengeId,
-          durationMs: Date.now() - this.captchaInitStartedAt,
-        })
       } catch (error) {
         this.loginError = error && error.message ? error.message : '验证码服务暂不可用'
-        this.reportCaptchaEvent('INIT_FAILURE', {
-          durationMs: Date.now() - this.captchaInitStartedAt,
-          reason: error && error.code ? String(error.code) : 'INIT_REQUEST_FAILED',
-        })
+        this.captchaVerified = false
+        this.captchaResult = null
+        this.captchaChallenge = null
+        this.captchaUsername = ''
+        if (this.sliderCaptcha) this.sliderCaptcha.destroy()
+        this.sliderCaptcha = null
+        this.captchaDialogVisible = false
+        if (error && error.code === REQUEST_CODE.RATE_LIMITED) this.handleCaptchaCooldown(error)
       } finally {
         this.captchaLoading = false
       }
@@ -242,8 +290,13 @@ export default {
       if (!this.$refs.captchaContainer) return
       if (this.sliderCaptcha) this.sliderCaptcha.destroy()
       this.sliderCaptcha = createSliderCaptcha(this.$refs.captchaContainer, {
+        resetDelay: 260,
         verify: (result) => {
-          if (!this.captchaChallenge) return Promise.reject(new Error('验证码加载中，请稍候'))
+          if (!this.captchaChallenge) {
+            const error = new Error('验证码尚未加载，请稍后重试')
+            error.code = REQUEST_CODE.CAPTCHA_INVALID
+            return Promise.reject(error)
+          }
           return verifyCaptcha({
             attemptId: this.captchaChallenge.attemptId,
             challengeId: this.captchaChallenge.challengeId,
@@ -253,42 +306,37 @@ export default {
           })
         },
         onSuccess: (result) => {
-          this.reportCaptchaEvent('VERIFY_SUCCESS', {
-            attemptId: this.captchaChallenge && this.captchaChallenge.attemptId,
-            challengeId: this.captchaChallenge && this.captchaChallenge.challengeId,
-            durationMs: result.duration,
-          })
           this.captchaVerified = true
           this.captchaResult = result
           this.captchaDialogVisible = false
           this.submitLogin()
         },
         onFail: (error) => {
-          this.reportCaptchaEvent('VERIFY_FAILURE', {
-            attemptId: this.captchaChallenge && this.captchaChallenge.attemptId,
-            challengeId: this.captchaChallenge && this.captchaChallenge.challengeId,
-            reason: error && error.code ? String(error.code) : 'VERIFY_FAILED',
-          })
+          if (!this.captchaChallenge) return
           this.captchaVerified = false
           this.captchaResult = null
-          if (error && error.code === REQUEST_CODE.CAPTCHA_INVALID) {
-            this.captchaChallenge = null
-            this.prepareCaptcha()
+          if (error && error.code === REQUEST_CODE.RATE_LIMITED) {
+            this.handleCaptchaCooldown(error)
+            return
           }
-        },
-        onEvent: (event) => {
-          if (event.event === 'RESOURCE_LOAD_FAILURE') {
-            this.reportCaptchaEvent(event.Event || event.event, {
-              attemptId: this.captchaChallenge && this.captchaChallenge.attemptId,
-              challengeId: this.captchaChallenge && this.captchaChallenge.challengeId,
-              reason: event.reason,
-            })
+          if (
+            error &&
+            error.code === REQUEST_CODE.CAPTCHA_INVALID &&
+            /尝试次数|已失效|不存在/.test(error.message || '')
+          ) {
+            this.handleCaptchaAttemptExhausted(error)
           }
         },
       })
     },
     async handleLogin() {
-      if (this.loading || this.captchaDialogVisible || this.otpDialogVisible) return
+      if (
+        this.loading ||
+        this.captchaDialogVisible ||
+        this.otpDialogVisible ||
+        this.captchaCooldownSeconds > 0
+      )
+        return
       this.loginError = ''
       if (!this.loginModel.username.trim() || !this.loginModel.password) {
         this.loginError = '请输入员工账号和登录密码'
@@ -339,14 +387,8 @@ export default {
           this.$nextTick(() => this.prepareCaptcha())
         } else if (requiresOtp || invalidOtp) {
           this.otpDialogVisible = true
-          this.focusOtpInput()
         } else if (requiresEnrollment) {
-          this.mfaStatus = error.data || {
-            mfaRequired: true,
-            mfaEnabled: false,
-            mfaVerifiedAt: null,
-            reauthenticatedAt: null,
-          }
+          this.resetMfaEnrollment()
           this.securityPending = true
         } else {
           this.captchaVerified = false
@@ -371,11 +413,62 @@ export default {
     clearLoginError() {
       this.loginError = ''
     },
+    handleCaptchaAttemptExhausted(error) {
+      const message =
+        error && error.message ? error.message : '行为验证码已失效，请重新发起登录验证'
+      this.captchaVerified = false
+      this.captchaResult = null
+      this.captchaChallenge = null
+      this.captchaUsername = ''
+      if (this.sliderCaptcha) this.sliderCaptcha.destroy()
+      this.sliderCaptcha = null
+      this.captchaDialogVisible = false
+      this.startCaptchaCooldown(message)
+      this.$alert(message, '行为验证码已失效', {
+        type: 'warning',
+        confirmButtonText: '我知道了',
+        closeOnClickModal: false,
+        closeOnPressEscape: false,
+      }).catch(() => {})
+    },
+    handleCaptchaCooldown(error) {
+      const message = error && error.message ? error.message : '验证请求过于频繁，请稍后再试'
+      this.captchaVerified = false
+      this.captchaResult = null
+      this.captchaChallenge = null
+      this.captchaUsername = ''
+      if (this.sliderCaptcha) this.sliderCaptcha.destroy()
+      this.sliderCaptcha = null
+      this.captchaDialogVisible = false
+      this.startCaptchaCooldown(message)
+      this.$alert(message, '暂时无法继续验证', {
+        type: 'warning',
+        confirmButtonText: '我知道了',
+        closeOnClickModal: false,
+        closeOnPressEscape: false,
+      }).catch(() => {})
+    },
+    startCaptchaCooldown(message) {
+      const match = String(message || '').match(/(\d+)\s*秒/)
+      const seconds = match ? Number(match[1]) : 60
+      this.captchaCooldownSeconds = Math.max(1, seconds)
+      if (this.captchaCooldownTimer) clearInterval(this.captchaCooldownTimer)
+      this.captchaCooldownTimer = setInterval(() => {
+        this.captchaCooldownSeconds -= 1
+        if (this.captchaCooldownSeconds <= 0) {
+          clearInterval(this.captchaCooldownTimer)
+          this.captchaCooldownTimer = null
+          this.captchaCooldownSeconds = 0
+        }
+      }, 1000)
+    },
     async submitOtpLogin() {
       if (this.loading) return
       if (!/^\d{6}$/.test(this.loginModel.otp)) {
         this.loginError = '请输入 6 位验证码'
-        this.focusOtpInput()
+        this.$nextTick(() => {
+          if (this.$refs.otpVerificationDialog) this.$refs.otpVerificationDialog.focusInput()
+        })
         return
       }
       await this.submitLogin()
@@ -388,9 +481,6 @@ export default {
         this.captchaVerified = false
         this.captchaResult = null
       }
-    },
-    reportCaptchaEvent(event, data = {}) {
-      reportCaptchaEvent({ event, ...data }).catch(() => {})
     },
     async checkSystemHealth() {
       try {
@@ -410,6 +500,7 @@ export default {
   },
   beforeDestroy() {
     if (this.sliderCaptcha) this.sliderCaptcha.destroy()
+    if (this.captchaCooldownTimer) clearInterval(this.captchaCooldownTimer)
   },
 }
 </script>
@@ -610,43 +701,6 @@ export default {
   line-height: 1.6;
 }
 
-.otp-dialog-body {
-  width: 360px;
-  max-width: 100%;
-  margin: 0 auto;
-}
-
-.otp-dialog-tip {
-  margin: 0 0 14px;
-  color: #8495a6;
-  font-size: 13px;
-  line-height: 1.6;
-}
-
-.otp-dialog-input {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 12px;
-  background-color: #141c2e;
-  border: 1px solid #233554;
-  border-radius: 2px;
-  color: #fff;
-  font-size: 18px;
-  letter-spacing: 4px;
-  text-align: center;
-}
-
-.otp-dialog-input:focus {
-  border-color: #00f2fe;
-  outline: none;
-  box-shadow: 0 0 8px rgba(0, 242, 254, 0.5);
-}
-
-.otp-dialog-input:disabled {
-  cursor: not-allowed;
-  opacity: 0.7;
-}
-
 ::v-deep .security-dialog {
   position: absolute;
   top: 50%;
@@ -657,7 +711,7 @@ export default {
 }
 
 ::v-deep .security-dialog .el-dialog__body {
-  padding: 12px 22px 0;
+  padding: 0 22px 0;
   max-height: calc(100vh - 160px);
   overflow-y: auto;
 }
@@ -668,27 +722,6 @@ export default {
   font-size: 18px;
   font-weight: 700;
   color: #303133;
-}
-
-::v-deep .security-dialog .el-dialog__header {
-  display: none;
-}
-
-::v-deep .security-dialog .page-container {
-  padding: 0;
-}
-
-::v-deep .security-dialog .security-card {
-  margin-bottom: 0;
-  border: 0;
-}
-
-::v-deep .security-dialog .security-card .el-card__body {
-  padding: 0;
-}
-
-::v-deep .security-dialog .security-card form {
-  max-width: none;
 }
 
 .login-error {

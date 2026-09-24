@@ -1,4 +1,5 @@
 import { BadRequestException } from '@nestjs/common'
+import { ApiResponse, successResponse } from '../../../common/http/api-response.js'
 
 export const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const
 export const RETIRED_CODES = ['*', 'system.permission.manage']
@@ -32,4 +33,4 @@ export function assertAcyclic(id: string, parentId: string | null | undefined, p
   }
 }
 
-export const ok = <T>(data: T) => ({ code: '000000', message: 'success', data })
+export const ok = <T>(data: T): ApiResponse<T> => successResponse(data)

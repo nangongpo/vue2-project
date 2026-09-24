@@ -2,7 +2,9 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { Prisma } from '@prisma/client'
 import { randomUUID } from 'node:crypto'
 import { PrismaService } from '../../../database/prisma.service.js'
+import { normalizePagination, paginationData } from '../../../common/pagination.js'
 import { assertAcyclic, assertApi, canonicalPath, ok, RETIRED_CODES } from '../policies/policy.js'
+import { riskLevelForOperation } from '../../../security/policies/risk-policy.js'
 
 export type MutationContext = {
   user: { internalId: bigint; userId: string; roles?: unknown[] }
@@ -91,8 +93,7 @@ export class PermissionService {
       pageSize?: number
     } = {}
   ) {
-    const page = query.page || 1,
-      pageSize = query.pageSize || 20
+    const { page, pageSize } = normalizePagination(query)
     const where: Prisma.PermissionWhereInput = {
       type: 'API',
       code: { notIn: RETIRED_CODES },
@@ -117,7 +118,7 @@ export class PermissionService {
         },
       }),
     ])
-    return ok({ items, total, page, pageSize })
+    return ok(paginationData(items, total, { page, pageSize }))
   }
   async apiOptions() {
     return ok(
@@ -365,6 +366,7 @@ export class PermissionService {
               traceId: req.traceId || randomUUID(),
               actorId: req.user.internalId,
               action,
+              riskLevel: riskLevelForOperation(action),
               resource: 'permission',
               method: req.method,
               path: req.url.split('?')[0],

@@ -14,12 +14,14 @@ import { CaptchaService } from '../captcha/services/captcha.service.js'
 import { IdempotencyGuard } from './guards/idempotency.guard.js'
 import { MfaService } from './services/mfa.service.js'
 import { MfaController } from './controllers/mfa.controller.js'
+import { OperationPolicyService } from './services/operation-policy.service.js'
+import { OperationPolicyController } from './controllers/operation-policy.controller.js'
 
 /** 安全模块：处理认证、密码、权限、登录限频和请求幂等控制。 */
 @Global()
 @Module({
   imports: [DatabaseModule, CaptchaModule],
-  controllers: [AuthController, MfaController],
+  controllers: [AuthController, MfaController, OperationPolicyController],
   providers: [
     PasswordService,
     {
@@ -40,12 +42,17 @@ import { MfaController } from './controllers/mfa.controller.js'
     },
     AuthGuard,
     MfaAuthGuard,
+    {
+      provide: OperationPolicyService,
+      useFactory: (prisma: PrismaService) => new OperationPolicyService(prisma),
+      inject: [PrismaService],
+    },
     IdempotencyGuard,
     Reflector,
     {
       provide: APP_GUARD,
-      useFactory: (auth: AuthService) => new PermissionGuard(new Reflector(), auth),
-      inject: [AuthService],
+      useFactory: (auth: AuthService, policies: OperationPolicyService) => new PermissionGuard(new Reflector(), auth, policies),
+      inject: [AuthService, OperationPolicyService],
     },
     {
       provide: APP_GUARD,
@@ -53,6 +60,6 @@ import { MfaController } from './controllers/mfa.controller.js'
       inject: [RedisService],
     },
   ],
-  exports: [AuthService, AuthGuard, PasswordService, PasswordPolicyService, MfaService],
+  exports: [AuthService, AuthGuard, PasswordService, PasswordPolicyService, MfaService, OperationPolicyService],
 })
 export class SecurityModule {}

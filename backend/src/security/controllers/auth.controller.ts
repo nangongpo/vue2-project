@@ -13,13 +13,9 @@ import { API_CODE } from '../../common/constants/api-code.js'
 import { AuditAction } from '../../audit/decorators/audit.decorator.js'
 import { Idempotent } from '../decorators/idempotency.decorator.js'
 import { assertSameOrigin } from '../policies/csrf.js'
+import { SecurityOperation } from '../decorators/operation.decorator.js'
 
 class LoginDto {
-  @IsOptional()
-  @IsString()
-  @Matches(/^\d{6}$/)
-  otp?: string
-
   @IsString()
   @MinLength(1)
   @MaxLength(64)
@@ -75,8 +71,7 @@ export class AuthController {
       request.ip,
       request.headers['user-agent'],
       body.captchaToken,
-      body.attemptId,
-      body.otp
+      body.attemptId
     )
     if (result.nextStep) {
       response.clearCookie(SESSION_COOKIE, sessionCookieOptions())
@@ -84,7 +79,7 @@ export class AuthController {
       const code = result.nextStep === 'MFA_ENROLL_REQUIRED' ? API_CODE.MFA_ENROLL_REQUIRED : API_CODE.MFA_REQUIRED
       return {
         code,
-        message: code === API_CODE.MFA_ENROLL_REQUIRED ? '请先绑定认证器' : '请输入动态验证码',
+        message: '需要继续验证',
         data: {
           mfaRequired: Boolean(result.user.mfaRequired),
           mfaEnabled: Boolean(result.user.mfaEnabled),
@@ -134,6 +129,7 @@ export class AuthController {
 
   @Delete('sessions/:id')
   @UseGuards(AuthGuard)
+  @SecurityOperation('system.session.revoke')
   @AuditAction('auth.sessions.revoke')
   async revokeSession(@Req() request: FastifyRequest, @Param('id') sessionId: string) {
     assertSameOrigin(request)
@@ -162,6 +158,7 @@ export class AuthController {
 
   @Post('password')
   @UseGuards(AuthGuard)
+  @SecurityOperation('auth.password.change')
   @AuditAction('auth.password.change')
   async changePassword(@Req() request: FastifyRequest, @Body() body: ChangePasswordDto) {
     assertSameOrigin(request)

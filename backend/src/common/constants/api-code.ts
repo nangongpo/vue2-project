@@ -13,10 +13,12 @@ export const API_CODE = {
   MFA_REQUIRED: '100010',
   MFA_INVALID: '100011',
   MFA_ENROLL_REQUIRED: '100012',
+  SECURITY_STEP_UP_REQUIRED: '100013',
   CAPTCHA_REQUIRED: '100007',
   CAPTCHA_INVALID: '100008',
   INTERNAL_ERROR: '200000',
   DATABASE_ERROR: '200001',
+  SERVICE_UNAVAILABLE: '200002',
 } as const
 
 export type ApiCode = (typeof API_CODE)[keyof typeof API_CODE]
@@ -30,13 +32,15 @@ export const API_TITLE: Record<ApiCode, string> = {
   [API_CODE.CONFLICT]: '资源状态冲突',
   [API_CODE.RATE_LIMITED]: '请求频率受限',
   [API_CODE.REQUEST_IN_PROGRESS]: '请求处理中',
-  [API_CODE.MFA_REQUIRED]: '需要动态验证码',
+  [API_CODE.MFA_REQUIRED]: '需要继续验证',
   [API_CODE.MFA_INVALID]: '动态验证码无效',
-  [API_CODE.MFA_ENROLL_REQUIRED]: '需要绑定认证器',
+  [API_CODE.MFA_ENROLL_REQUIRED]: '需要继续验证',
+  [API_CODE.SECURITY_STEP_UP_REQUIRED]: '高风险操作验证',
   [API_CODE.CAPTCHA_REQUIRED]: '需要完成验证码',
   [API_CODE.CAPTCHA_INVALID]: '验证码校验失败',
   [API_CODE.INTERNAL_ERROR]: '服务器错误',
   [API_CODE.DATABASE_ERROR]: '数据服务不可用',
+  [API_CODE.SERVICE_UNAVAILABLE]: '服务不可用',
 }
 
 export const API_MESSAGE: Record<ApiCode, string> = {
@@ -48,11 +52,13 @@ export const API_MESSAGE: Record<ApiCode, string> = {
   [API_CODE.CONFLICT]: '请求与当前资源状态冲突',
   [API_CODE.RATE_LIMITED]: '请求过于频繁，请稍后重试',
   [API_CODE.REQUEST_IN_PROGRESS]: '登录请求处理中，请勿重复提交',
-  [API_CODE.MFA_REQUIRED]: '请输入动态验证码',
+  [API_CODE.MFA_REQUIRED]: '需要继续验证',
   [API_CODE.MFA_INVALID]: '动态验证码无效或已使用',
-  [API_CODE.MFA_ENROLL_REQUIRED]: '请先绑定认证器',
+  [API_CODE.MFA_ENROLL_REQUIRED]: '需要继续验证',
+  [API_CODE.SECURITY_STEP_UP_REQUIRED]: '需要完成高风险操作验证',
   [API_CODE.CAPTCHA_REQUIRED]: '请先完成滑块验证',
   [API_CODE.CAPTCHA_INVALID]: '滑块验证失败，请重试',
   [API_CODE.INTERNAL_ERROR]: '服务器内部错误',
   [API_CODE.DATABASE_ERROR]: '数据服务暂不可用',
+  [API_CODE.SERVICE_UNAVAILABLE]: '服务暂时不可用',
 }

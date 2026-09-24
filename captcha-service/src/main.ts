@@ -12,7 +12,8 @@ const envFile = resolve(process.cwd(), '.env')
 if (existsSync(envFile)) {
   for (const line of readFileSync(envFile, 'utf8').split(/\r?\n/)) {
     const match = line.match(/^\s*([A-Z][A-Z0-9_]*)\s*=\s*(.*?)\s*$/)
-    if (match && process.env[match[1]] === undefined) process.env[match[1]] = match[2].replace(/^['"]|['"]$/g, '')
+    if (match && process.env[match[1]] === undefined)
+      process.env[match[1]] = match[2].replace(/^['"]|['"]$/g, '')
   }
 }
 
@@ -35,8 +36,9 @@ const env = Joi.object({
   REDIS_ENABLED: Joi.boolean().truthy('true').falsy('false').default(true),
   CAPTCHA_CHALLENGE_RATE_LIMIT: Joi.number().integer().min(1).max(100).default(10),
   CAPTCHA_VERIFY_RATE_LIMIT: Joi.number().integer().min(1).max(300).default(30),
+  CAPTCHA_VERIFY_ATTEMPT_LIMIT: Joi.number().integer().min(1).max(10).default(3),
+  CAPTCHA_FAILURE_COOLDOWN_SECONDS: Joi.number().integer().min(10).max(300).default(30),
   CAPTCHA_CONSUME_RATE_LIMIT: Joi.number().integer().min(1).max(300).default(30),
-  CAPTCHA_EVENT_RATE_LIMIT: Joi.number().integer().min(1).max(1000).default(120),
   CAPTCHA_CHALLENGE_TTL: Joi.number().integer().min(30).max(600).default(120),
   CAPTCHA_TOKEN_TTL: Joi.number().integer().min(30).max(600).default(120),
   CAPTCHA_MAX_TRACK_POINTS: Joi.number().integer().min(8).max(1000).default(300),
@@ -49,12 +51,18 @@ const env = Joi.object({
   .unknown(true)
   .validate(process.env, { abortEarly: false, convert: true })
 
-if (env.error) throw new Error(`验证码服务环境变量错误: ${env.error.details.map((item) => item.message).join('；')}`)
+if (env.error)
+  throw new Error(
+    `验证码服务环境变量错误: ${env.error.details.map((item) => item.message).join('；')}`
+  )
 if (env.value.NODE_ENV === 'production' && ['0.0.0.0', '::'].includes(env.value.CAPTCHA_HOST))
   throw new Error('生产环境 CAPTCHA_HOST 不得绑定公网通配地址，必须使用内网或回环地址')
 Object.assign(process.env, env.value)
 
-const app = await NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter({ logger: false }))
+const app = await NestFactory.create<NestFastifyApplication>(
+  AppModule,
+  new FastifyAdapter({ logger: false })
+)
 app.useGlobalPipes(
   new ValidationPipe({
     whitelist: true,

@@ -45,6 +45,8 @@ node captcha-service/dist/main.js
 | `REDIS_URL` | `redis://127.0.0.1:6379` | Redis 连接串，必填。 |
 | `REDIS_ENABLED` | `true` | 生产环境必须为 `true`。 |
 | `CAPTCHA_CHALLENGE_TTL` | `120` | Challenge 有效期，秒。 |
+| `CAPTCHA_VERIFY_ATTEMPT_LIMIT` | `3` | 单个 Challenge 的错误校验次数，达到上限后必须重新获取。 |
+| `CAPTCHA_FAILURE_COOLDOWN_SECONDS` | `30` | Challenge 失败次数用尽后的 IP/账号冷却时间，秒。 |
 | `CAPTCHA_TOKEN_TTL` | `120` | 一次性 Token 有效期，秒。 |
 | `CAPTCHA_MAX_TRACK_POINTS` | `300` | 单次轨迹最大点数。 |
 
@@ -57,7 +59,6 @@ node captcha-service/dist/main.js
 - `POST /internal/v1/challenges`：`CreateChallenge`
 - `POST /internal/v1/verify`：`VerifyChallenge`
 - `POST /internal/v1/tokens/consume`：`ConsumeToken`
-- `POST /internal/v1/events`：`ReportEvent`
 
 请求包含 `ApiVersion`、`ProtocolVersion`、`ServiceId`、`Timestamp`、`SignatureMethod=HMAC-SHA256`、`SignatureVersion=1.0`、`SignatureNonce` 和 `Signature`。签名使用 RFC3986 规范化参数，并计算：
 

@@ -11,7 +11,9 @@
       <el-table v-loading="loading" :data="roles" border stripe>
         <el-table-column prop="code" label="角色编码" min-width="150" />
         <el-table-column prop="name" label="角色名称" min-width="150" />
-        <el-table-column prop="roleType" label="角色类型" width="120" />
+        <el-table-column label="角色类型" width="120"
+          ><template slot-scope="{ row }">{{ roleTypeLabel(row.roleType) }}</template></el-table-column
+        >
         <el-table-column prop="description" label="职责说明" min-width="180" />
         <el-table-column label="状态" width="90"
           ><template slot-scope="{ row }"
@@ -86,8 +88,8 @@
 
 <script>
 import { createRole, deleteRole, getRoles, updateRole, setRoleStatus } from '@/api/admin'
-import PermissionGrantDialog from '@/components/PermissionGrantDialog.vue'
-import RoleDataScopeDialog from '@/components/RoleDataScopeDialog.vue'
+import PermissionGrantDialog from '@/components/PermissionGrantDialog/index.vue'
+import RoleDataScopeDialog from '@/components/RoleDataScopeDialog/index.vue'
 import { requiredText, requestReason } from '../permission/utils'
 export default {
   name: 'SystemRole',
@@ -127,6 +129,14 @@ export default {
     can(code) {
       const codes = this.$store.getters.menu_list || []
       return codes.includes(code) || codes.includes('*')
+    },
+    roleTypeLabel(type) {
+      return {
+        BUSINESS: '业务管理员',
+        SYSTEM: '系统管理员',
+        SECURITY: '安全管理员',
+        AUDIT: '审计管理员',
+      }[type] || type
     },
     async loadRoles() {
       if (!this.can('system.role.read')) {

@@ -6,6 +6,7 @@ import { Reflector } from '@nestjs/core'
 import { PermissionGuard } from '../guards/permission.guard.js'
 import { REQUIRED_PERMISSIONS } from '../decorators/permission.decorator.js'
 import { SESSION_COOKIE } from '../services/auth.service.js'
+import { SECURITY_OPERATION } from '../decorators/operation.decorator.js'
 
 const code = 'system.role.grant'
 const path = '/api/v1/roles/:id/grants'
@@ -13,6 +14,8 @@ const authorized = () => ({
   permissions: [code],
   apiPermissions: [{ code, method: 'PATCH', path }],
   mfaRequired: false,
+  mfaVerifiedAt: new Date(),
+  reauthenticatedAt: new Date(),
 })
 function fixture(required: string[] | undefined = [code], overrides: Record<string, unknown> = {}, auth?: any) {
   const handler = () => undefined
@@ -135,7 +138,13 @@ describe('PermissionGuard', () => {
 
   it('allows an administrator with an MFA-verified session and exact grant', async () => {
     const { guard, context } = fixture([code], {
-      user: { ...authorized(), mfaRequired: true, mfaEnabled: true, mfaVerifiedAt: new Date() },
+      user: {
+        ...authorized(),
+        mfaRequired: true,
+        mfaEnabled: true,
+        mfaVerifiedAt: new Date(),
+        reauthenticatedAt: new Date(),
+      },
     })
     await expect(guard.canActivate(context)).resolves.toBe(true)
   })
@@ -144,8 +153,22 @@ describe('PermissionGuard', () => {
     const auth = { authenticate: vi.fn().mockResolvedValue(authorized()) }
     const { guard, context } = fixture([code], { user: undefined, cookies: { [SESSION_COOKIE]: 'session' } }, auth)
     await expect(guard.canActivate(context)).resolves.toBe(true)
-    expect(auth.authenticate).toHaveBeenCalledWith('session')
+    expect(auth.authenticate).toHaveBeenCalledWith('session', 'AUTHENTICATED')
     const outage = fixture([code], { user: undefined }, { authenticate: vi.fn().mockRejectedValue(new Error('Unavailable')) })
     await expect(outage.guard.canActivate(outage.context)).rejects.toThrow('Unavailable')
+  })
+
+  it('enforces an explicit operation policy on an authenticated self-service route without permissions', async () => {
+    const { context, request, handler } = fixture([], {
+      method: 'POST',
+      routeOptions: { url: '/api/v1/auth/password' },
+      user: { ...authorized(), mfaVerifiedAt: null, reauthenticatedAt: null },
+    })
+    Reflect.defineMetadata(SECURITY_OPERATION, 'auth.password.change', handler)
+    const policies = { resolve: vi.fn().mockResolvedValue({ riskLevel: 'L2' }) }
+    const secured = new PermissionGuard(new Reflector(), undefined, policies as any)
+    await expect(secured.canActivate(context)).rejects.toMatchObject({ response: expect.objectContaining({ code: '100013' }) })
+    expect(request.operationCode).toBe('auth.password.change')
+    expect(policies.resolve).toHaveBeenCalledWith('auth.password.change')
   })
 })

@@ -82,7 +82,10 @@
           <el-input v-model.trim="form.displayName" maxlength="128" />
         </el-form-item>
         <el-form-item v-if="!editing" label="初始密码" prop="password">
-          <el-input v-model="form.password" type="password" show-password />
+          <el-input v-model="form.password" type="password" maxlength="128" show-password />
+          <div class="password-hint">
+            密码需包含大小写字母、数字、符号中至少三类，或使用至少 20 个字符、四个不同词语的口令短语
+          </div>
         </el-form-item>
       </el-form>
       <span slot="footer">
@@ -98,7 +101,10 @@
         :rules="{ password: rules.password }"
         label-width="90px">
         <el-form-item label="新密码" prop="password">
-          <el-input v-model="resetForm.password" type="password" show-password />
+          <el-input v-model="resetForm.password" type="password" maxlength="128" show-password />
+          <div class="password-hint">
+            密码需包含大小写字母、数字、符号中至少三类，或使用至少 20 个字符、四个不同词语的口令短语
+          </div>
         </el-form-item>
       </el-form>
       <span slot="footer">
@@ -123,8 +129,10 @@ import {
   setUserStatus,
   unlockUser,
 } from '@/api/admin'
-import PermissionGrantDialog from '@/components/PermissionGrantDialog.vue'
+import PermissionGrantDialog from '@/components/PermissionGrantDialog/index.vue'
 import { requiredText, requestReason } from '../permission/utils'
+import allPatterns from '@/utils/patterns'
+
 export default {
   name: 'SystemUser',
   components: { PermissionGrantDialog },
@@ -151,10 +159,7 @@ export default {
           { min: 2, max: 64, message: '用户名长度为 2–64 个字符', trigger: 'blur' },
         ],
         displayName: requiredText('姓名'),
-        password: [
-          ...requiredText('密码'),
-          { min: 12, max: 128, message: '密码长度为 12–128 个字符', trigger: 'blur' },
-        ],
+        password: [allPatterns.password],
       },
     }
   },
@@ -325,5 +330,11 @@ export default {
 .pagination {
   margin-top: 16px;
   text-align: right;
+}
+.password-hint {
+  margin-top: 4px;
+  color: #909399;
+  font-size: 12px;
+  line-height: 1.5;
 }
 </style>

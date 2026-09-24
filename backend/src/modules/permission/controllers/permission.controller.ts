@@ -18,6 +18,8 @@ import {
 import { AuthGuard } from '../../../security/guards/auth.guard.js'
 import { RequirePermissions } from '../../../security/decorators/permission.decorator.js'
 import { PermissionService, MutationContext } from '../services/permission.service.js'
+import { ApprovalService } from '../services/approval.service.js'
+import type { ApprovalActor } from '../services/approval.service.js'
 
 class ApiQuery {
   @IsOptional() @IsString() @MaxLength(128) keyword?: string
@@ -88,7 +90,10 @@ class StatusDto {
 @Controller('permission')
 @UseGuards(AuthGuard)
 export class PermissionController {
-  constructor(@Inject(PermissionService) private readonly service: PermissionService) {}
+  constructor(
+    @Inject(PermissionService) private readonly service: PermissionService,
+    @Inject(ApprovalService) private readonly approvals: ApprovalService
+  ) {}
   @Get('functions')
   @RequirePermissions('system.page.read')
   listFunctions() {
@@ -112,6 +117,18 @@ export class PermissionController {
   @Patch('functions/:id')
   @RequirePermissions('system.page.update')
   updateFunction(@Param('id', ParseUUIDPipe) id: string, @Body() body: PageMetadata, @Req() req: MutationContext) {
+    if (body.route !== undefined) {
+      return this.approvals.create(
+        {
+          kind: 'PAGE_ROUTE_CHANGE',
+          reason: '页面路径变更，提交审批后执行',
+          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+          payload: { pageId: id, route: body.route },
+        },
+        req.user as unknown as ApprovalActor,
+        { traceId: req.traceId, method: req.method, path: req.url, ip: req.ip }
+      )
+    }
     return this.service.updateFunction(id, body, req)
   }
   @Patch('functions/:id/status')
@@ -135,19 +152,49 @@ export class PermissionController {
     return this.service.apiOptions()
   }
   @Post('apis')
+  @HttpCode(202)
   @RequirePermissions('system.api.create')
   createApi(@Body() body: CreateApiDto, @Req() req: MutationContext) {
-    return this.service.createApi(body, req)
+    return this.approvals.create(
+      {
+        kind: 'API_CREATE',
+        reason: '新增接口，提交审批后执行',
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+        payload: body as unknown as Record<string, unknown>,
+      },
+      req.user as unknown as ApprovalActor,
+      { traceId: req.traceId, method: req.method, path: req.url, ip: req.ip }
+    )
   }
   @Patch('apis/:id')
+  @HttpCode(202)
   @RequirePermissions('system.api.update')
   updateApi(@Param('id', ParseUUIDPipe) id: string, @Body() body: ApiMetadata, @Req() req: MutationContext) {
-    return this.service.updateApi(id, body, req)
+    return this.approvals.create(
+      {
+        kind: 'API_UPDATE',
+        reason: '接口信息变更，提交审批后执行',
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+        payload: { apiId: id, name: body.name || '' },
+      },
+      req.user as unknown as ApprovalActor,
+      { traceId: req.traceId, method: req.method, path: req.url, ip: req.ip }
+    )
   }
   @Patch('apis/:id/status')
+  @HttpCode(202)
   @RequirePermissions('system.api.disable')
   apiStatus(@Param('id', ParseUUIDPipe) id: string, @Body() body: StatusDto, @Req() req: MutationContext) {
-    return this.service.setStatus('api', id, body.status, req)
+    return this.approvals.create(
+      {
+        kind: 'API_STATUS',
+        reason: '接口状态变更，提交审批后执行',
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+        payload: { apiId: id, status: body.status },
+      },
+      req.user as unknown as ApprovalActor,
+      { traceId: req.traceId, method: req.method, path: req.url, ip: req.ip }
+    )
   }
   @Get('apis/:id/references')
   @RequirePermissions('system.api.references')
@@ -155,10 +202,19 @@ export class PermissionController {
     return this.service.references(id)
   }
   @Delete('apis/:id')
-  @HttpCode(204)
+  @HttpCode(202)
   @RequirePermissions('system.api.delete')
   async deleteApi(@Param('id', ParseUUIDPipe) id: string, @Req() req: MutationContext) {
-    await this.service.deleteApi(id, req)
+    await this.approvals.create(
+      {
+        kind: 'API_DELETE',
+        reason: '接口删除，提交审批后执行',
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+        payload: { apiId: id },
+      },
+      req.user as unknown as ApprovalActor,
+      { traceId: req.traceId, method: req.method, path: req.url, ip: req.ip }
+    )
   }
   @Post('buttons')
   @RequirePermissions('system.button.create')

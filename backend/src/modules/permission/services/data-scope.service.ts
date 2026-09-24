@@ -4,6 +4,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { PrismaService } from '../../../database/prisma.service.js'
 import { effectiveGrant, type ScopeActor } from '../../../security/services/data-scope.service.js'
 import { ok } from '../policies/policy.js'
+import { riskLevelForOperation } from '../../../security/policies/risk-policy.js'
 
 export type ScopeManagementContext = {
   actor: ScopeActor
@@ -34,6 +35,7 @@ export class DataScopeManagementService {
       where: {
         id: createHash('sha256').update(context.sessionToken).digest('hex'),
         userId: context.actor.internalId,
+        kind: 'AUTHENTICATED',
         revokedAt: null,
         expiresAt: { gt: now },
         mfaVerifiedAt: { gte: new Date(now.getTime() - 5 * 60_000), lte: now },
@@ -188,6 +190,7 @@ export class DataScopeManagementService {
         traceId: context.traceId || randomUUID(),
         actorId: context.actor.internalId,
         action: `data-scope.${action}`,
+        riskLevel: riskLevelForOperation(`data-scope.${action}`),
         resource: 'data-scope',
         method: action === 'grant' ? 'POST' : 'PATCH',
         path: `/api/v1/permission/roles/${roleId}/data-scopes`,

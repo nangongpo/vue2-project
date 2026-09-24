@@ -60,7 +60,7 @@ export async function sendRequest(options = {}) {
       })
       .catch((error) => {
         const traceID = error?.traceId
-        if (config.showNotify && error.message) {
+        if (config.showNotify && !error.silent && error.message) {
           notify({
             dangerouslyUseHTMLString: false,
             title: '操作提示',

@@ -15,6 +15,13 @@ export default {
   '/login/async-index': { layout: false, public: true, hidden: true },
   '/404': { layout: false, dynamic: false, hidden: true, name: 'Page404' },
   '/dashboard': { dynamic: false, title: '首页', icon: 'dashboard', affix: true },
+  '/business': {
+    layout: false,
+    title: '业务目录',
+    name: 'business-info',
+    icon: 'nested',
+    permission: 'page.business.add',
+  },
   // 业务路由：不写 requiresAuth 默认或者显式声明为 true，都需要登录后动态加载
   '/system': { title: '平台管理', icon: 'platform-manage' },
   '/system/user': {
@@ -54,6 +61,13 @@ export default {
     icon: 'user-log',
     roleType: 'system',
     permission: 'page.system.audit',
+  },
+  '/system/health': {
+    title: '系统状态',
+    name: 'system-health',
+    icon: 'platform-manage',
+    roleType: 'system',
+    permission: 'page.system.health',
   },
   '/system/session': {
     title: '会话管理',

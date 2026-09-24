@@ -1,8 +1,10 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
-import { AuditResult, Prisma } from '@prisma/client'
+import { AuditResult, Prisma, RiskLevel } from '@prisma/client'
 import { createHash, randomUUID } from 'node:crypto'
 import { PrismaService } from '../../database/prisma.service.js'
 import { API_CODE } from '../../common/constants/api-code.js'
+import { normalizePagination, paginationData } from '../../common/pagination.js'
+import type { RiskLevel as PolicyRiskLevel } from '../../security/policies/risk-policy.js'
 
 const canonicalize = (value: unknown): unknown => {
   if (typeof value === 'bigint') return value.toString()
@@ -31,6 +33,8 @@ export class AuditService {
     traceId: string
     actorId?: bigint
     action: string
+    operationCode?: string
+    riskLevel?: PolicyRiskLevel
     resource: string
     method: string
     path: string
@@ -47,6 +51,8 @@ export class AuditService {
       traceId: input.traceId,
       actorId: input.actorId ?? null,
       action: input.action,
+      operationCode: input.operationCode ?? null,
+      riskLevel: input.riskLevel || 'L1',
       resource: input.resource,
       method: input.method,
       path: input.path,
@@ -69,14 +75,16 @@ export class AuditService {
   async page(query: {
     keyword?: string
     result?: AuditResult
+    riskLevel?: RiskLevel
+    operationCode?: string
     actorId?: string
     from?: Date
     to?: Date
     page?: number
     pageSize?: number
   }) {
-    const page = query.page || 1
-    const pageSize = query.pageSize || 20
+    const pagination = normalizePagination(query)
+    const { page, pageSize } = pagination
     const actor = query.actorId
       ? await this.prisma.user.findUnique({
           where: { userId: query.actorId },
@@ -85,6 +93,8 @@ export class AuditService {
       : undefined
     const where: Prisma.AuditLogWhereInput = {
       ...(query.result ? { result: query.result } : {}),
+      ...(query.riskLevel ? { riskLevel: query.riskLevel } : {}),
+      ...(query.operationCode ? { operationCode: query.operationCode } : {}),
       ...(query.actorId ? { actorId: actor?.id || -1n } : {}),
       ...(query.keyword
         ? {
@@ -111,6 +121,8 @@ export class AuditService {
           id: true,
           traceId: true,
           action: true,
+          operationCode: true,
+          riskLevel: true,
           resource: true,
           method: true,
           path: true,
@@ -124,7 +136,7 @@ export class AuditService {
         },
       }),
     ])
-    return { code: API_CODE.SUCCESS, message: 'success', data: { items, total, page, pageSize } }
+    return { code: API_CODE.SUCCESS, message: 'success', data: paginationData(items, total, pagination) }
   }
 
   async detail(id: string) {
@@ -134,6 +146,8 @@ export class AuditService {
         id: true,
         traceId: true,
         action: true,
+        operationCode: true,
+        riskLevel: true,
         resource: true,
         method: true,
         path: true,
@@ -163,7 +177,7 @@ export class AuditService {
     }
   }
 
-  async export(query: { from: string; to: string; keyword?: string; result?: AuditResult }) {
+  async export(query: { from: string; to: string; keyword?: string; result?: AuditResult; riskLevel?: RiskLevel; operationCode?: string }) {
     const from = new Date(query.from),
       to = new Date(query.to)
     if (!Number.isFinite(+from) || !Number.isFinite(+to) || from > to || +to - +from > 31 * 86400000)
@@ -172,6 +186,8 @@ export class AuditService {
       where: {
         createdAt: { gte: from, lte: to },
         ...(query.result ? { result: query.result } : {}),
+        ...(query.riskLevel ? { riskLevel: query.riskLevel } : {}),
+        ...(query.operationCode ? { operationCode: query.operationCode } : {}),
         ...(query.keyword
           ? {
               OR: [
@@ -188,6 +204,8 @@ export class AuditService {
         id: true,
         traceId: true,
         action: true,
+        operationCode: true,
+        riskLevel: true,
         resource: true,
         method: true,
         path: true,
@@ -206,7 +224,7 @@ export class AuditService {
       return `"${text.replaceAll('"', '""')}"`
     }
     const rows = [
-      ['ID', 'TraceID', '时间', '用户UUID', '用户名', '操作', '资源', '方法', '路径', '结果', '状态码', 'IP'],
+      ['ID', 'TraceID', '时间', '用户UUID', '用户名', '操作', '风险等级', '资源', '方法', '路径', '结果', '状态码', 'IP'],
       ...items.map((item) => [
         item.id,
         item.traceId,
@@ -214,6 +232,7 @@ export class AuditService {
         item.actor?.userId,
         item.actor?.username,
         item.action,
+        item.riskLevel,
         item.resource,
         item.method,
         item.path,

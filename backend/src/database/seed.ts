@@ -15,7 +15,7 @@ const pages = [
   { code: 'page.system.role', name: '角色管理', route: '/system/role', type: 'SECURITY' },
   {
     code: 'page.system.permission',
-    name: '页面权限',
+    name: '权限管理',
     route: '/system/permission',
     type: 'SECURITY',
   },
@@ -27,6 +27,7 @@ const pages = [
     type: 'BUSINESS',
   },
   { code: 'page.system.audit', name: '审计日志', route: '/system/audit', type: 'AUDIT' },
+  { code: 'page.system.health', name: '系统状态', route: '/system/health', type: 'SYSTEM' },
   {
     code: 'page.system.ops-tickets',
     name: '运维应急工单',
@@ -97,7 +98,7 @@ try {
             type: 'PAGE',
             requiredRoleType: page.type,
           },
-          update: { requiredRoleType: page.type },
+          update: { name: page.name, resource: page.route, requiredRoleType: page.type },
         })
         permissions.push(permission)
         const node = await tx.systemFunction.upsert({
@@ -118,6 +119,7 @@ try {
           'page.system.api': ['system.api'],
           'page.system.approval': ['system.approval'],
           'page.system.audit': ['system.audit'],
+          'page.system.health': ['system.health'],
           'page.system.ops-tickets': ['system.ops-ticket'],
         }
         for (const entry of ADMIN_APIS.filter((api) => domains[page.code].includes(api.resource))) {
@@ -183,12 +185,17 @@ try {
           })
         )
       }
-      for (const type of ['SECURITY', 'SYSTEM', 'AUDIT'] as const) {
+      for (const type of ['BUSINESS', 'SECURITY', 'SYSTEM', 'AUDIT'] as const) {
         const role = await tx.role.upsert({
           where: { code: `builtin_${type.toLowerCase()}` },
           create: {
             code: `builtin_${type.toLowerCase()}`,
-            name: { SECURITY: '安全管理员', SYSTEM: '系统管理员', AUDIT: '审计管理员' }[type],
+            name: {
+              BUSINESS: '业务管理员',
+              SECURITY: '安全管理员',
+              SYSTEM: '系统管理员',
+              AUDIT: '审计管理员',
+            }[type],
             roleType: type,
           },
           update: {},

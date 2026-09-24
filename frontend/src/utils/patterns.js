@@ -1,5 +1,30 @@
 const isProd = import.meta.env.PROD
 
+export const PASSWORD_POLICY_MESSAGE =
+  '密码需包含大小写字母、数字、符号中至少三类，或使用至少 20 个字符、四个不同词语的口令短语'
+
+export function validatePassword(_rule, value, callback) {
+  if (!value) return callback(new Error('请输入密码'))
+  const length = Array.from(value).length
+  if (length < 12 || length > 128) return callback(new Error('密码长度为 12–128 个字符'))
+  const hasInvalidCharacter = Array.from(value).some((character) => {
+    const code = character.charCodeAt(0)
+    return code <= 0x1f || code === 0x7f || (code >= 0xd800 && code <= 0xdfff)
+  })
+  if (hasInvalidCharacter) return callback(new Error('密码不能包含控制字符或无效字符'))
+  const classes = [/\p{Ll}/u, /\p{Lu}/u, /\p{N}/u, /[^\p{L}\p{N}\s]/u].filter((pattern) => pattern.test(value)).length
+  const words = value.trim().split(/\s+/u)
+  const passphrase =
+    length >= 20 &&
+    words.length >= 4 &&
+    words.every((word) => /\p{L}/u.test(word) && Array.from(word).length >= 2) &&
+    new Set(words.map((word) => word.toLowerCase())).size >= 4
+  if (classes < 3 && !passphrase) return callback(new Error(PASSWORD_POLICY_MESSAGE))
+  callback()
+}
+
+const passwordRule = { validator: validatePassword, trigger: 'blur' }
+
 export default {
   chinese: isProd
     ? {
@@ -17,12 +42,7 @@ export default {
     pattern: /^[1][3-9][0-9]{9}$/,
     message: '手机号不正确',
   },
-  password: isProd
-    ? {
-        pattern: /^\S*(?=\S{8,18})(?=\S*\d)(?=\S*[A-Z])(?=\S*[a-z])(?=\S*[\-\_!@#$%^&*?])\S*$/,
-        message: '最少8位最大18位，包括至少1个大写字母，1个小写字母，1个数字，1个特殊字符',
-      }
-    : undefined,
+  password: passwordRule,
   idcard: isProd
     ? {
         pattern:

@@ -88,8 +88,7 @@ export class MfaController {
       response.clearCookie(PREAUTH_COOKIE, preAuthCookieOptions())
       response.setCookie(SESSION_COOKIE, data.sessionToken, sessionCookieOptions(data.expiresIn))
     }
-    const { sessionToken, expiresIn, ...result } = data
-    return { code: API_CODE.SUCCESS, message: 'success', data: result }
+    return { code: API_CODE.SUCCESS, message: 'success', data: null }
   }
 
   @Post('reauth')

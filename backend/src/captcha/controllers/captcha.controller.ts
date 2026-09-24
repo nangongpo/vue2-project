@@ -1,9 +1,27 @@
-import { Body, Controller, ForbiddenException, HttpCode, HttpStatus, Inject, Post, Req } from '@nestjs/common'
+import {
+  Body,
+  Controller,
+  ForbiddenException,
+  HttpCode,
+  HttpStatus,
+  Inject,
+  Post,
+  Req,
+} from '@nestjs/common'
 import { Type } from 'class-transformer'
-import { ArrayMaxSize, ArrayMinSize, IsArray, IsNumber, IsOptional, IsString, MaxLength, MinLength, ValidateNested } from 'class-validator'
+import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  IsArray,
+  IsNumber,
+  IsString,
+  MaxLength,
+  MinLength,
+  ValidateNested,
+} from 'class-validator'
 import { FastifyRequest } from 'fastify'
 import { API_CODE } from '../../common/constants/api-code.js'
-import { CaptchaEvent, CaptchaPoint, CaptchaService } from '../services/captcha.service.js'
+import { CaptchaPoint, CaptchaService } from '../services/captcha.service.js'
 
 class CreateCaptchaDto {
   @IsString()
@@ -48,31 +66,6 @@ class VerifyCaptchaDto {
   trackWidth!: number
 }
 
-class CaptchaEventDto {
-  @IsOptional()
-  @IsString()
-  @MaxLength(64)
-  attemptId?: string
-
-  @IsString()
-  @MaxLength(32)
-  event!: CaptchaEvent
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(64)
-  challengeId?: string
-
-  @IsOptional()
-  @IsNumber()
-  durationMs?: number
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(120)
-  reason?: string
-}
-
 @Controller('captcha')
 export class CaptchaController {
   constructor(@Inject(CaptchaService) private readonly captcha: CaptchaService) {}
@@ -86,7 +79,11 @@ export class CaptchaController {
   @Post('challenges')
   async create(@Body() body: CreateCaptchaDto, @Req() request: FastifyRequest) {
     this.assertHttps(request)
-    const data = await this.captcha.createChallenge(body.username, request.ip, request.headers['user-agent'])
+    const data = await this.captcha.createChallenge(
+      body.username,
+      request.ip,
+      request.headers['user-agent']
+    )
     return { code: API_CODE.SUCCESS, message: 'success', data }
   }
 
@@ -104,18 +101,5 @@ export class CaptchaController {
       trackWidth: body.trackWidth,
     })
     return { code: API_CODE.SUCCESS, message: 'success', data }
-  }
-
-  @Post('events')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  async event(@Body() body: CaptchaEventDto, @Req() request: FastifyRequest) {
-    this.assertHttps(request)
-    await this.captcha.reportEvent({
-      event: body.event,
-      attemptId: body.attemptId,
-      challengeId: body.challengeId,
-      durationMs: body.durationMs,
-      reason: body.reason,
-    })
   }
 }

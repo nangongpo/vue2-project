@@ -57,7 +57,7 @@ var TianaiCaptcha = (function () {
     function record(p) { var rect = track.getBoundingClientRect(); points.push({ x: Math.round(left), y: Math.round(p.y - rect.top), t: Math.max(0, Date.now() - startTime) }) }
     function remove() { document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', end); document.removeEventListener('touchmove', move); document.removeEventListener('touchend', end); document.removeEventListener('touchcancel', end) }
     function reset() { remove(); dragging = false; complete = false; button.className = 'tac__button'; button.textContent = '→'; setLeft(0); messageText('', '') }
-    function fail(error) { remove(); dragging = false; complete = false; messageText(error && error.message ? error.message : '验证失败，请重新拖动', 'error'); var callback = options.OnFail || options.onFail; if (callback) callback(error); window.setTimeout(reset, 500) }
+    function fail(error) { remove(); dragging = false; complete = false; messageText(error && error.message ? error.message : '验证失败，请重新拖动', 'error'); var callback = options.OnFail || options.onFail; if (callback) callback(error); window.setTimeout(reset, Number.isFinite(options.resetDelay) ? Math.max(150, options.resetDelay) : 260) }
     function success(result) { complete = true; button.className = 'tac__button ok'; button.textContent = '✓'; messageText('验证通过', 'success'); var callback = options.OnSuccess || options.onSuccess; if (callback) callback(result) }
     function move(event) { if (!dragging) return; event.preventDefault(); var p = point(event); var rect = track.getBoundingClientRect(); setLeft(p.x - rect.left - startX); record(p) }
     function end(event) {

@@ -11,7 +11,7 @@ export const isDev = import.meta.env.DEV
 const request = axios.create({
   baseURL: import.meta.env.VITE_APP_BASE_API,
   withCredentials: true,
-  timeout: 32 * 1000, // 32s请求超时
+  timeout: 10 * 1000, // 10s请求超时
 })
 
 // 请求拦截器
@@ -38,6 +38,11 @@ export function getCustomHeader(headers) {
 
 let authPromptPromise = null
 let authPromptLocked = false
+let securityStepUpHandler = null
+
+export function setSecurityStepUpHandler(handler) {
+  securityStepUpHandler = typeof handler === 'function' ? handler : null
+}
 
 function codeFromStatus(status) {
   return (
@@ -48,6 +53,7 @@ function codeFromStatus(status) {
       404: REQUEST_CODE.NOT_FOUND,
       409: REQUEST_CODE.CONFLICT,
       429: REQUEST_CODE.RATE_LIMITED,
+      503: REQUEST_CODE.SERVICE_UNAVAILABLE,
     }[status] || (status >= 500 ? REQUEST_CODE.INTERNAL_ERROR : '')
   )
 }
@@ -98,6 +104,7 @@ export function errorHandler(error) {
   const code = problem.code || codeFromStatus(status)
   const traceId =
     problem.traceId ||
+    problem.data?.traceId ||
     response?.headers?.['x-request-trace-id'] ||
     error?.config?.headers?.['X-Request-Trace-Id']
   const message = response
@@ -115,13 +122,33 @@ export function errorHandler(error) {
     code,
     status,
     data: problem.data ?? null,
-    detail: problem.detail || message,
+    detail: problem.detail || problem.message || message,
     title: problem.title,
     traceId,
     config: error?.config,
     response,
     requestError: error,
   })
+
+  if (code === REQUEST_CODE.SECURITY_STEP_UP_REQUIRED) {
+    normalizedError.silent = true
+    if (securityStepUpHandler && !error?.config?.__stepUpRetried) {
+      return securityStepUpHandler({
+        riskLevel: normalizedError.data?.riskLevel,
+        operationCode: normalizedError.data?.operationCode,
+        requiredFactors: normalizedError.data?.requiredFactors || [],
+        error: normalizedError,
+      }).then((verified) => {
+        if (!verified) return Promise.reject(normalizedError)
+        const retryConfig = {
+          ...error.config,
+          __stepUpRetried: true,
+          headers: { ...(error.config?.headers || {}) },
+        }
+        return request(retryConfig)
+      })
+    }
+  }
 
   if (code === REQUEST_CODE.UNAUTHORIZED && !error?.config?.url?.endsWith('/auth/login')) {
     handleUnauthorized().catch(() => {})

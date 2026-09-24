@@ -9,6 +9,7 @@ import {
 import { OpsTicketType, Prisma } from '@prisma/client'
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto'
 import { PrismaService } from '../../../database/prisma.service.js'
+import { normalizePagination, paginationData } from '../../../common/pagination.js'
 import { API_CODE } from '../../../common/constants/api-code.js'
 import type { Actor } from '../../role/domain/authorization.js'
 import type {
@@ -19,6 +20,7 @@ import type {
   OpsTicketQueryDto,
   PatchOpsTicketDto,
 } from '../dto/ops-ticket.dto.js'
+import { assertOperationSecurityProof, riskLevelForOperation } from '../../../security/policies/risk-policy.js'
 
 const serializable = { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
 const securityTypes = new Set<OpsTicketType>(['MFA_RESET_EMERGENCY', 'PERMISSION_RECOVERY', 'ACCOUNT_RECOVERY'])
@@ -53,10 +55,7 @@ export class OpsTicketService {
   }
 
   async list(query: OpsTicketQueryDto) {
-    const page = Number(query.page || 1),
-      pageSize = Number(query.pageSize || 20)
-    if (!Number.isInteger(page) || page < 1 || !Number.isInteger(pageSize) || pageSize < 1 || pageSize > 100)
-      throw new BadRequestException('分页参数无效')
+    const { page, pageSize } = normalizePagination(query)
     const where: Prisma.OpsTicketWhereInput = {
       ...(query.status ? { status: query.status } : {}),
       ...(query.type ? { type: query.type } : {}),
@@ -72,7 +71,7 @@ export class OpsTicketService {
         include: { evidence: true, executions: true },
       }),
     ])
-    return this.ok({ items, total, page, pageSize })
+    return this.ok(paginationData(items, total, { page, pageSize }))
   }
 
   async detail(id: string) {
@@ -280,11 +279,7 @@ export class OpsTicketService {
   private async authorize(tx: Prisma.TransactionClient, actor: Actor, permission: string) {
     if (!actor || typeof actor.internalId !== 'bigint') throw new ForbiddenException('缺少操作者身份')
     if (!['system.ops-ticket.read', 'system.ops-ticket.detail'].includes(permission)) {
-      const now = Date.now(),
-        recent = (value?: Date | null) =>
-          value instanceof Date && Number.isFinite(value.getTime()) && value.getTime() <= now && now - value.getTime() <= 5 * 60_000
-      if (!recent(actor.mfaVerifiedAt) || !recent(actor.reauthenticatedAt))
-        throw new ForbiddenException('工单写操作需要五分钟内的 MFA 和重新认证')
+      assertOperationSecurityProof(actor, 'system.ops-ticket.mutation')
     }
     const user = await tx.user.findUnique({
       where: { id: actor.internalId },
@@ -359,6 +354,7 @@ export class OpsTicketService {
         actorId: actor.internalId,
         traceId: actor.traceId || randomUUID(),
         action,
+        riskLevel: riskLevelForOperation(action),
         resource: 'ops-ticket',
         method: actor.method || 'POST',
         path: actor.path || `/api/v1/ops-tickets/${targetId}`,
