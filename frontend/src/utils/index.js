@@ -258,6 +258,24 @@ export function getQueryObject(url = window.location.href) {
 }
 
 /**
+ * 获取 URL 的路径部分，兼容相对 URL、绝对 URL、查询参数和 hash。
+ * @param {String} url
+ * @returns {String}
+ */
+export function getUrlPath(url = '') {
+  const value = String(url).trim()
+  if (!value) return ''
+
+  return (
+    value
+      .split(/[?#]/, 1)[0]
+      .replace(/^[a-z][a-z\d+.-]*:\/\/[^/]*/i, '')
+      .replace(/^\/\/[^/]*/, '')
+      .replace(/\/+$/, '') || '/'
+  )
+}
+
+/**
  * 对象转请求参数
  * @param {object} obj
  * @returns {string}

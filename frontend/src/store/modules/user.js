@@ -1,4 +1,4 @@
-import { completeLogin, login, getInfo, logout } from '@/api/user'
+import { completeLogin, login, getInfo as fetchUserInfo, logout } from '@/api/user'
 import { resetRouter } from '@/router'
 import { getOptions } from '@/utils/options'
 
@@ -34,89 +34,50 @@ const mutations = {
     }
     state.all_options = { ...defaultOptions, ...newOptions }
   },
-  SET_BATCH_OPTIONS: (state, allOptions = {}) => {
-    const newOptions = {}
-    for (const key in allOptions) {
-      if (allOptions[key] && allOptions[key].length > 0) {
-        newOptions[key] = allOptions[key]
-      }
-    }
-    state.all_options = { ...state.all_options, ...newOptions }
-  },
 }
 
 const actions = {
   // user login
   login({ commit }, userInfo) {
-    return new Promise((resolve, reject) => {
-      login(userInfo)
-        .then(() => {
-          commit('SET_LOGIN_INFO_PENDING', true)
-          resolve()
-        })
-        .catch(reject)
+    return login(userInfo).then(() => {
+      commit('SET_LOGIN_INFO_PENDING', true)
     })
   },
   completeLogin({ commit }, userInfo) {
-    return new Promise((resolve, reject) => {
-      completeLogin(userInfo)
-        .then(() => {
-          commit('SET_LOGIN_INFO_PENDING', true)
-          resolve()
-        })
-        .catch(reject)
+    return completeLogin(userInfo).then(() => {
+      commit('SET_LOGIN_INFO_PENDING', true)
     })
   },
   // get user info
-  getInfo({ commit }) {
-    return new Promise((resolve, reject) => {
-      const resolveData = (data) => {
-        const user_info = data?.user || data?.user_info || (data?.userId ? data : {})
-        const options = data?.options || {}
-        const permissions = user_info.permissions || []
-        // 菜单权限直接使用服务端权限码；前端不自行推导或扩大权限范围。
-        const menu_list = user_info.menu_list || permissions
+  async getInfo({ commit }) {
+    const user_info = await fetchUserInfo()
+    const permissions = Array.isArray(user_info?.permissions) ? user_info.permissions : []
 
-        if (!user_info.userId) {
-          reject(new Error('登录状态无效'))
-          return
-        }
+    if (!user_info || !user_info.userId) {
+      throw new Error('登录状态无效')
+    }
 
-        commit('SET_USER_INFO', user_info)
-        commit('SET_MENU_LIST', menu_list)
-        commit('SET_ALL_OPTIONS', options)
-        resolve({ menu_list })
-      }
-      getInfo().then(resolveData).catch(reject)
-    })
+    // 菜单权限直接使用服务端权限码；前端不自行推导或扩大权限范围。
+    const menu_list = permissions
+
+    commit('SET_USER_INFO', user_info)
+    commit('SET_MENU_LIST', menu_list)
+    commit('SET_ALL_OPTIONS')
+    return { menu_list }
   },
   // user logout
-  logout({ commit, dispatch }) {
-    return new Promise((resolve, reject) => {
-      logout()
-        .then(() => {
-          commit('SET_USER_INFO', {})
-          commit('SET_LOGIN_INFO_PENDING', false)
-          commit('SET_MENU_LIST', [])
-          resetRouter()
-          // reset visited views and cached views
-          dispatch('tagsView/delAllViews', null, { root: true })
-
-          resolve()
-        })
-        .catch((error) => {
-          reject(error)
-        })
-    })
+  async logout({ dispatch }) {
+    await logout()
+    await dispatch('resetToken')
+    resetRouter()
+    // reset visited views and cached views
+    await dispatch('tagsView/delAllViews', null, { root: true })
   },
   // remove token
   resetToken({ commit }) {
-    return new Promise((resolve) => {
-      commit('SET_USER_INFO', {})
-      commit('SET_LOGIN_INFO_PENDING', false)
-      commit('SET_MENU_LIST', [])
-      resolve()
-    })
+    commit('SET_USER_INFO', {})
+    commit('SET_LOGIN_INFO_PENDING', false)
+    commit('SET_MENU_LIST', [])
   },
 }
 
