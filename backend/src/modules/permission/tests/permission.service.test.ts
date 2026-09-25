@@ -111,7 +111,10 @@ function fixture() {
       }),
       count: vi.fn().mockResolvedValue(0),
     },
-    rolePermission: { count: vi.fn().mockResolvedValue(0) },
+    rolePermission: {
+      count: vi.fn().mockResolvedValue(0),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+    },
     auditLog: {
       create: vi.fn(async (input: unknown) => {
         state.audits.push(input)
@@ -384,6 +387,27 @@ describe('PermissionService security boundaries', () => {
       where: { id: `${kind}-permission` },
       data: { status: 'DISABLED' },
     })
+    expect(f.tx.rolePermission.updateMany).toHaveBeenCalledWith({
+      where: { permissionId: `${kind}-permission`, revokedAt: null },
+      data: {
+        revokedAt: expect.any(Date),
+        revokedBy: req.user.userId,
+        revokeReason: `${kind} 已停用，自动撤销角色授权`,
+      },
+    })
     expect(f.tx.auditLog.create).toHaveBeenCalled()
+  })
+
+  it('revokes API role grants when disabling an API', async () => {
+    const f = fixture()
+    await f.service.setStatus('api', 'read', 'DISABLED', req)
+    expect(f.tx.rolePermission.updateMany).toHaveBeenCalledWith({
+      where: { permissionId: 'read', revokedAt: null },
+      data: {
+        revokedAt: expect.any(Date),
+        revokedBy: req.user.userId,
+        revokeReason: 'api 已停用，自动撤销角色授权',
+      },
+    })
   })
 })

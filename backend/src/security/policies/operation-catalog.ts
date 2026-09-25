@@ -20,7 +20,7 @@ export type OperationDefinition = {
 export const BUILT_IN_OPERATION_CATALOG: readonly OperationDefinition[] = [
   {
     operationCode: 'auth.password.change',
-    name: '修改登录密码',
+    name: '修改密码',
     resource: 'auth',
     action: 'password.change',
     riskLevel: 'L2',

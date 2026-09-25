@@ -1,6 +1,6 @@
 # 权限体系设计与表结构关系图
 
-本设计对应 REQUIREMENTS.md，采用显式 RBAC、资源状态检查、职责互斥、受控审批和服务端数据范围。`schema.prisma` 为字段定义来源，迁移中的 CHECK、审计保护触发器补充 Prisma 不表达的约束。要求 MySQL 8.0.16 及以上；开发执行命令前必须 `nvm use`。
+本设计对应 [REQUIREMENTS.md](REQUIREMENTS.md)，采用显式 RBAC、资源状态检查、职责互斥、受控审批和服务端数据范围。[`prisma/schema.prisma`](../prisma/schema.prisma) 为字段定义来源，迁移中的 CHECK、审计保护触发器补充 Prisma 不表达的约束。要求 MySQL 8.0.16 及以上；开发执行命令前必须 `nvm use`。
 
 ## 表结构关系图
 
@@ -171,12 +171,12 @@ erDiagram
 | `/system/session` | `/auth/mfa/*`、`/auth/reauth` | 认证器绑定、重新认证、本人会话管理 |
 | `/system/audit` | `/audit-logs` | 审计检索及变更前后值，不提供普通更新/删除 |
 
-完整的 API 方法、路由和职责目录位于 `security/permission-catalog.ts`。审批请求结构见 `approval.contract.md`。GET 200、POST 创建 201、PATCH 200；接口资源删除返回 204。错误通过 Problem Details 返回，不暴露 Prisma/SQL 内部错误。
+完整的 API 方法、路由和职责目录位于 [`src/security/policies/permission-catalog.ts`](../src/security/policies/permission-catalog.ts)。审批请求结构见 [APPROVAL_CONTRACT.md](APPROVAL_CONTRACT.md)。GET 200、POST 创建 201、PATCH 200；接口资源删除返回 204。错误通过 Problem Details 返回，不暴露 Prisma/SQL 内部错误。
 
 ## 安全迁移与部署
 
 1. 备份原库并在隔离库验证恢复；检查路由及 `(method,path)` 重复记录。DDL 不承诺事务回滚，失败时按已执行语句恢复。
-2. 执行 `backend/prisma/permission-preflight.sql`，解决重复路由、重复方法/路径与旧新权限码冲突后再迁移。
+2. 执行 `backend/prisma/permission-preflight.sql`，确认脚本返回结果为空；它会检查路由及 API 唯一性、权限绑定完整性、失效授权、高危角色约束、管理员 MFA 和权限编码格式。发现结果后先修复数据，再执行迁移。
 3. 执行 `nvm use`，再执行 `pnpm --filter backend db:generate`、`pnpm --filter backend db:deploy`。迁移会吊销旧会话、撤销旧授权并禁用通配权限，必须安排维护窗口。
 4. 通过秘密管理配置 MFA_ENCRYPTION_KEY（32 字节随机密钥的 Base64）、Redis、HTTPS/Cookie 和独立管理员账户。可用 `openssl rand -base64 32` 生成该密钥。密钥必须长期保存并在所有后端实例保持一致，不能在每次发布或容器重启时重新生成；更换或丢失后，已绑定的管理员 MFA 密文无法解密，需要通过 MFA_RESET 审批或受控离线流程重置。未配置或格式错误时，应用可能仍可启动，普通非管理员能力也可能可用，但管理员首次绑定、登录验证码校验、重新认证和审批等后台能力会失败，因此生产部署视为不可用配置。`.env.example` 列出了安全审批人、审计管理员和运维管理员的初始化变量。
 5. `pnpm --filter backend db:seed` 维护服务器权限目录及独立角色，不覆盖已有密码、不自动重新启用已禁用资源。首次登录只允许 MFA 绑定及必要本人操作；如果 MFA_ENCRYPTION_KEY 或 Redis 不可用，管理员无法完成首次绑定，后续权限、角色、审批和审计管理接口会被守卫拒绝。旧普通角色的权限需重新审核后显式授权。
@@ -186,7 +186,7 @@ erDiagram
 
 ## 验收与部署边界
 
-代码验证包括职责分离、精确路由、页面/按钮状态传播、MFA 重放、审批并发状态、租户隔离、范围交集、事务回滚、引用保护、前端序列化与选择器。实际数据库验证运行 `pnpm --filter backend exec node scripts/verify-permission-migration.mjs`（先构建）。测试报告见 `VERIFICATION.md`。
+代码验证包括职责分离、精确路由、页面/按钮状态传播、MFA 重放、审批并发状态、租户隔离、范围交集、事务回滚、引用保护、前端序列化与选择器。实际数据库验证运行 `pnpm --filter backend exec node scripts/verify-permission-migration.js`（先构建）。测试报告见 [VERIFICATION.md](VERIFICATION.md)。
 
 目前仓库没有业务数据的后端仓储，数据范围服务已实现；后续业务模块必须调用受控数据访问入口，不能直接使用不带范围的 Prisma 查询。组织主数据通过受保护的部署/主数据流程导入，不接受普通客户端随意构造组织归属。
 

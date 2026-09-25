@@ -102,19 +102,19 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     try {
       const result = await this.client.eval(
         `local raw = redis.call('get', KEYS[1])
-if not raw then return -1 end
-local value = cjson.decode(raw)
-local current = tonumber(value[ARGV[1]]) or 0
-local next = current + 1
-if next >= tonumber(ARGV[2]) then
-  redis.call('del', KEYS[1])
-  return next
-end
-value[ARGV[1]] = next
-local ttl = redis.call('ttl', KEYS[1])
-redis.call('set', KEYS[1], cjson.encode(value))
-if ttl > 0 then redis.call('expire', KEYS[1], ttl) end
-return next`,
+          if not raw then return -1 end
+          local value = cjson.decode(raw)
+          local current = tonumber(value[ARGV[1]]) or 0
+          local next = current + 1
+          if next >= tonumber(ARGV[2]) then
+            redis.call('del', KEYS[1])
+            return next
+          end
+          value[ARGV[1]] = next
+          local ttl = redis.call('ttl', KEYS[1])
+          redis.call('set', KEYS[1], cjson.encode(value))
+          if ttl > 0 then redis.call('expire', KEYS[1], ttl) end
+          return next`,
         1,
         key,
         field,

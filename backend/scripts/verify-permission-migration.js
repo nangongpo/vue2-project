@@ -68,14 +68,22 @@ try {
   await assert.rejects(() => db.auditLog.delete({ where: { id: audit.id } }))
   await assert.rejects(() => db.roleElevatedDataScope.create({ data: { roleId: role.id, resource: 'order', scopeType: 'ALL', reason: 'invalid', approvalRef: randomUUID(), validFrom: new Date(), expiresAt: new Date(0) } }))
   // Exercise the actual seed, repeated seed, global guards, DTO validation and DB-backed HTTP routes.
-  const seedEnv = { ...process.env, DATABASE_URL: isolated.toString(), SEED_ADMIN_USERNAME: 'verify_security', SEED_ADMIN_PASSWORD: 'Local-Verify-Password-742!', SEED_SECURITY_REVIEWER_USERNAME: 'verify_reviewer', SEED_SECURITY_REVIEWER_PASSWORD: 'Local-Reviewer-Password-529!', SEED_AUDIT_USERNAME: 'verify_auditor', SEED_AUDIT_PASSWORD: 'Local-Audit-Password-851!', SEED_SYSTEM_USERNAME: '', SEED_SYSTEM_PASSWORD: '' }
+  const seedEnv = { ...process.env, DATABASE_URL: isolated.toString(), SEED_SECURITY_USERNAME: 'verify_security', SEED_SECURITY_PASSWORD: 'Local-Verify-Password-742!', SEED_AUDIT_USERNAME: 'verify_auditor', SEED_AUDIT_PASSWORD: 'Local-Audit-Password-851!', SEED_SYSTEM_USERNAME: 'verify_system', SEED_SYSTEM_PASSWORD: 'Local-System-Password-638!' }
   execFileSync(process.execPath, ['dist/database/seed.js'], { env: seedEnv, stdio: 'pipe' })
   const seeded = await db.user.findUniqueOrThrow({ where: { username: 'verify_security' } })
-  execFileSync(process.execPath, ['dist/database/seed.js'], { env: { ...seedEnv, SEED_ADMIN_PASSWORD: 'Different-Password-924!' }, stdio: 'pipe' })
+  execFileSync(process.execPath, ['dist/database/seed.js'], { env: { ...seedEnv, SEED_SECURITY_PASSWORD: 'Different-Password-924!' }, stdio: 'pipe' })
   assert.equal((await db.user.findUniqueOrThrow({ where: { id: seeded.id } })).passwordHash, seeded.passwordHash, 'repeat seed must not reset passwords')
   const adminToken = randomUUID(), auditorToken = randomUUID(), reviewerToken = randomUUID()
   const auditor = await db.user.findUniqueOrThrow({ where: { username: 'verify_auditor' } })
-  const reviewer = await db.user.findUniqueOrThrow({ where: { username: 'verify_reviewer' } })
+  const securityRole = await db.role.findUniqueOrThrow({ where: { code: 'builtin_security' } })
+  const reviewer = await db.user.create({
+    data: {
+      username: 'verify_reviewer',
+      passwordHash: 'not-a-real-password',
+      displayName: 'verify_reviewer',
+      roles: { create: { roleId: securityRole.id, grantReason: 'verification only' } },
+    },
+  })
   for (const [account, rawToken] of [[seeded, adminToken], [auditor, auditorToken], [reviewer, reviewerToken]]) {
     await db.user.update({ where: { id: account.id }, data: { mfaEnabled: true } })
     await db.session.create({ data: { id: createHash('sha256').update(rawToken).digest('hex'), userId: account.id, expiresAt: new Date(Date.now() + 600000), mfaVerifiedAt: new Date(), reauthenticatedAt: new Date() } })

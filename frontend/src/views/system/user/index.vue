@@ -2,12 +2,7 @@
   <div class="page-container">
     <el-card shadow="never">
       <div class="toolbar">
-        <el-input
-          v-model="query.keyword"
-          clearable
-          placeholder="用户名/姓名"
-          maxlength="64"
-          @keyup.enter.native="search" />
+        <el-input v-model="query.keyword" clearable placeholder="账号/姓名" maxlength="64" @keyup.enter.native="search" />
         <el-button v-permission="'system.user.read'" type="primary" @click="search">查询</el-button>
         <el-button v-permission="'system.user.create'" type="success" @click="openCreate">
           新增用户
@@ -15,67 +10,50 @@
       </div>
       <el-alert v-if="loadError" :title="loadError" type="error" :closable="false" />
       <el-table v-loading="loading" :data="users" border stripe>
-        <el-table-column prop="username" label="用户名" min-width="150" />
-        <el-table-column prop="displayName" label="姓名" min-width="150" />
-        <el-table-column prop="status" label="状态" width="110" />
-        <el-table-column label="角色" min-width="180">
+        <el-table-column prop="username" label="账号" width="150" />
+        <el-table-column prop="displayName" label="姓名" width="120" />
+        <el-table-column label="状态" width="110">
           <template #default="scope">
-            {{ (scope.row.roles || []).map((item) => item.role.name).join('、') || '未分配' }}
+            <el-tag :type="statusTagType(scope.row.status)" size="small">
+              {{ statusLabel(scope.row.status) }}
+            </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="lastLoginAt" label="最近登录" min-width="180" />
+        <el-table-column label="角色" width="120">
+          <template #default="scope">
+            {{(scope.row.roles || []).map((item) => item.role.name).join('、') || '未分配'}}
+          </template>
+        </el-table-column>
+        <el-table-column label="最近登录" min-width="180">
+          <template #default="scope">
+            {{ formatDate(scope.row.lastLoginAt) || '暂无记录' }}
+          </template>
+        </el-table-column>
         <el-table-column label="操作" width="350" fixed="right">
           <template #default="scope">
             <el-button v-permission="'system.user.update'" type="text" @click="openEdit(scope.row)">
               编辑
             </el-button>
-            <el-button
-              v-permission="'system.user.reset-password'"
-              type="text"
-              @click="openReset(scope.row)">
+            <el-button v-permission="'system.user.reset-password'" type="text" @click="openReset(scope.row)">
               重置密码
             </el-button>
-            <el-button
-              v-if="canGrant"
-              type="text"
-              :disabled="scope.row.status !== 'ACTIVE'"
-              @click="openGrants(scope.row)"
-              >分配角色</el-button
-            >
-            <el-button
-              v-permission="'system.user.disable'"
-              type="text"
-              :disabled="saving || scope.row.status === 'LOCKED'"
-              @click="changeStatus(scope.row)"
-              >{{ scope.row.status === 'DISABLED' ? '启用' : '停用' }}</el-button
-            >
-            <el-button
-              v-if="scope.row.status === 'LOCKED'"
-              v-permission="'system.user.unlock'"
-              type="text"
-              :disabled="saving"
-              @click="unlock(scope.row)"
-              >解锁</el-button
-            >
+            <el-button v-if="canGrant" type="text" :disabled="scope.row.status !== 'ACTIVE'"
+              @click="openGrants(scope.row)">分配角色</el-button>
+            <el-button v-permission="'system.user.disable'" type="text"
+              :disabled="saving || scope.row.status === 'LOCKED'" @click="changeStatus(scope.row)">{{ scope.row.status
+                === 'DISABLED' ? '启用' : '停用' }}</el-button>
+            <el-button v-if="scope.row.status === 'LOCKED'" v-permission="'system.user.unlock'" type="text"
+              :disabled="saving" @click="unlock(scope.row)">解锁</el-button>
           </template>
         </el-table-column>
       </el-table>
-      <el-pagination
-        class="pagination"
-        background
-        layout="total, prev, pager, next"
-        :current-page.sync="query.page"
-        :page-size="query.pageSize"
-        :total="total"
-        @current-change="loadUsers" />
+      <el-pagination class="pagination" background layout="total, prev, pager, next" :current-page.sync="query.page"
+        :page-size="query.pageSize" :total="total" @current-change="loadUsers" />
     </el-card>
 
-    <el-dialog
-      :title="editing ? '编辑用户' : '新增用户'"
-      :visible.sync="dialogVisible"
-      width="460px">
+    <el-dialog :title="editing ? '编辑用户' : '新增用户'" :visible.sync="dialogVisible" width="460px">
       <el-form ref="userForm" :model="form" :rules="rules" label-width="90px">
-        <el-form-item v-if="!editing" label="用户名" prop="username">
+        <el-form-item v-if="!editing" label="账号" prop="username">
           <el-input v-model.trim="form.username" maxlength="64" />
         </el-form-item>
         <el-form-item label="姓名" prop="displayName">
@@ -95,11 +73,7 @@
     </el-dialog>
 
     <el-dialog title="重置密码" :visible.sync="resetVisible" width="420px">
-      <el-form
-        ref="resetForm"
-        :model="resetForm"
-        :rules="{ password: rules.password }"
-        label-width="90px">
+      <el-form ref="resetForm" :model="resetForm" :rules="{ password: rules.password }" label-width="90px">
         <el-form-item label="新密码" prop="password">
           <el-input v-model="resetForm.password" type="password" maxlength="128" show-password />
           <div class="password-hint">
@@ -112,11 +86,7 @@
         <el-button type="primary" :loading="resetting" @click="submitReset"> 确认重置 </el-button>
       </span>
     </el-dialog>
-    <permission-grant-dialog
-      :visible.sync="grantsVisible"
-      :target="grantTarget"
-      kind="user"
-      @saved="loadUsers" />
+    <permission-grant-dialog :visible.sync="grantsVisible" :target="grantTarget" kind="user" @saved="loadUsers" />
   </div>
 </template>
 
@@ -131,6 +101,7 @@ import {
 } from '@/api/admin'
 import PermissionGrantDialog from '@/components/PermissionGrantDialog/index.vue'
 import { requiredText, requestReason } from '../permission/utils'
+import { dateFormat } from '@/utils/date'
 import allPatterns from '@/utils/patterns'
 
 export default {
@@ -155,8 +126,8 @@ export default {
       resetForm: { userId: '', password: '' },
       rules: {
         username: [
-          ...requiredText('用户名'),
-          { min: 2, max: 64, message: '用户名长度为 2–64 个字符', trigger: 'blur' },
+          ...requiredText('账号'),
+          { min: 2, max: 64, message: '账号长度为 2–64 个字符', trigger: 'blur' },
         ],
         displayName: requiredText('姓名'),
         password: [allPatterns.password],
@@ -177,6 +148,15 @@ export default {
     this.loadUsers()
   },
   methods: {
+    formatDate(value) {
+      return dateFormat(value)
+    },
+    statusLabel(status) {
+      return { ACTIVE: '启用', DISABLED: '停用', LOCKED: '锁定' }[status] || status || '未知'
+    },
+    statusTagType(status) {
+      return { ACTIVE: 'success', DISABLED: 'info', LOCKED: 'danger' }[status] || 'warning'
+    },
     can(code) {
       const codes = this.$store.getters.menu_list || []
       return codes.includes(code) || codes.includes('*')
@@ -319,18 +299,22 @@ export default {
 .page-container {
   padding: 20px;
 }
+
 .toolbar {
   display: flex;
   gap: 10px;
   margin-bottom: 16px;
 }
+
 .toolbar .el-input {
   width: 240px;
 }
+
 .pagination {
   margin-top: 16px;
   text-align: right;
 }
+
 .password-hint {
   margin-top: 4px;
   color: #909399;

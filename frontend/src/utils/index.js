@@ -3,6 +3,30 @@ export function isNotEmpty(value) {
 }
 
 /**
+ * 执行异步任务并确保 loading 状态至少持续指定时间，避免请求过快导致 loading 一闪而过。
+ *
+ * @param {Function} task 异步任务
+ * @param {number} [minDuration=400] loading 最短持续时间（毫秒）
+ * @returns {Promise<*>} 异步任务的结果
+ */
+export async function withLoadingDelay(task, minDuration = 400) {
+  const startedAt = Date.now()
+  try {
+    return await task()
+  } finally {
+    const remaining = minDuration - (Date.now() - startedAt)
+    if (remaining > 0) {
+      await new Promise((resolve) => {
+        const timer = setTimeout(() => {
+          clearTimeout(timer)
+          resolve()
+        }, remaining)
+      })
+    }
+  }
+}
+
+/**
  * 复制文本到系统剪贴板，兼容非安全上下文。
  * @param {string} value
  * @returns {Promise<void>}

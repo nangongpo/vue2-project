@@ -1,4 +1,5 @@
 import 'reflect-metadata'
+import { timingSafeEqual } from 'node:crypto'
 import { loadEnvFile } from 'node:process'
 import { BadRequestException, ValidationPipe } from '@nestjs/common'
 import { NestFactory } from '@nestjs/core'
@@ -10,6 +11,7 @@ import Joi from 'joi'
 import { AuditService } from './audit/services/audit.service.js'
 import { TraceIdInterceptor } from './common/interceptors/trace-id.interceptor.js'
 import { ApiResponseInterceptor } from './common/interceptors/api-response.interceptor.js'
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger'
 
 try {
   loadEnvFile()
@@ -51,8 +53,11 @@ const env = Joi.object({
   CAPTCHA_SERVICE_SECRET: Joi.string().min(1).allow('').default(''),
   CAPTCHA_SERVICE_TIMEOUT_MS: Joi.number().integer().min(200).max(10000).default(2000),
   OPS_EXECUTION_SIGNING_SECRET: Joi.string().min(32).allow('').default(''),
-  SEED_ADMIN_USERNAME: Joi.string().min(1).default('admin'),
-  SEED_ADMIN_PASSWORD: Joi.string().min(12).default('change-this-password'),
+  SEED_SECURITY_USERNAME: Joi.string().min(1).default('security-admin'),
+  SEED_SECURITY_PASSWORD: Joi.string().min(12).default('change-this-password'),
+  SWAGGER_ENABLED: Joi.boolean().truthy('true').falsy('false').default(true),
+  SWAGGER_ADMIN_USERNAME: Joi.string().min(1).default('swagger-admin'),
+  SWAGGER_ADMIN_PASSWORD: Joi.string().min(12).default('change-this-swagger-password'),
   COOKIE_SECURE: Joi.boolean().truthy('true').falsy('false').default(false),
   COOKIE_DOMAIN: Joi.string().allow('').default(''),
   CSRF_ALLOWED_ORIGINS: Joi.string().allow('').default(''),
@@ -74,6 +79,13 @@ if (env.value.NODE_ENV === 'production' && env.value.ENABLE_HTTPS !== true) {
 }
 if (env.value.NODE_ENV === 'production' && env.value.ENABLE_CSP !== true) {
   throw new Error('生产环境必须启用 ENABLE_CSP=true')
+}
+if (
+  env.value.NODE_ENV === 'production' &&
+  (env.value.SWAGGER_ADMIN_PASSWORD === 'change-this-swagger-password' ||
+    env.value.SWAGGER_ADMIN_PASSWORD.length < 12)
+) {
+  throw new Error('生产环境必须配置至少 12 位且非默认的 SWAGGER_ADMIN_PASSWORD')
 }
 if (env.value.NODE_ENV === 'production' && !env.value.CSRF_ALLOWED_ORIGINS) {
   throw new Error('生产环境必须配置 CSRF_ALLOWED_ORIGINS')
@@ -143,6 +155,75 @@ async function bootstrap() {
     hsts: enableHttps ? { maxAge: 63072000, includeSubDomains: true, preload: false } : false,
   })
   app.setGlobalPrefix('api/v1')
+  const swaggerConfig = new DocumentBuilder()
+    .setTitle('后台管理 API')
+    .setDescription('后台管理、认证、权限、审计和验证码代理接口。')
+    .setVersion('1.0')
+    .addCookieAuth('session', { type: 'apiKey', in: 'cookie', name: 'session' })
+    .build()
+  const swaggerDocument = SwaggerModule.createDocument(app, swaggerConfig)
+  const apiResponseSchema = {
+    type: 'object',
+    properties: {
+      code: { type: 'string', example: '000000', description: '业务结果码，000000 表示成功。' },
+      message: { type: 'string', example: 'success', description: '结果说明。' },
+      data: { nullable: true, description: '接口业务数据，具体结构由接口定义。' },
+    },
+    required: ['code', 'message', 'data'],
+  }
+  for (const pathItem of Object.values(swaggerDocument.paths || {}) as Array<Record<string, any>>) {
+    for (const operation of Object.values(pathItem)) {
+      if (!operation || typeof operation !== 'object' || !operation.responses) continue
+      for (const response of Object.values(operation.responses) as Array<Record<string, any>>) {
+        if (!response.content) {
+          response.content = { 'application/json': { schema: apiResponseSchema } }
+        }
+      }
+    }
+  }
+  const docsPath = '/docs'
+  const docsJsonPath = '/docs-json'
+  const isDocsRequest = (url: string) => {
+    const path = url.split('?')[0]
+    return path === docsPath || path.startsWith(`${docsPath}/`) || path === docsJsonPath
+  }
+  const unauthorized = (reply: {
+    code: (status: number) => {
+      header: (name: string, value: string) => { send: (body: string) => void }
+    }
+  }) => reply.code(401).header('WWW-Authenticate', 'Basic realm="backend Swagger"').send('Unauthorized')
+  app
+    .getHttpAdapter()
+    .getInstance()
+    .addHook('onRequest', async (request, reply) => {
+      if (!isDocsRequest(request.url)) return
+      if (!env.value.SWAGGER_ENABLED) {
+        reply.code(404).send()
+        return
+      }
+      const header = request.headers.authorization
+      if (!header?.startsWith('Basic ')) return unauthorized(reply)
+      let decoded: string
+      try {
+        decoded = Buffer.from(header.slice(6), 'base64').toString('utf8')
+      } catch {
+        return unauthorized(reply)
+      }
+      const separator = decoded.indexOf(':')
+      const username = separator >= 0 ? decoded.slice(0, separator) : ''
+      const password = separator >= 0 ? decoded.slice(separator + 1) : ''
+      const matches = (actual: string, expected: string) => {
+        const actualBuffer = Buffer.from(actual)
+        const expectedBuffer = Buffer.from(expected)
+        return actualBuffer.length === expectedBuffer.length && timingSafeEqual(actualBuffer, expectedBuffer)
+      }
+      if (!matches(username, env.value.SWAGGER_ADMIN_USERNAME) || !matches(password, env.value.SWAGGER_ADMIN_PASSWORD))
+        return unauthorized(reply)
+    })
+  SwaggerModule.setup('docs', app, swaggerDocument, {
+    jsonDocumentUrl: 'docs-json',
+    customSiteTitle: '后台管理 API 文档',
+  })
   app.enableCors({ origin: false, credentials: true })
   const allowedCustomHeaders = new Set([
     'x-forwarded-for',

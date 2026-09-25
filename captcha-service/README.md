@@ -22,6 +22,17 @@ pnpm dev:captcha
 - `GET /health`：进程存活检查。
 - `GET /ready`：检查 Redis、资源和协议是否就绪。
 
+Swagger 接口文档：
+
+```text
+GET /docs       # Swagger UI
+GET /docs-json  # OpenAPI JSON
+```
+
+文档仅描述内部接口；调用仍需按内部协议提供服务身份、时间戳、Nonce 和 HMAC-SHA256 签名。
+
+Swagger 文档默认使用 Basic Auth 保护。先用 `SWAGGER_ADMIN_USERNAME` 和 `SWAGGER_ADMIN_PASSWORD` 登录文档，再点击 `Authorize`：用户名填写 `ServiceId`，密码填写 `CAPTCHA_SERVICE_SECRET`。Swagger UI 会自动生成时间戳、Nonce 和 HMAC 签名，用于测试内部接口。设置 `SWAGGER_ENABLED=false` 可关闭文档；生产环境必须使用至少 16 位的非默认管理员密码。
+
 生产构建和启动：
 
 ```bash

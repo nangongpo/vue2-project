@@ -29,7 +29,7 @@
             最近验证：{{ formatDate(securityUser.mfaVerifiedAt) }}
           </p>
         </div>
-        <span class="muted">认证器丢失请联系安全管理员，通过受控流程重置。</span>
+        <span class="muted">认证器不可用？请联系管理员重置。</span>
       </div>
       <div v-else class="security-action-row">
         <p>绑定认证器后，账号即使密码泄露也能获得额外保护。</p>
@@ -80,7 +80,8 @@
 import { getMfaStatus, getSessions, revokeSession } from '@/api/user'
 import { axiosPost } from '@/api/index'
 import { dateFormat } from '@/utils/date'
-import { qrSvgDataUrl } from '@/utils/qrcode'
+import { withLoadingDelay } from '@/utils'
+import { qrPngDataUrl } from '@/utils/qrcode'
 import MfaEnrollmentFlow from '@/components/Security/MfaEnrollmentFlow.vue'
 import ReauthDialog from '@/components/Security/ReauthDialog.vue'
 import SessionList from '@/components/Security/SessionList.vue'
@@ -111,7 +112,7 @@ export default {
     qrCodeUrl() {
       if (!this.enrollment?.uri) return ''
       try {
-        return qrSvgDataUrl(this.enrollment.uri, { title: 'TOTP 绑定二维码' })
+        return qrPngDataUrl(this.enrollment.uri)
       } catch {
         return ''
       }
@@ -241,7 +242,7 @@ export default {
     async loadSessions() {
       this.loading = true
       try {
-        this.sessions = (await getSessions()) || []
+        this.sessions = (await withLoadingDelay(() => getSessions())) || []
       } catch (error) {
         this.securityError = error.message || '登录设备加载失败'
       } finally {

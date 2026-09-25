@@ -1,74 +1,38 @@
-import service, { notify } from './axios'
-import { fileToBase64 } from '@/utils/image'
+import service, { notifyRequestError } from './http'
 
-/**
- * 公用请求
- * @param {object} options { url, method, params, header, config }
- * {
- * url @param {string} 请求地址
- * method @param {string} 请求方法
- * params @param {object} 请求参数
- * headers @param {object} 自定义请求头, 如上传文件 { 'Content-Type': 'multipart/form-data' }
- * config @param {object} 自定义配置项
- * }
- * @returns {promise}
- */
-export async function sendRequest(options = {}) {
-  const { url = '', method = '', params = {}, config = { showNotify: true } } = options
-  // 是否是url传參(get,delete请求为url传參)
-  const isUrlParams = /(get|delete|head)/.test(method)
-  // url传参，需传递params参数
-  let _params = {}
-  // body传参，需传递data参数
-  const _data = {}
+function isQueryMethod(method) {
+  return (
+    method === 'get' ||
+    method === 'delete' ||
+    method === 'head' ||
+    method === 'options'
+  )
+}
 
-  if (isUrlParams) {
-    _params = params
-  } else {
-    // 文件转成base64, 方便统一加密
-    for (const key in params) {
-      const value = params[key]
-      if (value instanceof File) {
-        const base64Str = await fileToBase64(value)
-        _data[key] = {
-          file_name: value.name,
-          file_size: value.size,
-          file_type: value.type,
-          base64: base64Str.split(',')[1],
-        }
-      } else {
-        _data[key] = params[key]
-      }
-    }
+export function sendRequest({ url = '', method = 'get', params = {}, config = {} } = {}) {
+  if (typeof url !== 'string' || !url.trim()) {
+    return Promise.reject(new Error('请求地址不能为空'))
   }
-  // url传參(url不能为空)， body传參(url和data参数不能为空)
-  const flag = isUrlParams ? url.length === 0 : url.length === 0 && _data
-  // 构造请求参数
-  const baseConfig = { method, url, params: _params, data: _data }
-  return new Promise((resolve, reject) => {
-    if (flag) {
-      notify({ message: '请求参数丢失', type: 'error' })
-      reject(new Error(`请求参数丢失: ${JSON.stringify(options)}`))
-      return
+
+  const normalizedMethod = method.toLowerCase()
+  const { showNotify = true, ...axiosConfig } = config
+  const requestConfig = {
+    ...axiosConfig,
+    method: normalizedMethod,
+    url,
+  }
+
+  if (isQueryMethod(normalizedMethod)) {
+    requestConfig.params = params
+  } else {
+    requestConfig.data = params
+  }
+
+  return service(requestConfig).catch((error) => {
+    if (showNotify && !error?.silent && error?.message) {
+      notifyRequestError(error)
     }
-    service({
-      ...baseConfig,
-      ...config,
-    })
-      .then((data) => {
-        resolve(data)
-      })
-      .catch((error) => {
-        const traceID = error?.traceId
-        if (config.showNotify && !error.silent && error.message) {
-          notify({
-            dangerouslyUseHTMLString: false,
-            title: '操作提示',
-            message: `错误信息：${error.message}\n请求标识：${traceID || '未提供'}`,
-          })
-        }
-        reject(error)
-      })
+    return Promise.reject(error)
   })
 }
 
@@ -100,36 +64,17 @@ export function axiosPost(url, params, config) {
  * @param {String} params.img_source 图片来源 2pc端，3高拍仪, 默认为2
  * @returns {Promise}
  */
-export async function uploadFile(params = {}) {
-  if (!params.img_source) {
-    params.img_source = '2'
-  }
-  // 文件转成base64, 方便统一加密
-  const data = {}
-  for (const key in params) {
-    const value = params[key]
-    if (value instanceof File) {
-      const base64Str = await fileToBase64(value)
-      data[key] = {
-        file_name: value.name,
-        file_size: value.size,
-        file_type: value.type,
-        base64: base64Str.split(',')[1],
-      }
-    } else {
-      data[key] = value
-    }
+export function uploadFile(params = {}) {
+  const formData = new FormData()
+  const data = { ...params, img_source: params.img_source || '2' }
+
+  for (const [key, value] of Object.entries(data)) {
+    formData.append(key, value)
   }
 
-  return new Promise((resolve, reject) => {
-    sendRequest({
-      url: '/upload_img/',
-      method: 'post',
-      params: data,
-    })
-      .then((res) => {
-        resolve(res.url)
-      })
-      .catch(reject)
-  })
+  return sendRequest({
+    url: '/upload_img/',
+    method: 'post',
+    params: formData,
+  }).then((response) => response.url)
 }

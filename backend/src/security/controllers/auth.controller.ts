@@ -16,21 +16,25 @@ import { assertSameOrigin } from '../policies/csrf.js'
 import { SecurityOperation } from '../decorators/operation.decorator.js'
 
 class LoginDto {
+  /** 登录账号。 */
   @IsString()
   @MinLength(1)
   @MaxLength(64)
   username!: string
 
+  /** 密码。 */
   @IsString()
   @MinLength(8)
   @MaxLength(128)
   password!: string
 
+  /** backend 验证码校验令牌。 */
   @IsOptional()
   @IsString()
   @MaxLength(128)
   captchaToken?: string
 
+  /** 验证码挑战尝试 ID。 */
   @IsOptional()
   @IsString()
   @MaxLength(64)
@@ -38,11 +42,13 @@ class LoginDto {
 }
 
 class ChangePasswordDto {
+  /** 当前密码。 */
   @IsString()
   @MinLength(1)
   @MaxLength(128)
   currentPassword!: string
 
+  /** 新密码，至少 12 位。 */
   @IsString()
   @MinLength(12)
   @MaxLength(128)
@@ -50,6 +56,7 @@ class ChangePasswordDto {
 }
 
 class CompleteLoginDto {
+  /** MFA 一次性验证码，6 位数字。 */
   @IsString()
   @Matches(/^\d{6}$/)
   otp!: string

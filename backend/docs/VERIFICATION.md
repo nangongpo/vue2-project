@@ -2,6 +2,17 @@
 
 日期：2026-09-23。环境：Node.js v22.14.0（每次命令先执行 nvm use），pnpm 11.9.0，Prisma 6.19.3，MySQL 8.0.23。
 
+## 文档位置
+
+权限相关文档统一位于 `backend/` 根目录：
+
+- [REQUIREMENTS.md](REQUIREMENTS.md)：权限需求与接口约束。
+- [PERMISSION_DESIGN.md](PERMISSION_DESIGN.md)：权限体系设计、ER 图和部署边界。
+- [APPROVAL_CONTRACT.md](APPROVAL_CONTRACT.md)：审批接口与数据契约。
+- 本文：验证结果与可复现命令。
+
+ER 图已直接维护在 `PERMISSION_DESIGN.md` 中，不再单独维护 `SCHEMA.mmd`，避免设计内容重复。
+
 | 验证 | 结果 | 证据 |
 | --- | --- | --- |
 | Prisma schema 校验与 Client 生成 | 通过 | `prisma validate`、`db:generate` |
@@ -26,7 +37,7 @@ pnpm --filter backend db:generate
 pnpm --filter backend build
 pnpm --filter backend test
 pnpm --filter frontend build
-pnpm --filter backend exec node scripts/verify-permission-migration.mjs
+pnpm --filter backend exec node scripts/verify-permission-migration.js
 ```
 
 数据库验证脚本拒绝非本机地址；创建名称为 `codex_permission_test_<随机UUID>` 的专用库，在 finally 中清理该库。真实项目库没有执行迁移、重置、授权吊销或种子写入。

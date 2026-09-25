@@ -224,7 +224,7 @@ export class AuditService {
       return `"${text.replaceAll('"', '""')}"`
     }
     const rows = [
-      ['ID', 'TraceID', '时间', '用户UUID', '用户名', '操作', '风险等级', '资源', '方法', '路径', '结果', '状态码', 'IP'],
+      ['ID', 'TraceID', '时间', '用户UUID', '账号', '操作', '风险等级', '资源', '方法', '路径', '结果', '状态码', 'IP'],
       ...items.map((item) => [
         item.id,
         item.traceId,

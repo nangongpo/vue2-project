@@ -693,3 +693,82 @@ FOR EACH ROW
 SET
   NEW.`mfaSecret` = IF(NEW.`mfaEnabled` = 0, NULL, NEW.`mfaSecret`),
   NEW.`mfaLastStep` = IF(NEW.`mfaEnabled` = 0, NULL, NEW.`mfaLastStep`);
+
+-- ===== BEGIN consolidated follow-up migrations =====
+-- Existing sessions are formal sessions. New login attempts explicitly use PRE_AUTH.
+ALTER TABLE `sys_session`
+  ADD COLUMN `kind` ENUM('PRE_AUTH', 'AUTHENTICATED') NOT NULL DEFAULT 'AUTHENTICATED' AFTER `userId`;
+
+-- Store the risk level that was effective when an audit event occurred.
+ALTER TABLE `sys_audit_log`
+  ADD COLUMN `riskLevel` ENUM('L0', 'L1', 'L2', 'L3') NOT NULL DEFAULT 'L0' AFTER `action`;
+
+CREATE INDEX `sys_audit_log_riskLevel_createdAt_idx`
+  ON `sys_audit_log` (`riskLevel`, `createdAt`);
+
+-- Business operations are registered centrally and reviewed before activation.
+CREATE TABLE `sys_operation_policy` (
+    `id` CHAR(36) NOT NULL,
+    `operationCode` VARCHAR(128) NOT NULL,
+    `name` VARCHAR(128) NOT NULL,
+    `resource` VARCHAR(128) NOT NULL,
+    `action` VARCHAR(64) NOT NULL,
+    `riskLevel` ENUM('L0', 'L1', 'L2', 'L3') NOT NULL DEFAULT 'L1',
+    `minimumRiskLevel` ENUM('L0', 'L1', 'L2', 'L3') NOT NULL DEFAULT 'L1',
+    `requireMfa` BOOLEAN NOT NULL DEFAULT false,
+    `requireReauth` BOOLEAN NOT NULL DEFAULT false,
+    `requireApproval` BOOLEAN NOT NULL DEFAULT false,
+    `requireDualControl` BOOLEAN NOT NULL DEFAULT false,
+    `auditRequired` BOOLEAN NOT NULL DEFAULT true,
+    `status` ENUM('DRAFT', 'PENDING', 'ACTIVE', 'DISABLED') NOT NULL DEFAULT 'DRAFT',
+    `version` INTEGER NOT NULL DEFAULT 1,
+    `reason` VARCHAR(255) NULL,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `updatedAt` DATETIME(3) NOT NULL,
+
+    UNIQUE INDEX `sys_operation_policy_operationCode_key`(`operationCode`),
+    INDEX `sys_operation_policy_status_riskLevel_idx`(`status`, `riskLevel`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+ALTER TABLE `sys_audit_log`
+  ADD COLUMN `operationCode` VARCHAR(128) NULL AFTER `action`;
+
+CREATE INDEX `sys_audit_log_operationCode_createdAt_idx`
+  ON `sys_audit_log` (`operationCode`, `createdAt`);
+
+-- Add API lifecycle approval kinds.
+ALTER TABLE `sys_approval_request`
+  MODIFY `kind` ENUM('ROLE_GRANT', 'ROLE_PERMISSIONS', 'API_ROUTE_CHANGE', 'API_CREATE', 'API_UPDATE', 'API_STATUS', 'API_DELETE', 'PAGE_ROUTE_CHANGE', 'ELEVATED_SCOPE', 'ROLE_REVOKE', 'ROLE_PERMISSION_REVOKE', 'ELEVATED_REVOKE', 'MFA_RESET') NOT NULL;
+
+ALTER TABLE `sys_approval_request` ADD COLUMN `requestNo` VARCHAR(20) NULL;
+
+UPDATE `sys_approval_request`
+SET `requestNo` = CONCAT(
+  DATE_FORMAT(`createdAt`, '%Y%m%d'),
+  '-',
+  UPPER(SUBSTRING(REPLACE(`id`, '-', ''), 1, 8))
+)
+WHERE `requestNo` IS NULL;
+
+ALTER TABLE `sys_approval_request`
+  MODIFY `requestNo` VARCHAR(20) NOT NULL;
+
+CREATE UNIQUE INDEX `sys_approval_request_requestNo_key` ON `sys_approval_request`(`requestNo`);
+
+ALTER TABLE `sys_approval_request`
+  ADD COLUMN `applicantDisplayName` VARCHAR(128) NULL,
+  ADD COLUMN `approverDisplayName` VARCHAR(128) NULL,
+  ADD COLUMN `executorDisplayName` VARCHAR(128) NULL,
+  ADD COLUMN `reviewerDisplayName` VARCHAR(128) NULL;
+
+UPDATE `sys_approval_request` AS ar
+LEFT JOIN `sys_user` AS u1 ON u1.`userId` = ar.`applicantId`
+LEFT JOIN `sys_user` AS u2 ON u2.`userId` = ar.`approverId`
+LEFT JOIN `sys_user` AS u3 ON u3.`userId` = ar.`executorId`
+LEFT JOIN `sys_user` AS u4 ON u4.`userId` = ar.`reviewerId`
+SET
+  ar.`applicantDisplayName` = u1.`displayName`,
+  ar.`approverDisplayName` = u2.`displayName`,
+  ar.`executorDisplayName` = u3.`displayName`,
+  ar.`reviewerDisplayName` = u4.`displayName`;

@@ -14,7 +14,8 @@
         <span>有效登录设备</span><strong>{{ sessionsCount }} 个</strong>
       </div>
       <div class="status-item">
-        <span>最近重新认证</span><strong>{{ formatDate(securityUser.reauthenticatedAt) }}</strong>
+        <span>认证时间</span>
+        <strong>{{ securityUser.reauthenticatedAt ? formatDate(securityUser.reauthenticatedAt) : '暂无记录' }}</strong>
       </div>
     </div>
     <el-alert

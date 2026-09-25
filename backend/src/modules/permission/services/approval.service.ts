@@ -866,6 +866,8 @@ export class ApprovalService {
         where: { id: input.apiId },
         data: { status: input.status },
       })
+      if (input.status === 'DISABLED')
+        await this.revokePermissionGrants(tx, input.apiId, actor.userId, request.reason, now)
       return { before, after }
     }
     if (request.kind === 'API_DELETE') {
@@ -961,6 +963,17 @@ export class ApprovalService {
       throw new ConflictException('角色权限已被其他操作回收')
     const after = await tx.rolePermission.findMany({ where })
     return { before, after }
+  }
+
+  private async revokePermissionGrants(tx: Tx, permissionId: string, actorId: string, reason: string, now: Date) {
+    await tx.rolePermission.updateMany({
+      where: { permissionId, revokedAt: null },
+      data: {
+        revokedAt: now,
+        revokedBy: actorId,
+        revokeReason: `权限停用，自动撤销：${reason}`,
+      },
+    })
   }
 
   private async audit(

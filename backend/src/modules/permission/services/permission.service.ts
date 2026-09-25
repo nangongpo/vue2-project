@@ -254,7 +254,9 @@ export class PermissionService {
     return this.change(req, `${kind}.status`, async (tx) => {
       if (kind === 'api') {
         const before = await this.api(tx, id)
-        return { before, after: await tx.permission.update({ where: { id }, data: { status } }) }
+        const after = await tx.permission.update({ where: { id }, data: { status } })
+        if (status === 'DISABLED') await this.revokeRolePermissions(tx, id, req.user.userId, `${kind} 已停用，自动撤销角色授权`)
+        return { before, after }
       }
       const before = kind === 'page' ? await this.page(tx, id) : await tx.functionButton.findUnique({ where: { id } })
       if (!before) throw new NotFoundException('资源不存在')
@@ -262,7 +264,11 @@ export class PermissionService {
         kind === 'page'
           ? await tx.systemFunction.update({ where: { id }, data: { status } })
           : await tx.functionButton.update({ where: { id }, data: { status } })
-      if (before.permissionId) await tx.permission.update({ where: { id: before.permissionId }, data: { status } })
+      if (before.permissionId) {
+        await tx.permission.update({ where: { id: before.permissionId }, data: { status } })
+        if (status === 'DISABLED')
+          await this.revokeRolePermissions(tx, before.permissionId, req.user.userId, `${kind} 已停用，自动撤销角色授权`)
+      }
       return { before, after }
     })
   }
@@ -341,6 +347,12 @@ export class PermissionService {
       await tx.buttonApi.deleteMany({ where: { buttonId: id } })
       if (ids.length) await tx.buttonApi.createMany({ data: ids.map((apiId) => ({ buttonId: id, apiId })) })
     }
+  }
+  private async revokeRolePermissions(tx: Prisma.TransactionClient, permissionId: string, actorId: string, reason: string) {
+    await tx.rolePermission.updateMany({
+      where: { permissionId, revokedAt: null },
+      data: { revokedAt: new Date(), revokedBy: actorId, revokeReason: reason },
+    })
   }
   private async api(tx: Prisma.TransactionClient, id: string) {
     const item = await tx.permission.findUnique({ where: { id } })

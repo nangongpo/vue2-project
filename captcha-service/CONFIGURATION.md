@@ -26,7 +26,7 @@ pnpm dev:captcha
 | `CAPTCHA_PORT` | `3100` | 服务端口。 |
 | `CAPTCHA_HOST` | `127.0.0.1` | 监听地址；生产环境不要直接使用公网地址。 |
 | `CAPTCHA_SERVICE_ID` | `backend-admin` | 允许调用的 backend 服务 ID。 |
-| `CAPTCHA_SERVICE_SECRET` | 随机密钥 | HMAC-SHA1 密钥，必须与 backend 完全一致；生产环境至少 32 位。 |
+| `CAPTCHA_SERVICE_SECRET` | 随机密钥 | HMAC-SHA256 密钥，必须与 backend 完全一致；生产环境至少 32 位。 |
 | `CAPTCHA_PREFIX` | `yaxbgo` | 公开验证码实例标识，不是密码，不参与内部请求签名。 |
 | `CAPTCHA_SERVICE_BINDINGS` | 空 | 可选的多 backend JSON 配置；填写后优先于单组 `CAPTCHA_SERVICE_*` 配置。 |
 | `REDIS_URL` | `redis://127.0.0.1:6379` | Challenge、Token、Nonce 和限流状态存储，必填。 |
@@ -43,6 +43,9 @@ pnpm dev:captcha
 | `CAPTCHA_TRACK_WIDTH` | `360` | 滑动轨道宽度。 |
 | `CAPTCHA_BUTTON_WIDTH` | `42` | 滑块按钮宽度。 |
 | `CAPTCHA_PIECE_SIZE` | `44` | 拼图块尺寸。 |
+| `SWAGGER_ENABLED` | `true` | 是否启用 Swagger 文档；设为 `false` 时 `/docs` 和 `/docs-json` 返回 404。 |
+| `SWAGGER_ADMIN_USERNAME` | `admin` | 访问 Swagger 文档的管理员用户名。 |
+| `SWAGGER_ADMIN_PASSWORD` | 无默认生产密码 | 访问 Swagger 文档的管理员密码；生产环境至少 16 位且不能使用默认值。 |
 
 ## 凭证匹配
 
@@ -60,6 +63,24 @@ CAPTCHA_SERVICE_URL=http://127.0.0.1:3100
 ```
 
 `CAPTCHA_PREFIX` 只由 captcha-service 管理。backend 的内部请求体不能包含 Prefix，浏览器也不能获得 `CAPTCHA_SERVICE_SECRET`。
+
+## Swagger 文档与接口调试
+
+captcha-service Swagger 地址为 `/docs`，JSON 文档地址为 `/docs-json`。访问文档页面时使用：
+
+```env
+SWAGGER_ENABLED=true
+SWAGGER_ADMIN_USERNAME=admin
+SWAGGER_ADMIN_PASSWORD=至少 16 位的文档管理员密码
+```
+
+文档访问凭据与服务调用凭据是两套配置，不要混用：
+
+- Swagger 页面访问使用 `SWAGGER_ADMIN_USERNAME` / `SWAGGER_ADMIN_PASSWORD`。
+- Swagger 的 `service-auth` 授权使用 `CAPTCHA_SERVICE_ID` / `CAPTCHA_SERVICE_SECRET`。
+- 点击 Execute 调用 `/internal/v1/*` 时，Swagger 会根据 ServiceId、Secret 自动生成 HMAC-SHA256 请求签名。
+- `SignatureNonce`、`Timestamp` 和 `Signature` 不需要手工填写静态示例值；必须通过 Swagger 的 Execute 或真实客户端生成。
+- `CAPTCHA_SERVICE_SECRET` 不应暴露给浏览器用户或提交到代码仓库。
 
 ## 多实例绑定
 

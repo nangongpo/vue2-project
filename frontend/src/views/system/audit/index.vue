@@ -227,7 +227,7 @@ export default {
         'auth.login': '用户登录',
         'auth.logout': '用户退出登录',
         'auth.me': '查看登录信息',
-        'auth.password.change': '修改登录密码',
+        'auth.password.change': '修改密码',
         'auth.sessions.list': '查看登录会话',
         'auth.sessions.revoke': '撤销登录会话',
       }

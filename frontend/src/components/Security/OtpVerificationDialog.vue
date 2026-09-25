@@ -23,6 +23,7 @@
         :disabled="busy"
         @input="handleInput"
         @keyup.enter.native="$emit('submit')" />
+      <p v-if="recoveryHint" class="recovery-hint">{{ recoveryHint }}</p>
       <p v-if="error" class="security-error">{{ error }}</p>
     </div>
     <span slot="footer">
@@ -40,6 +41,7 @@ export default {
     otp: { type: String, default: '' },
     busy: Boolean,
     error: { type: String, default: '' },
+    recoveryHint: { type: String, default: '' },
   },
   computed: {
     visibleProxy: {
@@ -79,5 +81,9 @@ export default {
 }
 .security-error {
   color: #d93025 !important;
+}
+.recovery-hint {
+  margin: 8px 0 0;
+  color: #8495a6;
 }
 </style>

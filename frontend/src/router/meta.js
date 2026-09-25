@@ -70,7 +70,7 @@ export default {
     permission: 'page.system.health',
   },
   '/system/session': {
-    title: '会话管理',
+    title: '账号安全',
     name: 'session-info',
     icon: 'user',
     authenticatedOnly: true,

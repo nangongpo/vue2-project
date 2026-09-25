@@ -105,7 +105,7 @@ export class AuthService {
       },
     })
     if (!user || user.status !== 'ACTIVE' || (user.expiresAt && user.expiresAt <= now) || (user.lockedUntil && user.lockedUntil > now)) {
-      throw new UnauthorizedException('用户名或密码错误')
+      throw new UnauthorizedException('账号或密码错误')
     }
 
     if (user.lockedUntil && user.lockedUntil <= now) {
@@ -142,7 +142,7 @@ export class AuthService {
       if (updated.failedLogins >= captchaFailureLimit) {
         throw new HttpException({ code: API_CODE.CAPTCHA_REQUIRED, message: '请先完成滑块验证' }, HttpStatus.FORBIDDEN)
       }
-      throw new UnauthorizedException('用户名或密码错误')
+        throw new UnauthorizedException('账号或密码错误')
     }
 
     const loginUser = await this.toUser(user)

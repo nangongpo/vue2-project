@@ -13,7 +13,11 @@
         当前操作需要额外身份验证，验证成功后将继续执行（{{ riskLevel }}）。
       </p>
       <el-form-item label="当前密码">
-        <el-input v-model="passwordProxy" type="password" autocomplete="current-password" />
+        <el-input
+          v-model="passwordProxy"
+          type="password"
+          autocomplete="current-password"
+          placeholder="请输入登录密码" />
       </el-form-item>
       <el-form-item v-if="mfaEnabled" label="动态验证码">
         <el-input
@@ -21,9 +25,9 @@
           inputmode="numeric"
           autocomplete="one-time-code"
           maxlength="6"
+          placeholder="请输入当前验证码"
           @keyup.enter.native="$emit('submit')" />
       </el-form-item>
-      <p class="muted">已使用的验证码不能重复提交，请输入认证器当前显示的验证码。</p>
       <p v-if="error" class="security-error">{{ error }}</p>
     </el-form>
     <span slot="footer">
@@ -85,6 +89,11 @@ export default {
   color: #7a8492;
 }
 .security-error {
-  color: #d93025;
+  font-size: 14px;
+  font-weight: 500;
+  color: #f56c6c;
+  height: 18px;
+  line-height: 18px;
+  text-align: center;
 }
 </style>

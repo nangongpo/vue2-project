@@ -17,7 +17,7 @@
 <script>
 import ReauthDialog from '@/components/Security/ReauthDialog.vue'
 import { axiosPost } from '@/api'
-import { setSecurityStepUpHandler } from '@/api/axios'
+import { setSecurityStepUpHandler } from '@/api/http'
 
 export default {
   name: 'App',

@@ -1,29 +1,14 @@
 import axios from 'axios'
-import {
-  getCustomHeader,
-  responseHandler,
-  errorHandler,
-} from './axios'
+import { setupErrorHandler } from './http/error-handler'
 
-const instance = axios.create({
+const request = axios.create({
   baseURL: import.meta.env.VITE_APP_BASE_API,
   withCredentials: false, // 跨域请求携带cookies
   timeout: 30 * 1000, // 30s请求超时
 })
 
-// 请求拦截器
-instance.interceptors.request.use(
-  (config) => {
-    config.headers = getCustomHeader(config.headers)
-    return config
-  },
-  (error) => {
-    return Promise.reject(error)
-  }
-)
-
 // 响应拦截器
-instance.interceptors.response.use(responseHandler, errorHandler)
+setupErrorHandler(request)
 
 /**
  * 分块导入
@@ -38,16 +23,13 @@ export function importFile(data = {}, opts = {}) {
   for (const key in data) {
     formData.append(key, data[key])
   }
-  return instance({
+  return request({
     url: '/upload_file_chunk/',
     method: 'post',
     data: formData,
-    headers: { 'Content-Type': 'multipart/form-data' },
     ...opts,
   })
 }
-
-const request = instance
 
 /**
  * 获取文件ID

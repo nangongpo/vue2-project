@@ -20,11 +20,15 @@ backend 默认监听 `0.0.0.0:3000`，接口前缀为 `/api/v1`。
 | 参数 | 示例/默认值 | 说明 |
 | --- | --- | --- |
 | `NODE_ENV` | `development` | `development`、`test` 或 `production`。 |
+| `ENABLE_HTTPS` | `false` | 是否强制外部请求使用 HTTPS；生产环境必须为 `true`。 |
+| `ENABLE_CSP` | `false` | 是否启用 Helmet CSP；生产环境必须为 `true`。 |
+| `TRUST_PROXY` | `false` | 是否信任反向代理；生产环境必须为 `true`，用于校验代理转发的 HTTPS 协议。 |
 | `PORT` | `3000` | backend HTTP 端口。 |
 | `DATABASE_URL` | `mysql://...` | MySQL 连接串，必填。 |
 | `REDIS_URL` | `redis://127.0.0.1:6379` | backend 缓存、会话、限流使用的 Redis。 |
 | `REDIS_ENABLED` | `true` | 是否启用 Redis；生产环境必须启用。 |
 | `SESSION_TTL_SECONDS` | `1800` | 会话绝对有效期，范围 300–86400 秒。 |
+| `SESSION_MAX_CONCURRENT` | `3` | 单个用户允许同时存在的最大会话数，范围 1–100；超出时撤销最早的会话。 |
 | `SESSION_IDLE_TTL_SECONDS` | `1800` | 会话空闲有效期，范围 300–86400 秒。 |
 | `PREAUTH_TTL_SECONDS` | `300` | MFA 完成前的 PRE_AUTH 临时会话有效期，范围 60–900 秒。 |
 | `API_RATE_LIMIT` | `120` | 单接口/IP 的请求次数。 |
@@ -39,16 +43,23 @@ backend 默认监听 `0.0.0.0:3000`，接口前缀为 `/api/v1`。
 | `CAPTCHA_EVENT_RATE_LIMIT` | `120` | 单 IP 事件上报次数上限。 |
 | `LOGIN_CAPTCHA_FAILURE_LIMIT` | `3` | 达到连续失败次数后要求验证码。 |
 | `IDEMPOTENCY_LOCK_SECONDS` | `15` | 幂等请求锁定时长。 |
+| `CAPTCHA_CHALLENGE_TTL` | `120` | backend 保存行为验证码挑战的有效期，单位为秒。 |
 | `CAPTCHA_SERVICE_URL` | `http://127.0.0.1:3100` | captcha-service 内网地址。 |
 | `CAPTCHA_SERVICE_ID` | `backend-admin` | 与 captcha-service 绑定的调用方 ID。 |
-| `CAPTCHA_SERVICE_SECRET` | 随机密钥 | HMAC-SHA1 密钥，必须与 captcha-service 完全一致。禁止提交到 Git。 |
+| `CAPTCHA_SERVICE_SECRET` | 随机密钥 | HMAC-SHA256 密钥，必须与 captcha-service 完全一致。禁止提交到 Git。 |
 | `CAPTCHA_SERVICE_TIMEOUT_MS` | `2000` | backend 调用 captcha-service 的超时时间。 |
 | `COOKIE_SECURE` | `false` | HTTPS 部署时设为 `true`。 |
 | `COOKIE_DOMAIN` | 空 | 会话 Cookie 的有效域名。仅当前后端需要跨子域共享 Cookie 时配置，例如 `.example.com`；同域部署时建议留空。 |
 | `CSRF_ALLOWED_ORIGINS` | `http://localhost:5173` | 允许发起 Cookie 认证请求的前端 Origin，多个值用逗号分隔；生产环境必填。与 `COOKIE_DOMAIN` 作用不同，不要互相替代。 |
+| `PUBLIC_HTTPS_ORIGIN` | 空 | 生产环境必填的公开 HTTPS Origin，例如 `https://admin.example.com`，不包含路径。 |
 | `LOG_LEVEL` | `info` | 日志级别。 |
-| `SEED_ADMIN_USERNAME` | `admin` | 数据库 seed 创建的初始管理员账号。 |
-| `SEED_ADMIN_PASSWORD` | 无默认生产密码 | 初始管理员密码，至少 12 位；生产环境必须修改。 |
+| `MFA_ENCRYPTION_KEY` | 空 | MFA 密钥加密用的 AES-256-GCM 密钥，必须是 32 字节随机值的 Base64；生产环境必须配置并持久化。 |
+| `OPS_EXECUTION_SIGNING_SECRET` | 空 | 受控应急执行代理的 HMAC-SHA256 签名密钥，至少 32 个字符；仅在启用应急执行回写时配置。可使用 `openssl rand -hex 32` 生成 64 位密钥，且不得提交到 Git。 |
+| `SEED_SECURITY_USERNAME` / `SEED_SECURITY_PASSWORD` | `security-admin` / 无默认生产密码 | 数据库 seed 创建的初始安全管理员账号及密码，至少 12 位。 |
+| `SEED_SYSTEM_USERNAME` / `SEED_SYSTEM_PASSWORD` | 必填 | 数据库 seed 创建的初始系统管理员账号及密码，至少 12 位。 |
+| `SEED_AUDIT_USERNAME` / `SEED_AUDIT_PASSWORD` | 必填 | 数据库 seed 创建的初始审计管理员账号及密码，至少 12 位。 |
+| `SWAGGER_ENABLED` | `true` | 是否启用 backend Swagger 文档；设为 `false` 时 `/docs` 和 `/docs-json` 返回 404。 |
+| `SWAGGER_ADMIN_USERNAME` / `SWAGGER_ADMIN_PASSWORD` | `swagger-admin` / 无默认生产密码 | Swagger 文档 Basic Auth 凭据；生产环境密码至少 12 位且不得使用默认值。 |
 
 ## 与 captcha-service 的对应关系
 
@@ -96,3 +107,18 @@ COOKIE_SECURE=true
 - 生产环境必须设置 `COOKIE_SECURE=true`、`CSRF_ALLOWED_ORIGINS`，并通过 HTTPS 对外提供服务。
 - backend 可以监听公网或网关网络，但 captcha-service 和 Redis 不应暴露公网。
 - 修改验证码凭证后必须同时重启 backend 和 captcha-service。
+
+## Swagger 文档
+
+backend Swagger 地址为 `/docs`，JSON 文档地址为 `/docs-json`。文档路由使用独立的 Basic Auth 保护：
+
+```env
+SWAGGER_ENABLED=true
+SWAGGER_ADMIN_USERNAME=swagger-admin
+SWAGGER_ADMIN_PASSWORD=至少 12 位的密码
+```
+
+- `SWAGGER_ENABLED=false` 时，`/docs` 和 `/docs-json` 返回 404。
+- `SWAGGER_ADMIN_USERNAME` 和 `SWAGGER_ADMIN_PASSWORD` 只用于访问 Swagger 文档，不是业务登录账号。
+- 生产环境必须配置非默认的至少 12 位密码。
+- Swagger 中的接口调用仍使用 backend 原有的 Cookie 会话和 CSRF 认证，不会使用 Swagger 管理员密码作为业务凭据。

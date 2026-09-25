@@ -37,16 +37,11 @@ const pages = [
 ] as const
 
 // Bootstrap is deliberately explicit, does not reset existing passwords and never grants '*'.
-// Configure distinct people for the two security accounts and the auditor.
+// Every high-risk role must have an initial account.
 const accounts = [
   {
-    username: process.env.SEED_ADMIN_USERNAME,
-    password: process.env.SEED_ADMIN_PASSWORD,
-    type: 'SECURITY' as RoleType,
-  },
-  {
-    username: process.env.SEED_SECURITY_REVIEWER_USERNAME,
-    password: process.env.SEED_SECURITY_REVIEWER_PASSWORD,
+    username: process.env.SEED_SECURITY_USERNAME,
+    password: process.env.SEED_SECURITY_PASSWORD,
     type: 'SECURITY' as RoleType,
   },
   {
@@ -60,12 +55,13 @@ const accounts = [
     type: 'SYSTEM' as RoleType,
   },
 ].filter((account) => account.username || account.password)
+const requiredRoleTypes: RoleType[] = ['SECURITY', 'SYSTEM', 'AUDIT']
 if (
-  !accounts.length ||
+  requiredRoleTypes.some((type) => !accounts.some((account) => account.type === type)) ||
   accounts.some((account) => !account.username || !account.password || account.password.length < 12) ||
   new Set(accounts.map((a) => a.username)).size !== accounts.length
 ) {
-  throw new Error('请配置独立管理员账户和不少于 12 位的口令，禁止复用用户名')
+  throw new Error('请为 SECURITY、SYSTEM、AUDIT 分别配置独立账号和不少于 12 位的口令，禁止复用账号')
 }
 
 try {

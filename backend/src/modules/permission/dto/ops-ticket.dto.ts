@@ -10,15 +10,25 @@ const evidenceTypes = ['APPROVAL_SCREENSHOT', 'EMAIL', 'CHAT', 'SQL_REVIEW', 'OT
 export type OpsTicketTypeValue = (typeof ticketTypes)[number]
 
 export class CreateOpsTicketDto {
+  /** 运维工单类型。 */
   @IsIn(ticketTypes) type!: OpsTicketTypeValue
+  /** 风险等级。 */
   @IsIn(risks) riskLevel!: (typeof risks)[number]
+  /** 工单标题。 */
   @IsString() @MinLength(1) @MaxLength(160) title!: string
+  /** 工单申请原因。 */
   @IsString() @MinLength(1) @MaxLength(1000) reason!: string
+  /** 目标资源类型。 */
   @IsIn(targets) targetType!: (typeof targets)[number]
+  /** 目标资源 ID。 */
   @IsOptional() @IsString() @MaxLength(128) targetId?: string
+  /** 线下依据。 */
   @IsString() @MinLength(1) @MaxLength(1000) offlineBasis!: string
+  /** 身份核验记录。 */
   @IsString() @MinLength(1) @MaxLength(500) identityVerification!: string
+  /** 线下审批人。 */
   @IsString() @MinLength(1) @MaxLength(128) offlineApprover!: string
+  /** 线下复核人。 */
   @IsString() @MinLength(1) @MaxLength(128) offlineReviewer!: string
   @IsOptional() @IsString() @MaxLength(128) externalRef?: string
 }

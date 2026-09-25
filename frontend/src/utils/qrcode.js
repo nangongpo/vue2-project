@@ -1505,18 +1505,30 @@ async function renderPngBlob(matrix, { size = 1024, background = 'transparent', 
 
 export default QrCode
 
-// Keep the application's existing QR helper API while delegating encoding and
-// rendering to the standards-based implementation above.
-export function qrSvgDataUrl(text, options = {}) {
+// Render a crisp PNG data URL for broad authenticator and camera compatibility.
+export function qrPngDataUrl(text, options = {}) {
     const matrix = QrCode.generate(text, {
-        errorCorrectionLevel: QrCode.ErrorCorrectionLevel.L,
+        errorCorrectionLevel: QrCode.ErrorCorrectionLevel.M,
         optimizeEcc: false,
         quiet: options.margin ?? 4,
     })
-    return QrCode.render('svg-uri', matrix, {
-        color: '#111',
-        white: '#fff',
-        moduleSize: 1,
-        scale: options.scale ?? 6,
-    })
+    const scale = Math.max(1, Math.floor(options.scale ?? 6))
+    const size = (matrix.dimension + matrix.quiet * 2) * scale
+    const canvas = document.createElement('canvas')
+    canvas.width = size
+    canvas.height = size
+    const context = canvas.getContext('2d')
+    if (!context) throw new Error('二维码画布不可用')
+    context.imageSmoothingEnabled = false
+    context.fillStyle = '#fff'
+    context.fillRect(0, 0, size, size)
+    context.fillStyle = '#111'
+    for (let y = -matrix.quiet; y < matrix.dimension + matrix.quiet; y += 1) {
+        for (let x = -matrix.quiet; x < matrix.dimension + matrix.quiet; x += 1) {
+            if (matrix.getModule(x, y)) {
+                context.fillRect((x + matrix.quiet) * scale, (y + matrix.quiet) * scale, scale, scale)
+            }
+        }
+    }
+    return canvas.toDataURL('image/png')
 }

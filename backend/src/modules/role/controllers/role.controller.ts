@@ -19,25 +19,33 @@ import { actorFrom } from '../domain/authorization.js'
 import type { ActorRequest } from '../domain/authorization.js'
 
 export class CreateRoleDto {
+  /** 角色编码。 */
   @IsString() @MinLength(2) @MaxLength(64) code!: string
+  /** 角色名称。 */
   @IsString() @MinLength(1) @MaxLength(128) name!: string
+  /** 角色描述。 */
   @IsOptional() @IsString() @MaxLength(255) description?: string
 }
 
 export class UpdateRoleDto extends CreateRoleDto {}
 
 export class GrantPermissionsDto {
+  /** 要授予角色的权限 UUID 列表。 */
   @IsArray()
   @ArrayMaxSize(500)
   @ArrayUnique()
   @IsUUID('all', { each: true })
   permissionIds!: string[]
+  /** 权限变更原因，用于审计。 */
   @IsString() @Matches(/\S/) @MaxLength(255) reason!: string
+  /** 权限授权失效时间。 */
   @IsOptional() @IsDateString() expiresAt?: string
 }
 
 export class RoleStatusDto {
+  /** 角色状态。 */
   @IsIn(['ACTIVE', 'DISABLED']) status!: 'ACTIVE' | 'DISABLED'
+  /** 状态变更原因。 */
   @IsString() @Matches(/\S/) @MaxLength(255) reason!: string
 }
 

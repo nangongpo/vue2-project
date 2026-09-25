@@ -91,7 +91,7 @@ export class UserService {
       }, serializable)
       return { code: API_CODE.SUCCESS, message: 'success', data: user }
     } catch (error) {
-      if ((error as { code?: string }).code === 'P2002') throw new ConflictException('用户名已存在')
+      if ((error as { code?: string }).code === 'P2002') throw new ConflictException('账号已存在')
       throw error
     }
   }

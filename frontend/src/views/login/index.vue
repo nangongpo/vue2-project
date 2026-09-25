@@ -1,5 +1,4 @@
 <template>
-  <!-- 首页不使用UI库 -->
   <div class="tech-bg">
     <div class="login-container">
       <section class="login-intro">
@@ -7,17 +6,17 @@
         <p class="intro-copy">后台管理系统</p>
         <div class="management-points">
           <div class="management-point">
-            <span class="point-icon">✓</span><span>用户与组织管理</span>
+            <span class="point-icon">✓</span><span>用户与角色管理</span>
           </div>
           <div class="management-point">
-            <span class="point-icon">✓</span><span>角色与权限配置</span>
+            <span class="point-icon">✓</span><span>权限与资源管理</span>
           </div>
           <div class="management-point">
-            <span class="point-icon">✓</span><span>系统运行信息查看</span>
+            <span class="point-icon">✓</span><span>审批与运维工单</span>
           </div>
-        </div>
-        <div :class="['intro-status', 'is-' + systemStatus.state]">
-          <span class="status-dot"></span>{{ systemStatus.text }}
+          <div class="management-point">
+            <span class="point-icon">✓</span><span>审计日志与系统监控</span>
+          </div>
         </div>
       </section>
 
@@ -28,18 +27,18 @@
           </div>
         </div>
         <div class="input-group">
-          <label for="username">员工账号</label>
+          <label for="username">账号</label>
           <input
             v-model="loginModel.username"
             id="username"
             autocomplete="username"
-            placeholder="请输入用户名/邮箱"
+            placeholder="请输入账号"
             @input="handleUsernameInput"
             @blur="prepareCaptcha" />
         </div>
 
         <div class="input-group password-group">
-          <label for="password">登录密码</label>
+          <label for="password">密码</label>
           <input
             v-model="loginModel.password"
             id="password"
@@ -54,9 +53,9 @@
           <button
             :class="[
               'login-btn',
-              { 'is-loading': loading, 'is-disabled': loading || captchaCooldownSeconds > 0 },
+              { 'is-loading': loginBusy, 'is-disabled': loginBusy || captchaCooldownSeconds > 0 },
             ]"
-            :disabled="loading || captchaCooldownSeconds > 0"
+            :disabled="loginBusy || captchaCooldownSeconds > 0"
             type="primary"
             style="width: 100%"
             @click="handleLogin">
@@ -92,6 +91,7 @@
       :otp.sync="loginModel.otp"
       :busy="loading"
       :error="loginError"
+      recovery-hint="认证器不可用？请联系管理员重置。"
       @clear-error="clearLoginError"
       @cancel="cancelOtpLogin"
       @submit="submitOtpLogin" />
@@ -128,14 +128,13 @@
 </template>
 
 <script>
-import { createSliderCaptcha } from '@/utils/sliderCaptcha'
-import { REQUEST_CODE } from '@/api/codes'
+import { createTianaiCaptcha } from '@/utils/tianaiCaptcha'
+import { REQUEST_CODE } from '@/api/http/codes'
 import { createCaptchaChallenge, verifyCaptcha } from '@/api/user'
 import { axiosPost } from '@/api/index'
-import { getSystemHealth } from '@/api/system'
 import MfaEnrollmentFlow from '@/components/Security/MfaEnrollmentFlow.vue'
 import OtpVerificationDialog from '@/components/Security/OtpVerificationDialog.vue'
-import { qrSvgDataUrl } from '@/utils/qrcode'
+import { qrPngDataUrl } from '@/utils/qrcode'
 
 export default {
   name: 'login',
@@ -144,6 +143,7 @@ export default {
     return {
       title: 'vue2-project',
       loading: false,
+      redirecting: false,
       securityPending: false,
       mfaEnrollment: null,
       mfaEnrollmentStep: 1,
@@ -158,10 +158,6 @@ export default {
       captchaInitStartedAt: 0,
       captchaCooldownSeconds: 0,
       captchaCooldownTimer: null,
-      systemStatus: {
-        state: 'checking',
-        text: '系统状态检查中',
-      },
       captchaVerified: false,
       captchaResult: null,
       captchaChallenge: null,
@@ -176,10 +172,13 @@ export default {
     }
   },
   computed: {
+    loginBusy() {
+      return this.loading || this.redirecting
+    },
     mfaQrCodeUrl() {
       if (!this.mfaEnrollment?.uri) return ''
       try {
-        return qrSvgDataUrl(this.mfaEnrollment.uri, { title: 'TOTP 绑定二维码' })
+        return qrPngDataUrl(this.mfaEnrollment.uri)
       } catch {
         return ''
       }
@@ -187,8 +186,16 @@ export default {
   },
   methods: {
     async finishLogin() {
+      this.redirecting = true
+      this.loadingText = '正在跳转...'
       this.securityPending = false
-      await this.$router.replace({ name: 'dashboard' })
+      try {
+        await this.$router.replace({ name: 'dashboard' })
+      } catch (error) {
+        this.redirecting = false
+        this.loadingText = ''
+        throw error
+      }
     },
     async cancelSecurity() {
       await this.$store.dispatch('user/logout')
@@ -289,7 +296,7 @@ export default {
     initSliderCaptcha() {
       if (!this.$refs.captchaContainer) return
       if (this.sliderCaptcha) this.sliderCaptcha.destroy()
-      this.sliderCaptcha = createSliderCaptcha(this.$refs.captchaContainer, {
+      this.sliderCaptcha = createTianaiCaptcha(this.$refs.captchaContainer, {
         resetDelay: 260,
         verify: (result) => {
           if (!this.captchaChallenge) {
@@ -332,6 +339,7 @@ export default {
     async handleLogin() {
       if (
         this.loading ||
+        this.redirecting ||
         this.captchaDialogVisible ||
         this.otpDialogVisible ||
         this.captchaCooldownSeconds > 0
@@ -339,7 +347,7 @@ export default {
         return
       this.loginError = ''
       if (!this.loginModel.username.trim() || !this.loginModel.password) {
-        this.loginError = '请输入员工账号和登录密码'
+        this.loginError = '请输入账号和密码'
         return
       }
       this.captchaDialogVisible = true
@@ -398,8 +406,8 @@ export default {
           this.sliderCaptcha = null
         }
       } finally {
-        this.loadingText = ''
         this.loading = false
+        if (!this.redirecting) this.loadingText = ''
       }
     },
     handleCaptchaDialogClose() {
@@ -482,21 +490,6 @@ export default {
         this.captchaResult = null
       }
     },
-    async checkSystemHealth() {
-      try {
-        const result = await getSystemHealth()
-        if (result && result.status === 'ok') {
-          this.systemStatus = { state: 'ok', text: '系统服务正常' }
-        } else {
-          this.systemStatus = { state: 'error', text: '系统服务异常' }
-        }
-      } catch {
-        this.systemStatus = { state: 'error', text: '系统服务不可用' }
-      }
-    },
-  },
-  mounted() {
-    this.checkSystemHealth()
   },
   beforeDestroy() {
     if (this.sliderCaptcha) this.sliderCaptcha.destroy()
@@ -622,42 +615,6 @@ export default {
   font-weight: bold;
   line-height: 19px;
   text-align: center;
-}
-
-.intro-status {
-  position: relative;
-  z-index: 1;
-  margin-top: 34px;
-  color: #7fabb9;
-  font-size: 12px;
-}
-
-.status-dot {
-  display: inline-block;
-  width: 7px;
-  height: 7px;
-  margin-right: 7px;
-  background: #55d68b;
-  border-radius: 50%;
-  box-shadow: 0 0 9px rgba(85, 214, 139, 0.8);
-}
-
-.intro-status.is-checking {
-  color: #9aa8b5;
-}
-
-.intro-status.is-checking .status-dot {
-  background: #e6a23c;
-  box-shadow: 0 0 9px rgba(230, 162, 60, 0.65);
-}
-
-.intro-status.is-error {
-  color: #f39a9a;
-}
-
-.intro-status.is-error .status-dot {
-  background: #f56c6c;
-  box-shadow: 0 0 9px rgba(245, 108, 108, 0.7);
 }
 
 .login-form-panel {
@@ -837,10 +794,6 @@ export default {
 
   .management-points {
     display: none;
-  }
-
-  .intro-status {
-    margin-top: 22px;
   }
 
   .login-form-panel {

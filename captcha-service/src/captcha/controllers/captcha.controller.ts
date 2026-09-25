@@ -2,6 +2,8 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
+  HttpStatus,
   Inject,
   Post,
   Req,
@@ -14,8 +16,50 @@ import { CaptchaEngine, CaptchaError, CaptchaPoint } from '../services/captcha.e
 import { findBinding, loadBindings } from '../config/config.js'
 import { requiredVersion, signRequest, signaturesMatch } from '../protocol/protocol.js'
 import { RedisService } from '../services/redis.service.js'
+import { ApiBody, ApiResponse, ApiSecurity, ApiTags } from '@nestjs/swagger'
+
+const protocolResponseSchema = {
+  type: 'object',
+  properties: {
+    ApiVersion: { type: 'string', example: '1', description: 'API 版本。' },
+    ProtocolVersion: { type: 'string', example: '1.0', description: '内部协议版本。' },
+    RequestId: { type: 'string', format: 'uuid', description: '请求唯一 ID。' },
+    Code: { type: 'string', example: 'SUCCESS', description: '业务结果码。' },
+    Message: { type: 'string', example: 'success', description: '结果说明。' },
+    Retryable: { type: 'boolean', example: false, description: '失败时是否建议调用方重试。' },
+  },
+  required: ['ApiVersion', 'ProtocolVersion', 'RequestId'],
+}
+
+const authProperties = {
+  ApiVersion: { type: 'string', example: '1', description: 'API 版本。' },
+  ProtocolVersion: { type: 'string', example: '1.0', description: '内部协议版本。' },
+  ServiceId: { type: 'string', example: 'backend-admin', description: '调用方服务 ID。' },
+  Timestamp: {
+    type: 'integer',
+    format: 'int64',
+    example: 1770000000,
+    description: 'Unix 时间戳，允许与服务端有少量时钟偏差。',
+  },
+  SignatureMethod: {
+    type: 'string',
+    example: 'HMAC-SHA256',
+    description: '签名算法，固定为 HMAC-SHA256。',
+  },
+  SignatureVersion: { type: 'string', example: '1.0', description: '签名协议版本。' },
+  SignatureNonce: {
+    type: 'string',
+    maxLength: 128,
+    description: '一次性随机数，用于防止请求重放。',
+  },
+  Signature: { type: 'string', description: '按内部协议计算的 HMAC-SHA256 签名。' },
+  SceneId: { type: 'string', example: 'login', description: '业务场景，目前固定为 login。' },
+  AttemptId: { type: 'string', example: 'attempt_123', description: '本次验证码尝试 ID。' },
+}
 
 @Controller()
+@ApiTags('验证码内部协议')
+@ApiSecurity('service-auth')
 export class CaptchaController {
   constructor(
     @Inject(CaptchaEngine) private readonly engine: CaptchaEngine,
@@ -32,6 +76,51 @@ export class CaptchaController {
   }
 
   @Post('internal/v1/challenges')
+  @HttpCode(HttpStatus.OK)
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        ...authProperties,
+        Action: {
+          type: 'string',
+          enum: ['CreateChallenge'],
+          example: 'CreateChallenge',
+          description: '协议动作，必须与接口路径匹配。',
+        },
+        CaptchaType: {
+          type: 'string',
+          enum: ['SLIDER'],
+          default: 'SLIDER',
+          description: '验证码类型。',
+        },
+        Mode: {
+          type: 'string',
+          enum: ['EMBED', 'POPUP'],
+          default: 'EMBED',
+          description: '验证码展示模式。',
+        },
+        Subject: { type: 'string', maxLength: 64, description: '业务主体标识，例如用户名。' },
+        ClientIp: { type: 'string', description: '调用方采集的客户端 IP。' },
+        UserAgent: { type: 'string', description: '客户端 User-Agent。' },
+        DeviceId: { type: 'string', description: '客户端设备标识。' },
+      },
+      required: [
+        'ApiVersion',
+        'ProtocolVersion',
+        'ServiceId',
+        'Timestamp',
+        'SignatureMethod',
+        'SignatureVersion',
+        'SignatureNonce',
+        'Signature',
+        'Action',
+        'SceneId',
+        'AttemptId',
+      ],
+    },
+  })
+  @ApiResponse({ status: 200, schema: protocolResponseSchema })
   create(
     @Body() body: Record<string, unknown>,
     @Req() req: FastifyRequest,
@@ -59,6 +148,64 @@ export class CaptchaController {
   }
 
   @Post('internal/v1/verify')
+  @HttpCode(HttpStatus.OK)
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        ...authProperties,
+        Action: {
+          type: 'string',
+          enum: ['VerifyChallenge'],
+          example: 'VerifyChallenge',
+          description: '协议动作，必须与接口路径匹配。',
+        },
+        ChallengeId: { type: 'string', description: '待校验的验证码挑战 ID。' },
+        Subject: {
+          type: 'string',
+          maxLength: 64,
+          description: '业务主体标识，必须与创建挑战时一致。',
+        },
+        ClientIp: { type: 'string', description: '调用方采集的客户端 IP。' },
+        UserAgent: { type: 'string', description: '客户端 User-Agent。' },
+        DeviceId: { type: 'string', description: '客户端设备标识。' },
+        Points: {
+          type: 'array',
+          minItems: 8,
+          maxItems: 300,
+          items: {
+            type: 'object',
+            properties: {
+              x: { type: 'number', description: '轨迹点横坐标。' },
+              y: { type: 'number', description: '轨迹点纵坐标。' },
+              t: { type: 'number', description: '轨迹点时间戳或相对时间。' },
+            },
+            required: ['x', 'y', 't'],
+          },
+        },
+        FinalX: { type: 'number', description: '滑块最终横坐标。' },
+        TrackWidth: { type: 'number', description: '客户端轨迹区域宽度。' },
+      },
+      required: [
+        'ApiVersion',
+        'ProtocolVersion',
+        'ServiceId',
+        'Timestamp',
+        'SignatureMethod',
+        'SignatureVersion',
+        'SignatureNonce',
+        'Signature',
+        'Action',
+        'SceneId',
+        'AttemptId',
+        'ChallengeId',
+        'Points',
+        'FinalX',
+        'TrackWidth',
+      ],
+    },
+  })
+  @ApiResponse({ status: 200, schema: protocolResponseSchema })
   verify(
     @Body() body: Record<string, unknown>,
     @Req() req: FastifyRequest,
@@ -88,6 +235,44 @@ export class CaptchaController {
   }
 
   @Post('internal/v1/tokens/consume')
+  @HttpCode(HttpStatus.OK)
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        ...authProperties,
+        Action: {
+          type: 'string',
+          enum: ['ConsumeToken'],
+          example: 'ConsumeToken',
+          description: '协议动作，必须与接口路径匹配。',
+        },
+        CaptchaToken: {
+          type: 'string',
+          maxLength: 256,
+          description: '验证成功后签发的一次性令牌。',
+        },
+        Subject: { type: 'string', maxLength: 64, description: '业务主体标识。' },
+        ClientIp: { type: 'string', description: '调用方采集的客户端 IP。' },
+        DeviceId: { type: 'string', description: '客户端设备标识。' },
+      },
+      required: [
+        'ApiVersion',
+        'ProtocolVersion',
+        'ServiceId',
+        'Timestamp',
+        'SignatureMethod',
+        'SignatureVersion',
+        'SignatureNonce',
+        'Signature',
+        'Action',
+        'SceneId',
+        'AttemptId',
+        'CaptchaToken',
+      ],
+    },
+  })
+  @ApiResponse({ status: 200, schema: protocolResponseSchema })
   consume(
     @Body() body: Record<string, unknown>,
     @Req() req: FastifyRequest,

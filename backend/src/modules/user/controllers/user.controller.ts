@@ -32,29 +32,38 @@ import { actorFrom } from '../../role/domain/authorization.js'
 import type { ActorRequest } from '../../role/domain/authorization.js'
 
 export class CreateUserDto {
+  /** 登录账号。 */
   @IsString() @MinLength(2) @MaxLength(64) username!: string
+  /** 初始密码。 */
   @IsString() @MinLength(12) @MaxLength(128) password!: string
+  /** 用户显示名称。 */
   @IsString() @MinLength(1) @MaxLength(128) displayName!: string
 }
 
 export class UpdateUserDto {
+  /** 用户显示名称。 */
   @IsOptional() @IsString() @MinLength(1) @MaxLength(128) displayName?: string
 }
 
 export class ReasonDto {
+  /** 本次变更原因，用于审计。 */
   @IsString() @Matches(/\S/) @MaxLength(255) reason!: string
 }
 
 export class AssignRolesDto extends ReasonDto {
+  /** 要授予用户的角色 UUID 列表。 */
   @IsArray() @ArrayMaxSize(500) @ArrayUnique() @IsUUID('all', { each: true }) roleIds!: string[]
+  /** 角色授权失效时间。 */
   @IsOptional() @IsDateString() expiresAt?: string
 }
 
 export class UserStatusDto extends ReasonDto {
+  /** 用户状态。 */
   @IsIn(['ACTIVE', 'DISABLED']) status!: 'ACTIVE' | 'DISABLED'
 }
 
 class ResetPasswordDto {
+  /** 重置后的密码。 */
   @IsString() @MinLength(12) @MaxLength(128) password!: string
 }
 

@@ -332,3 +332,10 @@
     font-weight: 400;
   }
 }
+
+// Notification messages from the HTTP layer may contain newline characters.
+.notification-with-linebreaks {
+  .el-notification__content {
+    white-space: pre-line;
+  }
+}
