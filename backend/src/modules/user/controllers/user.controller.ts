@@ -27,6 +27,7 @@ import {
 } from 'class-validator'
 import { AuthGuard } from '../../../security/guards/auth.guard.js'
 import { RequirePermissions } from '../../../security/decorators/permission.decorator.js'
+import { DataFieldSecurity } from '../../../common/decorators/data-field-security.decorator.js'
 import { UserService } from '../services/user.service.js'
 import { actorFrom } from '../../role/domain/authorization.js'
 import type { ActorRequest } from '../../role/domain/authorization.js'
@@ -74,6 +75,7 @@ export class UserController {
 
   @Get()
   @RequirePermissions('system.user.read')
+  @DataFieldSecurity('system.user')
   page(
     @Query('keyword') keyword = '',
     @Query('status') status?: 'ACTIVE' | 'LOCKED' | 'DISABLED',
@@ -82,7 +84,13 @@ export class UserController {
   ) {
     const page = Number(rawPage)
     const pageSize = Number(rawPageSize)
-    if (!Number.isInteger(page) || page < 1 || !Number.isInteger(pageSize) || pageSize < 1 || pageSize > 100) {
+    if (
+      !Number.isInteger(page) ||
+      page < 1 ||
+      !Number.isInteger(pageSize) ||
+      pageSize < 1 ||
+      pageSize > 100
+    ) {
       throw new BadRequestException('分页参数必须是有效整数，pageSize 最大为 100')
     }
     if (status && !['ACTIVE', 'LOCKED', 'DISABLED'].includes(status)) {
@@ -96,37 +104,59 @@ export class UserController {
 
   @Post()
   @RequirePermissions('system.user.create')
+  @DataFieldSecurity('system.user')
   create(@Body() body: CreateUserDto, @Req() request: ActorRequest) {
     return this.users.create(body, actorFrom(request))
   }
 
   @Patch(':id')
   @RequirePermissions('system.user.update')
-  update(@Param('id', ParseUUIDPipe) id: string, @Body() body: UpdateUserDto, @Req() request: ActorRequest) {
+  @DataFieldSecurity('system.user')
+  update(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: UpdateUserDto,
+    @Req() request: ActorRequest
+  ) {
     return this.users.update(id, body, actorFrom(request))
   }
 
   @Patch(':id/roles')
   @RequirePermissions('system.user.grant', 'system.role.revoke')
-  roles(@Param('id', ParseUUIDPipe) id: string, @Body() body: AssignRolesDto, @Req() request: ActorRequest) {
+  roles(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: AssignRolesDto,
+    @Req() request: ActorRequest
+  ) {
     return this.users.roles(id, body, actorFrom(request))
   }
 
   @Patch(':id/status')
   @RequirePermissions('system.user.disable')
-  status(@Param('id', ParseUUIDPipe) id: string, @Body() body: UserStatusDto, @Req() request: ActorRequest) {
+  status(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: UserStatusDto,
+    @Req() request: ActorRequest
+  ) {
     return this.users.status(id, body, actorFrom(request))
   }
 
   @Post(':id/unlock')
   @RequirePermissions('system.user.unlock')
-  unlock(@Param('id', ParseUUIDPipe) id: string, @Body() body: ReasonDto, @Req() request: ActorRequest) {
+  unlock(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: ReasonDto,
+    @Req() request: ActorRequest
+  ) {
     return this.users.unlock(id, body.reason, actorFrom(request))
   }
 
   @Post(':id/reset-password')
   @RequirePermissions('system.user.reset-password')
-  resetPassword(@Param('id', ParseUUIDPipe) id: string, @Body() body: ResetPasswordDto, @Req() request: ActorRequest) {
+  resetPassword(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: ResetPasswordDto,
+    @Req() request: ActorRequest
+  ) {
     return this.users.resetPassword(id, body.password, actorFrom(request))
   }
 }

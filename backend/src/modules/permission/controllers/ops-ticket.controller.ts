@@ -1,6 +1,19 @@
-import { Body, Controller, Get, Inject, Param, ParseUUIDPipe, Patch, Post, Query, Req, UseGuards } from '@nestjs/common'
+import {
+  Body,
+  Controller,
+  Get,
+  Inject,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common'
 import { AuthGuard } from '../../../security/guards/auth.guard.js'
 import { RequirePermissions } from '../../../security/decorators/permission.decorator.js'
+import { DataFieldSecurity } from '../../../common/decorators/data-field-security.decorator.js'
 import { actorFrom, type ActorRequest } from '../../role/domain/authorization.js'
 import {
   CreateOpsTicketDto,
@@ -24,17 +37,23 @@ export class OpsTicketController {
   }
   @Get()
   @RequirePermissions('system.ops-ticket.read')
+  @DataFieldSecurity('system.ops-ticket')
   list(@Query() query: OpsTicketQueryDto) {
     return this.service.list(query)
   }
   @Get(':id')
   @RequirePermissions('system.ops-ticket.detail')
+  @DataFieldSecurity('system.ops-ticket')
   detail(@Param('id', ParseUUIDPipe) id: string) {
     return this.service.detail(id)
   }
   @Patch(':id')
   @RequirePermissions('system.ops-ticket.update')
-  patch(@Param('id', ParseUUIDPipe) id: string, @Body() body: PatchOpsTicketDto, @Req() request: ActorRequest) {
+  patch(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: PatchOpsTicketDto,
+    @Req() request: ActorRequest
+  ) {
     return this.service.patch(id, body, actorFrom(request))
   }
   @Post(':id/submit')
@@ -44,32 +63,56 @@ export class OpsTicketController {
   }
   @Post(':id/approve')
   @RequirePermissions('system.ops-ticket.approve')
-  approve(@Param('id', ParseUUIDPipe) id: string, @Body() body: OpsNoteDto, @Req() request: ActorRequest) {
+  approve(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: OpsNoteDto,
+    @Req() request: ActorRequest
+  ) {
     return this.service.approve(id, body, actorFrom(request))
   }
   @Post(':id/execute')
   @RequirePermissions('system.ops-ticket.execute')
-  execute(@Param('id', ParseUUIDPipe) id: string, @Body() body: OpsNoteDto, @Req() request: ActorRequest) {
+  execute(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: OpsNoteDto,
+    @Req() request: ActorRequest
+  ) {
     return this.service.execute(id, body, actorFrom(request))
   }
   @Post(':id/review')
   @RequirePermissions('system.ops-ticket.review')
-  review(@Param('id', ParseUUIDPipe) id: string, @Body() body: OpsNoteDto, @Req() request: ActorRequest) {
+  review(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: OpsNoteDto,
+    @Req() request: ActorRequest
+  ) {
     return this.service.review(id, body, actorFrom(request))
   }
   @Post(':id/cancel')
   @RequirePermissions('system.ops-ticket.cancel')
-  cancel(@Param('id', ParseUUIDPipe) id: string, @Body() body: OpsNoteDto, @Req() request: ActorRequest) {
+  cancel(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: OpsNoteDto,
+    @Req() request: ActorRequest
+  ) {
     return this.service.cancel(id, body, actorFrom(request))
   }
   @Post(':id/evidence')
   @RequirePermissions('system.ops-ticket.evidence')
-  evidence(@Param('id', ParseUUIDPipe) id: string, @Body() body: OpsEvidenceDto, @Req() request: ActorRequest) {
+  evidence(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: OpsEvidenceDto,
+    @Req() request: ActorRequest
+  ) {
     return this.service.addEvidence(id, body, actorFrom(request))
   }
   @Post(':id/executions')
   @RequirePermissions('system.ops-ticket.executions')
-  executions(@Param('id', ParseUUIDPipe) id: string, @Body() body: OpsExecutionDto, @Req() request: ActorRequest) {
+  executions(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: OpsExecutionDto,
+    @Req() request: ActorRequest
+  ) {
     return this.service.addExecution(id, body, actorFrom(request))
   }
 }

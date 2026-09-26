@@ -4,6 +4,14 @@ export const requiredText = (label) => [
   { required: true, whitespace: true, message: `请输入${label}`, trigger: 'blur' },
 ]
 
+export function searchableText(...values) {
+  return values
+    .filter((value) => value !== null && value !== undefined)
+    .join(' ')
+    .trim()
+    .toLocaleLowerCase()
+}
+
 export function activeApis(apis) {
   return apis.filter((api) => api.status === 'ACTIVE' && HTTP_METHODS.includes(api.method))
 }
@@ -17,7 +25,7 @@ export function pageApis(apis) {
 }
 
 export function boundApis(resource) {
-  return (resource?.apis || []).map((item) => item.api || item)
+  return (resource?.apis || []).map((item) => item?.api || item).filter(Boolean)
 }
 
 export function selectableIds(ids, options) {
@@ -53,7 +61,7 @@ export function pageTree(pages, keyword = '') {
     if (parent || !nodes.has(node.parentId)) roots.push(node)
     else nodes.get(node.parentId).children.push(node)
   })
-  const search = keyword.trim().toLowerCase()
+  const search = searchableText(keyword)
   const filter = (items) =>
     items
       .sort((a, b) => (a.sort || 0) - (b.sort || 0) || a.name.localeCompare(b.name))
@@ -62,7 +70,7 @@ export function pageTree(pages, keyword = '') {
         (item) =>
           !search ||
           item.children.length ||
-          `${item.name} ${item.code} ${item.route}`.toLowerCase().includes(search)
+          searchableText(item.name, item.code, item.route, item.permission?.name).includes(search)
       )
   return filter(roots)
 }

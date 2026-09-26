@@ -1,4 +1,16 @@
-import { Body, Controller, Delete, Get, Inject, Param, ParseUUIDPipe, Patch, Post, Req, UseGuards } from '@nestjs/common'
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Inject,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Req,
+  UseGuards,
+} from '@nestjs/common'
 import {
   ArrayMaxSize,
   ArrayUnique,
@@ -14,6 +26,7 @@ import {
 } from 'class-validator'
 import { AuthGuard } from '../../../security/guards/auth.guard.js'
 import { RequirePermissions } from '../../../security/decorators/permission.decorator.js'
+import { DataFieldSecurity } from '../../../common/decorators/data-field-security.decorator.js'
 import { RoleService } from '../services/role.service.js'
 import { actorFrom } from '../domain/authorization.js'
 import type { ActorRequest } from '../domain/authorization.js'
@@ -56,6 +69,7 @@ export class RoleController {
 
   @Get()
   @RequirePermissions('system.role.read')
+  @DataFieldSecurity('system.role')
   list() {
     return this.roles.list()
   }
@@ -68,25 +82,39 @@ export class RoleController {
 
   @Post()
   @RequirePermissions('system.role.create')
+  @DataFieldSecurity('system.role')
   create(@Body() body: CreateRoleDto, @Req() request: ActorRequest) {
     return this.roles.create(body, actorFrom(request))
   }
 
   @Patch(':id')
   @RequirePermissions('system.role.update')
-  update(@Param('id', ParseUUIDPipe) id: string, @Body() body: UpdateRoleDto, @Req() request: ActorRequest) {
+  @DataFieldSecurity('system.role')
+  update(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: UpdateRoleDto,
+    @Req() request: ActorRequest
+  ) {
     return this.roles.update(id, body, actorFrom(request))
   }
 
   @Patch(':id/grants')
   @RequirePermissions('system.role.grant', 'system.role.revoke')
-  grants(@Param('id', ParseUUIDPipe) id: string, @Body() body: GrantPermissionsDto, @Req() request: ActorRequest) {
+  grants(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: GrantPermissionsDto,
+    @Req() request: ActorRequest
+  ) {
     return this.roles.grants(id, body, actorFrom(request))
   }
 
   @Patch(':id/status')
   @RequirePermissions('system.role.disable')
-  status(@Param('id', ParseUUIDPipe) id: string, @Body() body: RoleStatusDto, @Req() request: ActorRequest) {
+  status(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: RoleStatusDto,
+    @Req() request: ActorRequest
+  ) {
     return this.roles.status(id, body, actorFrom(request))
   }
 

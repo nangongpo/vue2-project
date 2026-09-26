@@ -26,7 +26,8 @@ for (const [domain, base] of [
   ['button', '/permission/buttons'],
   ['api', '/permission/apis'],
 ] as const) {
-  if (domain === 'button') api('system.button.read', 'GET', '/permission/functions/:functionId/buttons')
+  if (domain === 'button')
+    api('system.button.read', 'GET', '/permission/functions/:functionId/buttons')
   else api(`system.${domain}.read`, 'GET', base)
   api(`system.${domain}.create`, 'POST', base)
   api(`system.${domain}.update`, 'PATCH', `${base}/:id`)
@@ -64,6 +65,9 @@ api('system.approval.review', 'POST', '/permission/approvals/:id/review', 'AUDIT
 api('system.data.read', 'GET', '/permission/roles/:roleId/data-scopes')
 api('system.data.update', 'POST', '/permission/roles/:roleId/data-scopes')
 api('system.data.revoke', 'PATCH', '/permission/roles/:roleId/data-scopes/:scopeId/revoke')
+api('system.permission.field.read', 'GET', '/permission/fields')
+api('system.permission.field.update', 'PATCH', '/permission/fields/:id')
+api('system.permission.field.disable', 'PATCH', '/permission/fields/:id/status')
 for (const [action, method, path, roleType] of [
   ['create', 'POST', '/ops-tickets', 'SECURITY'],
   ['update', 'PATCH', '/ops-tickets/:id', 'SECURITY'],
@@ -80,8 +84,18 @@ api('system.ops-ticket.evidence', 'POST', '/ops-tickets/:id/evidence', 'SECURITY
 api('system.ops-ticket.executions', 'POST', '/ops-tickets/:id/executions', 'SECURITY')
 api('system.operation-policy.read', 'GET', '/security/operation-policies', 'SECURITY')
 api('system.operation-policy.manage', 'POST', '/security/operation-policies', 'SECURITY')
-api('system.operation-policy.activate', 'POST', '/security/operation-policies/:id/activate', 'SECURITY')
-api('system.operation-policy.disable', 'PATCH', '/security/operation-policies/:id/disable', 'SECURITY')
+api(
+  'system.operation-policy.activate',
+  'POST',
+  '/security/operation-policies/:id/activate',
+  'SECURITY'
+)
+api(
+  'system.operation-policy.disable',
+  'PATCH',
+  '/security/operation-policies/:id/disable',
+  'SECURITY'
+)
 
 export const SHARED_ADMIN_CODES = [
   'system.approval.read',
@@ -90,8 +104,15 @@ export const SHARED_ADMIN_CODES = [
   'system.ops-ticket.read',
   'system.ops-ticket.detail',
 ]
-export function roleAllowsPermission(roleType: string, permission: { code: string; requiredRoleType: string }) {
-  if (permission.code === 'system.ops-ticket.read' || permission.code === 'system.ops-ticket.detail')
+export function roleAllowsPermission(
+  roleType: string,
+  permission: { code: string; requiredRoleType: string }
+) {
+  if (/^system\..+\.field\./.test(permission.code)) return ['SECURITY', 'SYSTEM'].includes(roleType)
+  if (
+    permission.code === 'system.ops-ticket.read' ||
+    permission.code === 'system.ops-ticket.detail'
+  )
     return ['SECURITY', 'SYSTEM', 'AUDIT'].includes(roleType)
   if (SHARED_ADMIN_CODES.includes(permission.code)) return ['SECURITY', 'AUDIT'].includes(roleType)
   if (

@@ -1,6 +1,19 @@
-import { Body, Controller, Get, HttpCode, Inject, Param, ParseUUIDPipe, Post, Query, Req, UseGuards } from '@nestjs/common'
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Inject,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common'
 import { AuthGuard } from '../../../security/guards/auth.guard.js'
 import { RequirePermissions } from '../../../security/decorators/permission.decorator.js'
+import { DataFieldSecurity } from '../../../common/decorators/data-field-security.decorator.js'
 import { ApprovalActionDto, ApprovalQueryDto, CreateApprovalDto } from '../dto/approval.dto.js'
 import { ApprovalActor, ApprovalContext, ApprovalService } from '../services/approval.service.js'
 
@@ -34,12 +47,14 @@ export class ApprovalController {
 
   @Get()
   @RequirePermissions('system.approval.read')
+  @DataFieldSecurity('system.approval')
   list(@Query() query: ApprovalQueryDto, @Req() req: Request) {
     return this.service.list(query, req.user)
   }
 
   @Get(':id')
   @RequirePermissions('system.approval.detail')
+  @DataFieldSecurity('system.approval')
   detail(@Param('id', new ParseUUIDPipe()) id: string, @Req() req: Request) {
     return this.service.detail(id, req.user)
   }
@@ -47,21 +62,33 @@ export class ApprovalController {
   @Post(':id/approve')
   @HttpCode(200)
   @RequirePermissions('system.approval.approve')
-  approve(@Param('id', new ParseUUIDPipe()) id: string, @Body() body: ApprovalActionDto, @Req() req: Request) {
+  approve(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: ApprovalActionDto,
+    @Req() req: Request
+  ) {
     return this.service.transition(id, 'approve', body, req.user, context(req))
   }
 
   @Post(':id/execute')
   @HttpCode(200)
   @RequirePermissions('system.approval.execute')
-  execute(@Param('id', new ParseUUIDPipe()) id: string, @Body() body: ApprovalActionDto, @Req() req: Request) {
+  execute(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: ApprovalActionDto,
+    @Req() req: Request
+  ) {
     return this.service.transition(id, 'execute', body, req.user, context(req))
   }
 
   @Post(':id/review')
   @HttpCode(200)
   @RequirePermissions('system.approval.review')
-  review(@Param('id', new ParseUUIDPipe()) id: string, @Body() body: ApprovalActionDto, @Req() req: Request) {
+  review(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: ApprovalActionDto,
+    @Req() req: Request
+  ) {
     return this.service.transition(id, 'review', body, req.user, context(req))
   }
 }

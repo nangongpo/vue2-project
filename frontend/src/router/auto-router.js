@@ -495,7 +495,7 @@ export function getAllMenu() {
           let btns = [{ label: '查看', value: v.name, api }]
           let roleType = v.meta.roleType
           if (!roleType) {
-            console.error('未设置roleType: ' + JSON.stringify(v))
+            // console.error('未设置roleType: ' + JSON.stringify(v))
           } else {
             if (!menuListGroup[roleType]) {
               menuListGroup[roleType] = []

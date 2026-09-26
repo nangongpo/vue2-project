@@ -75,6 +75,14 @@ enum PermissionType {
   BUTTON
   API
   MANAGEMENT
+  FIELD
+}
+
+enum FieldRiskLevel {
+  L0
+  L1
+  L2
+  L3
 }
 
 enum OpsTicketType {
@@ -212,12 +220,37 @@ model Permission {
   buttonPermission   FunctionButton?  @relation("ButtonPermission")
   functionApis       FunctionApi[]    @relation("FunctionApiPermission")
   buttonApis         ButtonApi[]      @relation("ButtonApiPermission")
+  fieldReadDefinitions  PermissionField[] @relation("FieldReadPermission")
+  fieldWriteDefinitions PermissionField[] @relation("FieldWritePermission")
 
   @@unique([method, path])
   @@index([resource, action])
   @@index([type, status])
   @@index([status])
   @@map("sys_permission")
+}
+
+model PermissionField {
+  id               String           @id @default(uuid()) @db.Char(36)
+  resource         String           @db.VarChar(128)
+  field            String           @db.VarChar(128)
+  name             String           @db.VarChar(128)
+  dataType         String           @db.VarChar(32)
+  relationResource String?          @db.VarChar(128)
+  relationModel    String?          @db.VarChar(128)
+  relationField    String?          @db.VarChar(128)
+  riskLevel        FieldRiskLevel   @default(L1)
+  status           PermissionStatus @default(ACTIVE)
+  readPermissionId String           @db.Char(36)
+  writePermissionId String?         @db.Char(36)
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  readPermission  Permission        @relation("FieldReadPermission", fields: [readPermissionId], references: [id], onDelete: Restrict)
+  writePermission Permission?       @relation("FieldWritePermission", fields: [writePermissionId], references: [id], onDelete: Restrict)
+
+  @@unique([resource, field])
+  @@index([resource, status])
+  @@map("sys_permission_field")
 }
 
 model SystemFunction {

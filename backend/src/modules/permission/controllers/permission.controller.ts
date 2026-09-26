@@ -1,4 +1,18 @@
-import { Body, Controller, Delete, Get, HttpCode, Inject, Param, ParseUUIDPipe, Patch, Post, Query, Req, UseGuards } from '@nestjs/common'
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Inject,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common'
 import { Type } from 'class-transformer'
 import {
   ArrayMaxSize,
@@ -17,6 +31,8 @@ import {
 } from 'class-validator'
 import { AuthGuard } from '../../../security/guards/auth.guard.js'
 import { RequirePermissions } from '../../../security/decorators/permission.decorator.js'
+import { FieldSecurity } from '../../../common/decorators/field-security.decorator.js'
+import { DataFieldSecurity } from '../../../common/decorators/data-field-security.decorator.js'
 import { PermissionService, MutationContext } from '../services/permission.service.js'
 import { ApprovalService } from '../services/approval.service.js'
 import type { ApprovalActor } from '../services/approval.service.js'
@@ -96,11 +112,13 @@ export class PermissionController {
   ) {}
   @Get('functions')
   @RequirePermissions('system.page.read')
+  @FieldSecurity('button')
   listFunctions() {
     return this.service.listFunctions()
   }
   @Get('functions/:functionId/buttons')
   @RequirePermissions('system.button.read')
+  @FieldSecurity('button')
   listButtons(@Param('functionId', ParseUUIDPipe) functionId: string) {
     return this.service.listButtons(functionId)
   }
@@ -116,7 +134,11 @@ export class PermissionController {
   }
   @Patch('functions/:id')
   @RequirePermissions('system.page.update')
-  updateFunction(@Param('id', ParseUUIDPipe) id: string, @Body() body: PageMetadata, @Req() req: MutationContext) {
+  updateFunction(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: PageMetadata,
+    @Req() req: MutationContext
+  ) {
     if (body.route !== undefined) {
       return this.approvals.create(
         {
@@ -133,21 +155,31 @@ export class PermissionController {
   }
   @Patch('functions/:id/status')
   @RequirePermissions('system.page.disable')
-  functionStatus(@Param('id', ParseUUIDPipe) id: string, @Body() body: StatusDto, @Req() req: MutationContext) {
+  functionStatus(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: StatusDto,
+    @Req() req: MutationContext
+  ) {
     return this.service.setStatus('page', id, body.status, req)
   }
   @Patch('functions/:id/apis')
   @RequirePermissions('system.page.bind-api')
-  mapFunctionApis(@Param('id', ParseUUIDPipe) id: string, @Body() body: MapApisDto, @Req() req: MutationContext) {
+  mapFunctionApis(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: MapApisDto,
+    @Req() req: MutationContext
+  ) {
     return this.service.mapFunctionApis(id, body.apiIds, req)
   }
   @Get('apis')
   @RequirePermissions('system.api.read')
+  @DataFieldSecurity('system.api')
   listApis(@Query() query: ApiQuery) {
     return this.service.listApis(query)
   }
   @Get('api-options')
   @RequirePermissions('system.api.options')
+  @DataFieldSecurity('system.api')
   apiOptions() {
     return this.service.apiOptions()
   }
@@ -169,7 +201,11 @@ export class PermissionController {
   @Patch('apis/:id')
   @HttpCode(202)
   @RequirePermissions('system.api.update')
-  updateApi(@Param('id', ParseUUIDPipe) id: string, @Body() body: ApiMetadata, @Req() req: MutationContext) {
+  updateApi(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: ApiMetadata,
+    @Req() req: MutationContext
+  ) {
     return this.approvals.create(
       {
         kind: 'API_UPDATE',
@@ -184,7 +220,11 @@ export class PermissionController {
   @Patch('apis/:id/status')
   @HttpCode(202)
   @RequirePermissions('system.api.disable')
-  apiStatus(@Param('id', ParseUUIDPipe) id: string, @Body() body: StatusDto, @Req() req: MutationContext) {
+  apiStatus(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: StatusDto,
+    @Req() req: MutationContext
+  ) {
     return this.approvals.create(
       {
         kind: 'API_STATUS',
@@ -218,22 +258,38 @@ export class PermissionController {
   }
   @Post('buttons')
   @RequirePermissions('system.button.create')
+  @FieldSecurity('button')
   createButton(@Body() body: CreateButtonDto, @Req() req: MutationContext) {
     return this.service.createButton(body, req)
   }
   @Patch('buttons/:id')
   @RequirePermissions('system.button.update')
-  updateButton(@Param('id', ParseUUIDPipe) id: string, @Body() body: ButtonMetadata, @Req() req: MutationContext) {
+  @FieldSecurity('button')
+  updateButton(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: ButtonMetadata,
+    @Req() req: MutationContext
+  ) {
     return this.service.updateButton(id, body, req)
   }
   @Patch('buttons/:id/status')
   @RequirePermissions('system.button.disable')
-  buttonStatus(@Param('id', ParseUUIDPipe) id: string, @Body() body: StatusDto, @Req() req: MutationContext) {
+  @FieldSecurity('button')
+  buttonStatus(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: StatusDto,
+    @Req() req: MutationContext
+  ) {
     return this.service.setStatus('button', id, body.status, req)
   }
   @Patch('buttons/:id/apis')
   @RequirePermissions('system.button.bind-api')
-  mapButtonApis(@Param('id', ParseUUIDPipe) id: string, @Body() body: MapApisDto, @Req() req: MutationContext) {
+  @FieldSecurity('button')
+  mapButtonApis(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: MapApisDto,
+    @Req() req: MutationContext
+  ) {
     return this.service.mapButtonApis(id, body.apiIds, req)
   }
 }

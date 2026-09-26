@@ -1,4 +1,4 @@
-@use "@/styles/element-variables.scss" as *;
+@use '@/styles/element-variables.scss' as *;
 
 body {
   height: 100%;
@@ -10,13 +10,18 @@ body {
   margin: 0;
 }
 
-html, #app {
+html,
+#app {
   height: 100%;
   box-sizing: border-box;
 }
 
-body, button, input, select, textarea {
-  font-family: "Microsoft YaHei",'宋体',Arial,sans-serif;
+body,
+button,
+input,
+select,
+textarea {
+  font-family: 'Microsoft YaHei', '宋体', Arial, sans-serif;
 }
 
 label {
@@ -35,7 +40,7 @@ label {
 
 .no-size {
   width: 0;
-  height: 0
+  height: 0;
 }
 
 .no-padding {
@@ -72,7 +77,7 @@ div:focus {
 }
 
 .p-10 {
-  padding: 10px
+  padding: 10px;
 }
 
 .pl-10 {
@@ -123,17 +128,17 @@ div:focus {
   padding-right: 5px;
 }
 .px-10 {
-	padding-left: 10px;
-	padding-right: 10px;
+  padding-left: 10px;
+  padding-right: 10px;
 }
 // 垂直间距
 .py-5 {
   padding-top: 5px;
-	padding-bottom: 5px;
+  padding-bottom: 5px;
 }
 .py-10 {
-	padding-top: 10px;
-	padding-bottom: 10px;
+  padding-top: 10px;
+  padding-bottom: 10px;
 }
 .px-20 {
   padding-right: 20px;
@@ -232,7 +237,8 @@ div:focus {
 .text-success {
   color: $green;
   &.el-button--text {
-    &:hover, &:focus {
+    &:hover,
+    &:focus {
       color: $green;
     }
   }
@@ -241,7 +247,8 @@ div:focus {
 .text-warning {
   color: $yellow;
   &.el-button--text {
-    &:hover, &:focus {
+    &:hover,
+    &:focus {
       color: $yellow;
     }
   }
@@ -250,7 +257,8 @@ div:focus {
 .text-info {
   color: $gray;
   &.el-button--text {
-    &:hover, &:focus {
+    &:hover,
+    &:focus {
       color: $gray;
     }
   }
@@ -259,8 +267,36 @@ div:focus {
 .text-danger {
   color: $red;
   &.el-button--text {
-    &:hover, &:focus {
+    &:hover,
+    &:focus {
       color: $red;
+    }
+  }
+}
+
+// 文本按钮颜色：默认操作使用主题蓝，危险操作使用红色，禁用状态使用占位色
+.el-button--text {
+  color: $blue;
+
+  &:hover,
+  &:focus {
+    color: rgb(32, 160, 255);
+  }
+
+  &.is-disabled {
+    color: $gray;
+  }
+
+  &.text-danger {
+    color: $red;
+
+    &:hover,
+    &:focus {
+      color: $red;
+    }
+
+    &.is-disabled {
+      color: $gray;
     }
   }
 }
@@ -278,7 +314,7 @@ div:focus {
     visibility: hidden;
     display: block;
     font-size: 0;
-    content: " ";
+    content: ' ';
     clear: both;
     height: 0;
   }
@@ -298,4 +334,3 @@ div:focus {
     color: rgb(32, 160, 255);
   }
 }
-

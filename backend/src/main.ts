@@ -2,7 +2,7 @@ import 'reflect-metadata'
 import { timingSafeEqual } from 'node:crypto'
 import { loadEnvFile } from 'node:process'
 import { BadRequestException, ValidationPipe } from '@nestjs/common'
-import { NestFactory } from '@nestjs/core'
+import { NestFactory, Reflector } from '@nestjs/core'
 import helmet from '@fastify/helmet'
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify'
 import { AppModule } from './app.module.js'
@@ -11,6 +11,9 @@ import Joi from 'joi'
 import { AuditService } from './audit/services/audit.service.js'
 import { TraceIdInterceptor } from './common/interceptors/trace-id.interceptor.js'
 import { ApiResponseInterceptor } from './common/interceptors/api-response.interceptor.js'
+import { DataFieldSecurityInterceptor } from './common/interceptors/data-field-security.interceptor.js'
+import { PrismaService } from './database/prisma.service.js'
+import { FieldSecurityInterceptor } from './common/interceptors/field-security.interceptor.js'
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger'
 
 try {
@@ -171,10 +174,14 @@ async function bootstrap() {
     },
     required: ['code', 'message', 'data'],
   }
-  for (const pathItem of Object.values(swaggerDocument.paths || {}) as Array<Record<string, any>>) {
-    for (const operation of Object.values(pathItem)) {
+  for (const pathItem of Object.values(swaggerDocument.paths || {}) as Array<
+    Record<string, unknown>
+  >) {
+    for (const operation of Object.values(pathItem) as Array<{
+      responses?: Record<string, { content?: unknown }>
+    }>) {
       if (!operation || typeof operation !== 'object' || !operation.responses) continue
-      for (const response of Object.values(operation.responses) as Array<Record<string, any>>) {
+      for (const response of Object.values(operation.responses)) {
         if (!response.content) {
           response.content = { 'application/json': { schema: apiResponseSchema } }
         }
@@ -191,7 +198,8 @@ async function bootstrap() {
     code: (status: number) => {
       header: (name: string, value: string) => { send: (body: string) => void }
     }
-  }) => reply.code(401).header('WWW-Authenticate', 'Basic realm="backend Swagger"').send('Unauthorized')
+  }) =>
+    reply.code(401).header('WWW-Authenticate', 'Basic realm="backend Swagger"').send('Unauthorized')
   app
     .getHttpAdapter()
     .getInstance()
@@ -215,9 +223,15 @@ async function bootstrap() {
       const matches = (actual: string, expected: string) => {
         const actualBuffer = Buffer.from(actual)
         const expectedBuffer = Buffer.from(expected)
-        return actualBuffer.length === expectedBuffer.length && timingSafeEqual(actualBuffer, expectedBuffer)
+        return (
+          actualBuffer.length === expectedBuffer.length &&
+          timingSafeEqual(actualBuffer, expectedBuffer)
+        )
       }
-      if (!matches(username, env.value.SWAGGER_ADMIN_USERNAME) || !matches(password, env.value.SWAGGER_ADMIN_PASSWORD))
+      if (
+        !matches(username, env.value.SWAGGER_ADMIN_USERNAME) ||
+        !matches(password, env.value.SWAGGER_ADMIN_PASSWORD)
+      )
         return unauthorized(reply)
     })
   SwaggerModule.setup('docs', app, swaggerDocument, {
@@ -263,6 +277,10 @@ async function bootstrap() {
     })
   )
   app.useGlobalInterceptors(new TraceIdInterceptor())
+  app.useGlobalInterceptors(new FieldSecurityInterceptor(new Reflector()))
+  app.useGlobalInterceptors(
+    new DataFieldSecurityInterceptor(new Reflector(), app.get(PrismaService))
+  )
   app.useGlobalInterceptors(new ApiResponseInterceptor())
   app.useGlobalFilters(new ApiExceptionFilter(app.get(AuditService)))
 

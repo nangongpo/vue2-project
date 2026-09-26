@@ -2,7 +2,12 @@
   <div class="page-container">
     <el-card shadow="never">
       <div class="toolbar">
-        <el-input v-model="query.keyword" clearable placeholder="账号/姓名" maxlength="64" @keyup.enter.native="search" />
+        <el-input
+          v-model="query.keyword"
+          clearable
+          placeholder="账号/姓名"
+          maxlength="64"
+          @keyup.enter.native="search" />
         <el-button v-permission="'system.user.read'" type="primary" @click="search">查询</el-button>
         <el-button v-permission="'system.user.create'" type="success" @click="openCreate">
           新增用户
@@ -21,7 +26,12 @@
         </el-table-column>
         <el-table-column label="角色" width="120">
           <template #default="scope">
-            {{(scope.row.roles || []).map((item) => item.role.name).join('、') || '未分配'}}
+            {{
+              (scope.row.roles || [])
+                .map((item) => item && item.role && item.role.name)
+                .filter(Boolean)
+                .join('、') || '未分配'
+            }}
           </template>
         </el-table-column>
         <el-table-column label="最近登录" min-width="180">
@@ -34,24 +44,51 @@
             <el-button v-permission="'system.user.update'" type="text" @click="openEdit(scope.row)">
               编辑
             </el-button>
-            <el-button v-permission="'system.user.reset-password'" type="text" @click="openReset(scope.row)">
+            <el-button
+              v-permission="'system.user.reset-password'"
+              type="text"
+              @click="openReset(scope.row)">
               重置密码
             </el-button>
-            <el-button v-if="canGrant" type="text" :disabled="scope.row.status !== 'ACTIVE'"
-              @click="openGrants(scope.row)">分配角色</el-button>
-            <el-button v-permission="'system.user.disable'" type="text"
-              :disabled="saving || scope.row.status === 'LOCKED'" @click="changeStatus(scope.row)">{{ scope.row.status
-                === 'DISABLED' ? '启用' : '停用' }}</el-button>
-            <el-button v-if="scope.row.status === 'LOCKED'" v-permission="'system.user.unlock'" type="text"
-              :disabled="saving" @click="unlock(scope.row)">解锁</el-button>
+            <el-button
+              v-if="canGrant"
+              type="text"
+              :disabled="scope.row.status !== 'ACTIVE'"
+              @click="openGrants(scope.row)"
+              >分配角色</el-button
+            >
+            <el-button
+              v-permission="'system.user.disable'"
+              type="text"
+              :disabled="saving || scope.row.status === 'LOCKED'"
+              @click="changeStatus(scope.row)"
+              >{{ scope.row.status === 'DISABLED' ? '启用' : '停用' }}</el-button
+            >
+            <el-button
+              v-if="scope.row.status === 'LOCKED'"
+              v-permission="'system.user.unlock'"
+              type="text"
+              :disabled="saving"
+              @click="unlock(scope.row)"
+              >解锁</el-button
+            >
           </template>
         </el-table-column>
       </el-table>
-      <el-pagination class="pagination" background layout="total, prev, pager, next" :current-page.sync="query.page"
-        :page-size="query.pageSize" :total="total" @current-change="loadUsers" />
+      <el-pagination
+        class="pagination"
+        background
+        layout="total, prev, pager, next"
+        :current-page.sync="query.page"
+        :page-size="query.pageSize"
+        :total="total"
+        @current-change="loadUsers" />
     </el-card>
 
-    <el-dialog :title="editing ? '编辑用户' : '新增用户'" :visible.sync="dialogVisible" width="460px">
+    <el-dialog
+      :title="editing ? '编辑用户' : '新增用户'"
+      :visible.sync="dialogVisible"
+      width="460px">
       <el-form ref="userForm" :model="form" :rules="rules" label-width="90px">
         <el-form-item v-if="!editing" label="账号" prop="username">
           <el-input v-model.trim="form.username" maxlength="64" />
@@ -73,7 +110,11 @@
     </el-dialog>
 
     <el-dialog title="重置密码" :visible.sync="resetVisible" width="420px">
-      <el-form ref="resetForm" :model="resetForm" :rules="{ password: rules.password }" label-width="90px">
+      <el-form
+        ref="resetForm"
+        :model="resetForm"
+        :rules="{ password: rules.password }"
+        label-width="90px">
         <el-form-item label="新密码" prop="password">
           <el-input v-model="resetForm.password" type="password" maxlength="128" show-password />
           <div class="password-hint">
@@ -86,7 +127,11 @@
         <el-button type="primary" :loading="resetting" @click="submitReset"> 确认重置 </el-button>
       </span>
     </el-dialog>
-    <permission-grant-dialog :visible.sync="grantsVisible" :target="grantTarget" kind="user" @saved="loadUsers" />
+    <permission-grant-dialog
+      :visible.sync="grantsVisible"
+      :target="grantTarget"
+      kind="user"
+      @saved="loadUsers" />
   </div>
 </template>
 

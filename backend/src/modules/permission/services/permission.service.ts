@@ -1,10 +1,15 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { randomUUID } from 'node:crypto'
 import { PrismaService } from '../../../database/prisma.service.js'
 import { normalizePagination, paginationData } from '../../../common/pagination.js'
 import { assertAcyclic, assertApi, canonicalPath, ok, RETIRED_CODES } from '../policies/policy.js'
-import { riskLevelForOperation } from '../../../security/policies/risk-policy.js'
+import { riskLevelForOperation, type RiskLevel } from '../../../security/policies/risk-policy.js'
 
 export type MutationContext = {
   user: { internalId: bigint; userId: string; roles?: unknown[] }
@@ -12,6 +17,7 @@ export type MutationContext = {
   method: string
   url: string
   ip?: string
+  riskLevel?: RiskLevel
 }
 type PageInput = {
   name?: string
@@ -141,7 +147,10 @@ export class PermissionService {
     req: MutationContext
   ) {
     const path = assertApi(input)
-    if (/^(system\.|page\.system\.)/.test(input.code) || /^\/api\/v1\/(permission|roles|users|audit-logs|auth)(\/|$)/.test(path))
+    if (
+      /^(system\.|page\.system\.)/.test(input.code) ||
+      /^\/api\/v1\/(permission|roles|users|audit-logs|auth)(\/|$)/.test(path)
+    )
       throw new BadRequestException('受保护的管理接口由服务端目录维护')
     return this.change(req, 'api.create', async (tx) => ({
       before: null,
@@ -150,10 +159,17 @@ export class PermissionService {
       }),
     }))
   }
-  async updateApi(id: string, input: { name?: string; resource?: string; action?: string }, req: MutationContext) {
+  async updateApi(
+    id: string,
+    input: { name?: string; resource?: string; action?: string },
+    req: MutationContext
+  ) {
     return this.change(req, 'api.update', async (tx) => {
       const before = await this.api(tx, id)
-      if ((input.resource && input.resource !== before.resource) || (input.action && input.action !== before.action))
+      if (
+        (input.resource && input.resource !== before.resource) ||
+        (input.action && input.action !== before.action)
+      )
         throw new BadRequestException('资源和动作属于安全策略，不能通过普通编辑修改')
       return {
         before,
@@ -161,7 +177,10 @@ export class PermissionService {
       }
     })
   }
-  async createFunction(input: PageInput & { code: string; name: string; route: string; apiIds?: string[] }, req: MutationContext) {
+  async createFunction(
+    input: PageInput & { code: string; name: string; route: string; apiIds?: string[] },
+    req: MutationContext
+  ) {
     const route = canonicalPath(input.route)
     return this.change(req, 'page.create', async (tx) => {
       if (input.parentId) await this.page(tx, input.parentId, true)
@@ -188,7 +207,11 @@ export class PermissionService {
       const before = await this.page(tx, id)
       if (input.parentId !== undefined) {
         if (input.parentId) await this.page(tx, input.parentId, true)
-        assertAcyclic(id, input.parentId, await tx.systemFunction.findMany({ select: { id: true, parentId: true } }))
+        assertAcyclic(
+          id,
+          input.parentId,
+          await tx.systemFunction.findMany({ select: { id: true, parentId: true } })
+        )
       }
       const after = await tx.systemFunction.update({
         where: { id },
@@ -250,15 +273,29 @@ export class PermissionService {
       return { before, after }
     })
   }
-  async setStatus(kind: 'api' | 'page' | 'button', id: string, status: 'ACTIVE' | 'DISABLED', req: MutationContext) {
+  async setStatus(
+    kind: 'api' | 'page' | 'button',
+    id: string,
+    status: 'ACTIVE' | 'DISABLED',
+    req: MutationContext
+  ) {
     return this.change(req, `${kind}.status`, async (tx) => {
       if (kind === 'api') {
         const before = await this.api(tx, id)
         const after = await tx.permission.update({ where: { id }, data: { status } })
-        if (status === 'DISABLED') await this.revokeRolePermissions(tx, id, req.user.userId, `${kind} 已停用，自动撤销角色授权`)
+        if (status === 'DISABLED')
+          await this.revokeRolePermissions(
+            tx,
+            id,
+            req.user.userId,
+            `${kind} 已停用，自动撤销角色授权`
+          )
         return { before, after }
       }
-      const before = kind === 'page' ? await this.page(tx, id) : await tx.functionButton.findUnique({ where: { id } })
+      const before =
+        kind === 'page'
+          ? await this.page(tx, id)
+          : await tx.functionButton.findUnique({ where: { id } })
       if (!before) throw new NotFoundException('资源不存在')
       const after =
         kind === 'page'
@@ -267,7 +304,12 @@ export class PermissionService {
       if (before.permissionId) {
         await tx.permission.update({ where: { id: before.permissionId }, data: { status } })
         if (status === 'DISABLED')
-          await this.revokeRolePermissions(tx, before.permissionId, req.user.userId, `${kind} 已停用，自动撤销角色授权`)
+          await this.revokeRolePermissions(
+            tx,
+            before.permissionId,
+            req.user.userId,
+            `${kind} 已停用，自动撤销角色授权`
+          )
       }
       return { before, after }
     })
@@ -302,7 +344,8 @@ export class PermissionService {
         tx.buttonApi.count({ where: { apiId: id } }),
         tx.rolePermission.count({ where: { permissionId: id } }),
       ])
-      if (counts.some(Boolean)) throw new ConflictException('接口仍被页面、按钮或角色引用，请查看引用关系；建议禁用')
+      if (counts.some(Boolean))
+        throw new ConflictException('接口仍被页面、按钮或角色引用，请查看引用关系；建议禁用')
       await tx.permission.delete({ where: { id } })
       return { before, after: null }
     })
@@ -313,7 +356,12 @@ export class PermissionService {
   mapButtonApis(id: string, apiIds: string[], req: MutationContext) {
     return this.mapApis('button', id, apiIds, req)
   }
-  private async mapApis(kind: 'page' | 'button', id: string, apiIds: string[], req: MutationContext) {
+  private async mapApis(
+    kind: 'page' | 'button',
+    id: string,
+    apiIds: string[],
+    req: MutationContext
+  ) {
     return this.change(req, `${kind}.bind-api`, async (tx) => {
       if (kind === 'page') await this.page(tx, id, true)
       else {
@@ -329,7 +377,12 @@ export class PermissionService {
       return { before, after: { id, apiIds } }
     })
   }
-  private async bind(tx: Prisma.TransactionClient, kind: 'page' | 'button', id: string, apiIds: string[]) {
+  private async bind(
+    tx: Prisma.TransactionClient,
+    kind: 'page' | 'button',
+    id: string,
+    apiIds: string[]
+  ) {
     const ids = [...new Set(apiIds)]
     const apis = await tx.permission.findMany({
       where: { id: { in: ids }, type: 'API', status: 'ACTIVE', code: { notIn: RETIRED_CODES } },
@@ -337,18 +390,29 @@ export class PermissionService {
     if (apis.length !== ids.length) throw new BadRequestException('只能绑定有效且启用的接口')
     if (
       kind === 'page' &&
-      apis.some((api) => api.method !== 'GET' || !['read', 'list', 'detail', 'init', 'options', 'references'].includes(api.action))
+      apis.some(
+        (api) =>
+          api.method !== 'GET' ||
+          !['read', 'list', 'detail', 'init', 'options', 'references'].includes(api.action)
+      )
     )
       throw new BadRequestException('页面基础接口只能绑定查询接口，写入、导出与审批必须绑定按钮')
     if (kind === 'page') {
       await tx.functionApi.deleteMany({ where: { functionId: id } })
-      if (ids.length) await tx.functionApi.createMany({ data: ids.map((apiId) => ({ functionId: id, apiId })) })
+      if (ids.length)
+        await tx.functionApi.createMany({ data: ids.map((apiId) => ({ functionId: id, apiId })) })
     } else {
       await tx.buttonApi.deleteMany({ where: { buttonId: id } })
-      if (ids.length) await tx.buttonApi.createMany({ data: ids.map((apiId) => ({ buttonId: id, apiId })) })
+      if (ids.length)
+        await tx.buttonApi.createMany({ data: ids.map((apiId) => ({ buttonId: id, apiId })) })
     }
   }
-  private async revokeRolePermissions(tx: Prisma.TransactionClient, permissionId: string, actorId: string, reason: string) {
+  private async revokeRolePermissions(
+    tx: Prisma.TransactionClient,
+    permissionId: string,
+    actorId: string,
+    reason: string
+  ) {
     await tx.rolePermission.updateMany({
       where: { permissionId, revokedAt: null },
       data: { revokedAt: new Date(), revokedBy: actorId, revokeReason: reason },
@@ -356,12 +420,14 @@ export class PermissionService {
   }
   private async api(tx: Prisma.TransactionClient, id: string) {
     const item = await tx.permission.findUnique({ where: { id } })
-    if (!item || item.type !== 'API' || RETIRED_CODES.includes(item.code)) throw new NotFoundException('接口不存在')
+    if (!item || item.type !== 'API' || RETIRED_CODES.includes(item.code))
+      throw new NotFoundException('接口不存在')
     return item
   }
   private async page(tx: Prisma.TransactionClient, id: string, active = false) {
     const item = await tx.systemFunction.findUnique({ where: { id } })
-    if (!item || (active && item.status !== 'ACTIVE')) throw new NotFoundException('页面不存在或已停用')
+    if (!item || (active && item.status !== 'ACTIVE'))
+      throw new NotFoundException('页面不存在或已停用')
     return item
   }
   private async change(
@@ -378,7 +444,7 @@ export class PermissionService {
               traceId: req.traceId || randomUUID(),
               actorId: req.user.internalId,
               action,
-              riskLevel: riskLevelForOperation(action),
+              riskLevel: req.riskLevel || riskLevelForOperation(action),
               resource: 'permission',
               method: req.method,
               path: req.url.split('?')[0],
@@ -386,8 +452,9 @@ export class PermissionService {
               result: 'SUCCESS',
               statusCode: req.method === 'POST' ? 201 : req.method === 'DELETE' ? 204 : 200,
               detail: JSON.parse(
-                JSON.stringify({ actorId: req.user.userId, roles: req.user.roles, before, after }, (_, value) =>
-                  typeof value === 'bigint' ? value.toString() : value
+                JSON.stringify(
+                  { actorId: req.user.userId, roles: req.user.roles, before, after },
+                  (_, value) => (typeof value === 'bigint' ? value.toString() : value)
                 )
               ),
             },

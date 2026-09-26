@@ -49,6 +49,12 @@ export const setPermissionButtonStatus = (id, status) =>
   sendRequest({ url: `/permission/buttons/${id}/status`, method: 'patch', params: { status } })
 export const mapButtonApis = (id, apiIds) =>
   sendRequest({ url: `/permission/buttons/${id}/apis`, method: 'patch', params: { apiIds } })
+export const getPermissionDataFields = (resource) =>
+  axiosGet('/permission/fields', resource ? { resource } : {})
+export const setPermissionDataFieldStatus = (id, status) =>
+  sendRequest({ url: `/permission/fields/${id}/status`, method: 'patch', params: { status } })
+export const updatePermissionDataField = (id, data) =>
+  sendRequest({ url: `/permission/fields/${id}`, method: 'patch', params: data })
 
 export const getApprovals = (params = {}) => axiosGet('/permission/approvals', params)
 export const getApproval = (id) => axiosGet(`/permission/approvals/${id}`)
