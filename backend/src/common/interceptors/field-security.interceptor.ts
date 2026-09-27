@@ -3,7 +3,7 @@ import { Reflector } from '@nestjs/core'
 import { Observable, map } from 'rxjs'
 import { isApiResponse } from '../http/api-response.js'
 import { FIELD_SECURITY_RESOURCE } from '../decorators/field-security.decorator.js'
-import { assertRecentSecurityProof, maxRiskLevel } from '../../security/policies/risk-policy.js'
+import { hasRecentSecurityProof, maxRiskLevel, securityStepUpException } from '../../security/policies/risk-policy.js'
 import {
   assertButtonWritableFields,
   projectButton,
@@ -17,6 +17,7 @@ type FieldSecurityRequest = {
   user?: { permissions?: string[]; mfaVerifiedAt?: Date | null; reauthenticatedAt?: Date | null }
   fieldRiskLevel?: string
   riskLevel?: string
+  operationCode?: string
 }
 
 @Injectable()
@@ -47,9 +48,8 @@ export class FieldSecurityInterceptor implements NestInterceptor {
         request.method === 'POST' ? maxRiskLevel('L3', result.riskLevel) : result.riskLevel
       request.fieldRiskLevel = riskLevel
       request.riskLevel = riskLevel
-      if (riskLevel === 'L2' || riskLevel === 'L3') {
-        assertRecentSecurityProof(request.user || {}, riskLevel)
-      }
+      if ((riskLevel === 'L2' || riskLevel === 'L3') && !hasRecentSecurityProof(request.user || {}, riskLevel))
+        throw securityStepUpException(request.user || {}, riskLevel, request.operationCode || `field-security.${resource}`)
     }
 
     return next.handle().pipe(

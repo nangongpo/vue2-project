@@ -11,8 +11,9 @@ import { isApiResponse } from '../http/api-response.js'
 import { DATA_FIELD_SECURITY_RESOURCE } from '../decorators/data-field-security.decorator.js'
 import { PrismaService } from '../../database/prisma.service.js'
 import {
-  assertRecentSecurityProof,
+  hasRecentSecurityProof,
   maxRiskLevel,
+  securityStepUpException,
   type RiskLevel,
 } from '../../security/policies/risk-policy.js'
 
@@ -26,6 +27,7 @@ type DataFieldRequest = {
   }
   riskLevel?: RiskLevel
   fieldRiskLevel?: RiskLevel
+  operationCode?: string
 }
 type FieldDefinition = {
   field: string
@@ -64,7 +66,7 @@ export class DataFieldSecurityInterceptor implements NestInterceptor {
           const denied = changed.filter(
             (field) =>
               !writable.has(field) ||
-              !(permissions.has('*') || permissions.has(writable.get(field)!))
+              !permissions.has(writable.get(field)!)
           )
           if (denied.length)
             throw new ForbiddenException(`没有数据字段修改权限：${denied.join('、')}`)
@@ -76,9 +78,11 @@ export class DataFieldSecurityInterceptor implements NestInterceptor {
           )
           request.fieldRiskLevel = riskLevel
           request.riskLevel = maxRiskLevel(request.riskLevel || 'L0', riskLevel)
-          if (request.riskLevel === 'L2' || request.riskLevel === 'L3') {
-            assertRecentSecurityProof(request.user || {}, request.riskLevel)
-          }
+          if (
+            (request.riskLevel === 'L2' || request.riskLevel === 'L3') &&
+            !hasRecentSecurityProof(request.user || {}, request.riskLevel)
+          )
+            throw securityStepUpException(request.user || {}, request.riskLevel, request.operationCode || `field-security.${resource}`)
         }
         return next
           .handle()
@@ -132,7 +136,7 @@ export class DataFieldSecurityInterceptor implements NestInterceptor {
 
   private readableDefinitions(definitions: FieldDefinition[], permissions: Set<string>) {
     return definitions.filter(
-      (definition) => permissions.has('*') || permissions.has(definition.readCode)
+      (definition) => permissions.has(definition.readCode)
     )
   }
 

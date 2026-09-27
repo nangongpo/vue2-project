@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Inject, Param, Post, Req, Res, UseGuards } from '@nestjs/common'
+import { BadRequestException, Body, Controller, Delete, Get, HttpCode, HttpStatus, Inject, Param, PipeTransform, Post, Req, Res, UseGuards } from '@nestjs/common'
 import { IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator'
 import { FastifyReply, FastifyRequest } from 'fastify'
 import {
@@ -14,6 +14,7 @@ import { AuditAction } from '../../audit/decorators/audit.decorator.js'
 import { Idempotent } from '../decorators/idempotency.decorator.js'
 import { assertSameOrigin } from '../policies/csrf.js'
 import { SecurityOperation } from '../decorators/operation.decorator.js'
+import { USER_STATUS_LABELS } from '../../common/constants/enum-labels.js'
 
 class LoginDto {
   /** 登录账号。 */
@@ -60,6 +61,13 @@ class CompleteLoginDto {
   @IsString()
   @Matches(/^\d{6}$/)
   otp!: string
+}
+
+class SessionIdPipe implements PipeTransform<string, string> {
+  transform(value: string) {
+    if (!/^[a-f0-9]{64}$/.test(value)) throw new BadRequestException('会话标识无效')
+    return value
+  }
 }
 
 @Controller('auth')
@@ -138,7 +146,7 @@ export class AuthController {
   @UseGuards(AuthGuard)
   @SecurityOperation('system.session.revoke')
   @AuditAction('auth.sessions.revoke')
-  async revokeSession(@Req() request: FastifyRequest, @Param('id') sessionId: string) {
+  async revokeSession(@Req() request: FastifyRequest, @Param('id', SessionIdPipe) sessionId: string) {
     assertSameOrigin(request)
     const user = (request as FastifyRequest & { user: { internalId: bigint } }).user
     await this.auth.revokeSession(user.internalId, sessionId)
@@ -156,10 +164,26 @@ export class AuthController {
     ).user
     const sensitiveFields = new Set(['internalId', 'isSuperAdmin', 'apiPermissions', 'mfaSecret', 'mfaLastStep', 'passwordHash'])
     const safeUser = Object.fromEntries(Object.entries(user).filter(([key]) => !sensitiveFields.has(key)))
+    const { status, ...publicUser } = safeUser
+    const normalizedStatus = typeof status === 'string' ? status : 'DISABLED'
+    const roles = Array.isArray(publicUser.roles)
+      ? publicUser.roles
+          .filter((role): role is Record<string, unknown> => !!role && typeof role === 'object')
+          .map((role) => ({ name: typeof role.name === 'string' ? role.name : '' }))
+          .filter((role) => role.name)
+      : []
     return {
       code: API_CODE.SUCCESS,
       message: 'success',
-      data: { ...safeUser, loginIp: request.ip, serverTime: new Date().toISOString() },
+      data: {
+        ...publicUser,
+        roles,
+        statusLabel: USER_STATUS_LABELS[normalizedStatus as keyof typeof USER_STATUS_LABELS] || '未知状态',
+        isActive: normalizedStatus === 'ACTIVE',
+        isLocked: normalizedStatus === 'LOCKED',
+        loginIp: request.ip,
+        serverTime: new Date().toISOString(),
+      },
     }
   }
 

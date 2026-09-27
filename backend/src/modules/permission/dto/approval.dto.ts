@@ -10,6 +10,7 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Matches,
   MaxLength,
   MinLength,
   validateSync,
@@ -19,12 +20,16 @@ import type { ApprovalKind } from '@prisma/client'
 
 export const APPROVAL_KINDS = [
   'ROLE_GRANT',
+  'ROLE_STATUS',
   'ROLE_PERMISSIONS',
   'API_ROUTE_CHANGE',
   'API_CREATE',
   'API_UPDATE',
-  'API_STATUS',
+  'API_ENABLE',
+  'API_DISABLE',
   'API_DELETE',
+  'PAGE_ENABLE',
+  'PAGE_DISABLE',
   'PAGE_ROUTE_CHANGE',
   'ELEVATED_SCOPE',
   'ROLE_REVOKE',
@@ -44,16 +49,26 @@ export class ApprovalActionDto {
   @IsString() @MinLength(1) @MaxLength(255) note!: string
 }
 export class ApprovalQueryDto {
-  @IsOptional() @IsIn(['REQUESTED', 'APPROVED', 'EXECUTED', 'REVIEWED']) status?:
+  @IsOptional() @IsIn(['REQUESTED', 'APPROVED', 'EXECUTED', 'REVIEWED', 'CANCELLED']) status?:
     | 'REQUESTED'
     | 'APPROVED'
     | 'EXECUTED'
     | 'REVIEWED'
+    | 'CANCELLED'
   @IsOptional() @IsUUID() cursor?: string
+}
+export class ApprovalTargetOptionsQuery {
+  @IsIn(APPROVAL_KINDS) kind!: ApprovalKindInput
+  @IsIn(['USER', 'ROLE']) targetType!: 'USER' | 'ROLE'
+  @IsOptional() @IsString() @MaxLength(64) keyword?: string
 }
 export class RoleGrantPayload {
   @IsUUID() userId!: string
   @IsUUID() roleId!: string
+}
+export class RoleStatusPayload {
+  @IsUUID() roleId!: string
+  @IsIn(['ACTIVE', 'DISABLED']) status!: 'ACTIVE' | 'DISABLED'
 }
 export class MfaResetPayload {
   @IsUUID() userId!: string
@@ -88,16 +103,23 @@ export class ApiCreatePayload {
   @IsString() @MinLength(1) @MaxLength(128) resource!: string
   @IsString() @MinLength(1) @MaxLength(64) action!: string
 }
-export class ApiStatusPayload {
+export class ApiTogglePayload {
   @IsUUID() apiId!: string
-  @IsIn(['ACTIVE', 'DISABLED']) status!: 'ACTIVE' | 'DISABLED'
 }
 export class ApiDeletePayload {
   @IsUUID() apiId!: string
 }
+export class PageStatusPayload {
+  @IsUUID() pageId!: string
+}
 export class PageRouteChangePayload {
   @IsUUID() pageId!: string
   @IsString() @MinLength(1) @MaxLength(255) route!: string
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  @Matches(/^[a-zA-Z0-9_/-]*$/)
+  component?: string
 }
 export class ScopeTarget {
   @IsIn(['USER', 'DEPARTMENT', 'ORGANIZATION', 'TENANT']) targetType!:
@@ -132,6 +154,8 @@ export function approvalPayload(kind: ApprovalKindInput, payload: unknown) {
     case 'ROLE_GRANT':
     case 'ROLE_REVOKE':
       return approvalDto(RoleGrantPayload, payload)
+    case 'ROLE_STATUS':
+      return approvalDto(RoleStatusPayload, payload)
     case 'MFA_RESET':
       return approvalDto(MfaResetPayload, payload)
     case 'ROLE_PERMISSIONS':
@@ -145,10 +169,14 @@ export function approvalPayload(kind: ApprovalKindInput, payload: unknown) {
       return approvalDto(ApiUpdatePayload, payload)
     case 'API_CREATE':
       return approvalDto(ApiCreatePayload, payload)
-    case 'API_STATUS':
-      return approvalDto(ApiStatusPayload, payload)
+    case 'API_ENABLE':
+    case 'API_DISABLE':
+      return approvalDto(ApiTogglePayload, payload)
     case 'API_DELETE':
       return approvalDto(ApiDeletePayload, payload)
+    case 'PAGE_ENABLE':
+    case 'PAGE_DISABLE':
+      return approvalDto(PageStatusPayload, payload)
     case 'PAGE_ROUTE_CHANGE':
       return approvalDto(PageRouteChangePayload, payload)
     case 'ELEVATED_SCOPE': {

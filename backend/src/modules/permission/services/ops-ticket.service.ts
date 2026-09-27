@@ -20,7 +20,7 @@ import type {
   OpsTicketQueryDto,
   PatchOpsTicketDto,
 } from '../dto/ops-ticket.dto.js'
-import { assertOperationSecurityProof, riskLevelForOperation } from '../../../security/policies/risk-policy.js'
+import { riskLevelForOperation } from '../../../security/policies/risk-policy.js'
 
 const serializable = { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
 const securityTypes = new Set<OpsTicketType>(['MFA_RESET_EMERGENCY', 'PERMISSION_RECOVERY', 'ACCOUNT_RECOVERY'])
@@ -185,7 +185,7 @@ export class OpsTicketService {
 
   async addEvidence(id: string, input: OpsEvidenceDto, actor: Actor) {
     return this.prisma.$transaction(async (tx) => {
-      const user = await this.authorize(tx, actor, 'system.ops-ticket.evidence')
+      const user = await this.authorize(tx, actor, 'system.ops-ticket.evidence.create')
       const ticket = await tx.opsTicket.findUnique({ where: { id } })
       if (!ticket) throw new NotFoundException('工单不存在')
       if (ticket.status === 'REVIEWED' || ticket.status === 'CANCELLED') throw new ConflictException('已关闭工单不能追加证据')
@@ -199,7 +199,7 @@ export class OpsTicketService {
 
   async addExecution(id: string, input: OpsExecutionDto, actor: Actor) {
     return this.prisma.$transaction(async (tx) => {
-      const user = await this.authorize(tx, actor, 'system.ops-ticket.executions')
+      const user = await this.authorize(tx, actor, 'system.ops-ticket.execution.create')
       const ticket = await tx.opsTicket.findUnique({ where: { id } })
       if (!ticket) throw new NotFoundException('工单不存在')
       if (ticket.ticketNo !== input.ticketNo || !['APPROVED', 'EXECUTED'].includes(ticket.status))
@@ -278,9 +278,6 @@ export class OpsTicketService {
 
   private async authorize(tx: Prisma.TransactionClient, actor: Actor, permission: string) {
     if (!actor || typeof actor.internalId !== 'bigint') throw new ForbiddenException('缺少操作者身份')
-    if (!['system.ops-ticket.read', 'system.ops-ticket.detail'].includes(permission)) {
-      assertOperationSecurityProof(actor, 'system.ops-ticket.mutation')
-    }
     const user = await tx.user.findUnique({
       where: { id: actor.internalId },
       select: {

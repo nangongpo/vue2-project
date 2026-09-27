@@ -13,6 +13,7 @@ import { RateLimitGuard } from './security/guards/rate-limit.guard.js'
 import { PermissionModule } from './modules/permission/permission.module.js'
 import { CaptchaModule } from './captcha/captcha.module.js'
 import { SystemModule } from './system/system.module.js'
+import { OrderModule } from './modules/order/order.module.js'
 
 @Controller('health')
 class HealthController {
@@ -41,7 +42,7 @@ class ReadyController {
 
 /** 应用根模块：组装业务模块，并注册健康检查与全局请求限频。 */
 @Module({
-  imports: [DatabaseModule, CacheModule, CaptchaModule, SystemModule, SecurityModule, AuditModule, UserModule, RoleModule, PermissionModule],
+  imports: [DatabaseModule, CacheModule, CaptchaModule, SystemModule, SecurityModule, AuditModule, UserModule, RoleModule, PermissionModule, OrderModule],
   controllers: [HealthController, ReadyController],
   providers: [
     {

@@ -40,7 +40,7 @@
         </el-table-column>
         <el-table-column label="操作类型" min-width="180">
           <template slot-scope="scope">
-            {{ actionLabel(scope.row.action) }}
+            {{ scope.row.action }}
           </template>
         </el-table-column>
         <el-table-column prop="method" label="请求方法" width="100" />
@@ -98,7 +98,7 @@
           {{ selectedLog.statusCode }}
         </el-descriptions-item>
         <el-descriptions-item label="操作" labelClassName="detail-label">
-          {{ actionLabel(selectedLog.action) }}
+          {{ selectedLog.action }}
         </el-descriptions-item>
         <el-descriptions-item label="结果" labelClassName="detail-label">
           {{ selectedLog.result === 'SUCCESS' ? '成功' : '失败' }}
@@ -219,19 +219,6 @@ export default {
     },
     formatDate(value) {
       return dateFormat(value) || '未知'
-    },
-    actionLabel(action) {
-      const labels = {
-        'audit.logs.list': '查询审计日志',
-        'audit.logs.detail': '查看审计详情',
-        'auth.login': '用户登录',
-        'auth.logout': '用户退出登录',
-        'auth.me': '查看登录信息',
-        'auth.password.change': '修改密码',
-        'auth.sessions.list': '查看登录会话',
-        'auth.sessions.revoke': '撤销登录会话',
-      }
-      return labels[action] || action
     },
     actorLabel(actor) {
       if (!actor) return '系统操作'

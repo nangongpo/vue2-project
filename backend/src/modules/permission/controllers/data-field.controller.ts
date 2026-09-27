@@ -1,6 +1,6 @@
-import { Body, Controller, Get, Inject, Param, Patch, Query, Req, UseGuards } from '@nestjs/common'
+import { Body, Controller, Get, Inject, Param, ParseUUIDPipe, Patch, Post, Query, Req, UseGuards } from '@nestjs/common'
 import { FieldRiskLevel, PermissionStatus } from '@prisma/client'
-import { IsEnum, IsIn, IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator'
+import { IsBoolean, IsEnum, IsIn, IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator'
 import { AuthGuard } from '../../../security/guards/auth.guard.js'
 import { RequirePermissions } from '../../../security/decorators/permission.decorator.js'
 import { DataFieldService } from '../services/data-field.service.js'
@@ -18,22 +18,33 @@ class DataFieldUpdateDto {
   dataType!: string
   @IsEnum(FieldRiskLevel) riskLevel!: FieldRiskLevel
 }
+class DataFieldCreateDto extends DataFieldUpdateDto {
+  @IsString() @Matches(/^[a-z][a-z0-9_.:-]{0,127}$/) resource!: string
+  @IsString() @Matches(/^[a-z][a-zA-Z0-9_]{0,127}$/) field!: string
+  @IsOptional() @IsBoolean() writable?: boolean
+}
 
 @Controller('permission/fields')
 @UseGuards(AuthGuard)
 export class DataFieldController {
   constructor(@Inject(DataFieldService) private readonly service: DataFieldService) {}
 
+  @Post()
+  @RequirePermissions('system.field.create')
+  create(@Body() body: DataFieldCreateDto, @Req() request: MutationContext) {
+    return this.service.create(body, request)
+  }
+
   @Get()
-  @RequirePermissions('system.permission.field.read')
+  @RequirePermissions('system.field.read')
   list(@Query() query: DataFieldQuery) {
     return this.service.list(query.resource)
   }
 
   @Patch(':id')
-  @RequirePermissions('system.permission.field.update')
+  @RequirePermissions('system.field.update')
   update(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() body: DataFieldUpdateDto,
     @Req() request: MutationContext
   ) {
@@ -41,9 +52,9 @@ export class DataFieldController {
   }
 
   @Patch(':id/status')
-  @RequirePermissions('system.permission.field.disable')
+  @RequirePermissions('system.field.status')
   status(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() body: DataFieldStatusDto,
     @Req() request: MutationContext
   ) {

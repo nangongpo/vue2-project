@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 // Exercise frontend selectors/serialization using the same security examples as the backend.
 // @ts-ignore Frontend is intentionally plain JavaScript without declarations.
-import { approvalBody, STANDARD_SCOPES } from '../../../../../frontend/src/views/system/permission/approval/utils.js'
+import { approvalBody, STANDARD_SCOPES } from '../../../../../frontend/src/views/system/approval/utils.js'
 // @ts-ignore Frontend is intentionally plain JavaScript without declarations.
 import { pageApis, hasReferences, pageTree, grantChanges } from '../../../../../frontend/src/views/system/permission/utils.js'
 const id = '00000000-0000-4000-8000-000000000001'
@@ -12,10 +12,10 @@ describe('frontend permission contracts', () => {
   })
   it('limits base API selectors to active reads, not GET exports or writes', () => {
     const items = [
-      { id: 1, method: 'GET', status: 'ACTIVE', action: 'read' },
-      { id: 2, method: 'POST', status: 'ACTIVE', action: 'create' },
-      { id: 3, method: 'GET', status: 'ACTIVE', action: 'export' },
-      { id: 4, method: 'GET', status: 'DISABLED', action: 'read' },
+      { id: 1, method: 'GET', isActive: true, statusLabel: '启用', action: 'read' },
+      { id: 2, method: 'POST', isActive: true, statusLabel: '启用', action: 'create' },
+      { id: 3, method: 'GET', isActive: true, statusLabel: '启用', action: 'export' },
+      { id: 4, method: 'GET', isActive: false, statusLabel: '停用', action: 'read' },
     ]
     expect(pageApis(items).map((item: any) => item.id)).toEqual([1])
   })

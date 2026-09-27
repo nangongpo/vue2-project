@@ -10,6 +10,7 @@ import { API_CODE } from '../../common/constants/api-code.js'
 import { effectivePermissions } from './effective-permissions.js'
 import { MfaService } from './mfa.service.js'
 import { roleAllowsPermission } from '../policies/permission-catalog.js'
+import { AUTHENTICATED_NAVIGATION } from '../policies/navigation-catalog.js'
 import { PasswordPolicyService } from './password-policy.service.js'
 import { riskLevelForOperation } from '../policies/risk-policy.js'
 
@@ -96,7 +97,7 @@ export class AuthService {
                     OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
                     permission: { status: 'ACTIVE' },
                   },
-                  include: { permission: true },
+                  include: { permission: { include: { roleTypes: { select: { roleType: true } } } } },
                 },
               },
             },
@@ -150,7 +151,7 @@ export class AuthService {
     const otpRequired = Boolean(user.mfaEnabled)
     const rawToken = randomBytes(32).toString('base64url')
     const sessionId = this.hashToken(rawToken)
-    const sessionTtl = Number(process.env.SESSION_TTL_SECONDS || 1800)
+    const sessionTtl = Number(process.env.SESSION_TTL_SECONDS || 28800)
     const configuredPreAuthTtl = Number(process.env.PREAUTH_TTL_SECONDS || 300)
     const preAuthTtl = Number.isSafeInteger(configuredPreAuthTtl) && configuredPreAuthTtl > 0 ? configuredPreAuthTtl : 300
     const requiresPreAuth = enrollRequired || otpRequired
@@ -234,7 +235,7 @@ export class AuthService {
     if (!this.mfa) throw new UnauthorizedException('多因素认证服务不可用')
     await this.mfa.verify(user.internalId, otp)
     const now = new Date()
-    const expiresIn = Number(process.env.SESSION_TTL_SECONDS || 1800)
+    const expiresIn = Number(process.env.SESSION_TTL_SECONDS || 28800)
     const formalToken = randomBytes(32).toString('base64url')
     const current = await this.prisma.session.findFirst({
       where: {
@@ -294,7 +295,7 @@ export class AuthService {
                         OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
                         permission: { status: 'ACTIVE' },
                       },
-                      include: { permission: true },
+                      include: { permission: { include: { roleTypes: { select: { roleType: true } } } } },
                     },
                   },
                 },
@@ -327,6 +328,7 @@ export class AuthService {
       ...(await this.toUser(session.user)),
       mfaVerifiedAt: session.mfaVerifiedAt,
       reauthenticatedAt: session.reauthenticatedAt,
+      sessionExpiresAt: session.expiresAt,
     }
   }
 
@@ -456,7 +458,19 @@ export class AuthService {
     const [pages, buttons, pageApis, buttonApis] = grants.length
       ? await Promise.all([
           this.prisma.systemFunction.findMany({
-            select: { id: true, parentId: true, permissionId: true, status: true },
+            select: {
+              id: true,
+              parentId: true,
+              permissionId: true,
+              name: true,
+              route: true,
+              icon: true,
+              routeProps: true,
+              nodeType: true,
+              status: true,
+              sort: true,
+              createdAt: true,
+            },
           }),
           this.prisma.functionButton.findMany({
             select: { id: true, functionId: true, permissionId: true, status: true },
@@ -466,6 +480,47 @@ export class AuthService {
         ])
       : [[], [], [], []]
     const effective = effectivePermissions(grants, pages, buttons, pageApis, buttonApis)
+    const visiblePageCodes = new Set(
+      effective.filter((permission) => permission.type === 'PAGE').map((permission) => permission.code)
+    )
+    const permissionCodeById = new Map(grants.map((permission) => [permission.id, permission.code]))
+    const pagesById = new Map(pages.map((page) => [page.id, page]))
+    const visibleNodeIds = new Set<string>()
+    for (const page of pages) {
+      const permissionCode = page.permissionId ? permissionCodeById.get(page.permissionId) : undefined
+      if (!permissionCode || !visiblePageCodes.has(permissionCode) || page.status !== 'ACTIVE') continue
+      let current: typeof page | undefined = page
+      while (current) {
+        visibleNodeIds.add(current.id)
+        current = current.parentId ? pagesById.get(current.parentId) : undefined
+      }
+    }
+    const children = new Map<string | null, typeof pages>()
+    for (const page of pages) {
+      const siblings = children.get(page.parentId) || []
+      siblings.push(page)
+      children.set(page.parentId, siblings)
+    }
+    const navigation: NonNullable<AuthenticatedUser['navigation']> = []
+    const visit = (parentId: string | null) => {
+      const siblings = (children.get(parentId) || []).slice().sort((a, b) => {
+        const sortDiff = a.sort - b.sort
+        return sortDiff || a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id)
+      })
+      for (const page of siblings) {
+        if (visibleNodeIds.has(page.id)) {
+          navigation.push({
+            path: page.route,
+            title: page.name,
+            icon: page.icon,
+            props: page.routeProps,
+          })
+        }
+        visit(page.id)
+      }
+    }
+    visit(null)
+    navigation.push(...AUTHENTICATED_NAVIGATION)
     return {
       internalId: user.id,
       userId: user.userId,
@@ -482,13 +537,13 @@ export class AuthService {
         roleType: item.role.roleType,
       })),
       permissions: [...new Set(effective.map((permission) => permission.code))],
+      navigation,
       apiPermissions: effective
         .filter((permission) => permission.type === 'API')
-        .map(({ code, method, path, requiredRoleType }) => ({
+        .map(({ code, method, path }) => ({
           code,
           method,
           path,
-          requiredRoleType,
         })),
       mfaEnabled: user.mfaEnabled,
       mfaRequired: adminTypes.size > 0,

@@ -30,6 +30,11 @@ enum PermissionStatus {
   DISABLED
 }
 
+enum PageNodeType {
+  DIRECTORY
+  PAGE
+}
+
 enum StandardDataScopeType {
   SELF
   DEPARTMENT_SELF
@@ -76,6 +81,13 @@ enum PermissionType {
   API
   MANAGEMENT
   FIELD
+}
+
+enum OrderStatus {
+  DRAFT
+  CONFIRMED
+  CANCELLED
+  COMPLETED
 }
 
 enum FieldRiskLevel {
@@ -138,39 +150,65 @@ enum SessionKind {
 }
 
 model User {
-  id           BigInt     @id @default(autoincrement()) @db.UnsignedBigInt
-  userId       String     @unique @default(uuid()) @db.Char(36)
-  username     String     @unique @db.VarChar(64)
-  passwordHash String     @db.VarChar(255)
+  id                BigInt                        @id @default(autoincrement()) @db.UnsignedBigInt
+  userId            String                        @unique @default(uuid()) @db.Char(36)
+  username          String                        @unique @db.VarChar(64)
+  passwordHash      String                        @db.VarChar(255)
   passwordChangedAt DateTime?
-  passwordHistory PasswordHistory[]
-  displayName  String     @db.VarChar(128)
-  status       UserStatus @default(ACTIVE)
-  failedLogins Int        @default(0)
-  lockedUntil  DateTime?
-  lastLoginAt  DateTime?
-  lastLoginIp  String?    @db.VarChar(64)
-  expiresAt    DateTime?
+  passwordHistory   PasswordHistory[]
+  displayName       String                        @db.VarChar(128)
+  status            UserStatus                    @default(ACTIVE)
+  failedLogins      Int                           @default(0)
+  lockedUntil       DateTime?
+  lastLoginAt       DateTime?
+  lastLoginIp       String?                       @db.VarChar(64)
+  expiresAt         DateTime?
   // Database CHECK constraint is maintained in the migration:
   // mfaEnabled = false requires mfaSecret IS NULL; mfaEnabled = true requires it to be non-null.
-  mfaSecret    String?    @db.VarChar(512)
-  mfaEnabled   Boolean   @default(false)
-  mfaLastStep  BigInt?
-  tenantId     String?   @db.Char(36)
-  departmentId String?   @db.Char(36)
-  organizationId String? @db.Char(36)
-  tenant       Tenant?       @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  organization Organization? @relation(fields: [organizationId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  department   Department?   @relation(fields: [departmentId, tenantId, organizationId], references: [id, tenantId, organizationId], onDelete: Restrict, onUpdate: Restrict)
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
-  roles        UserRole[]
-  sessions     Session[]
-  audits       AuditLog[] @relation("AuditActor")
-  elevatedTargets RoleElevatedDataScopeTarget[] @relation("ElevatedUserTarget")
+  mfaSecret         String?                       @db.VarChar(512)
+  mfaEnabled        Boolean                       @default(false)
+  mfaLastStep       BigInt?
+  tenantId          String?                       @db.Char(36)
+  departmentId      String?                       @db.Char(36)
+  organizationId    String?                       @db.Char(36)
+  tenant            Tenant?                       @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  organization      Organization?                 @relation(fields: [organizationId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  department        Department?                   @relation(fields: [departmentId, tenantId, organizationId], references: [id, tenantId, organizationId], onDelete: Restrict, onUpdate: Restrict)
+  createdAt         DateTime                      @default(now())
+  updatedAt         DateTime                      @updatedAt
+  roles             UserRole[]
+  sessions          Session[]
+  audits            AuditLog[]                    @relation("AuditActor")
+  elevatedTargets   RoleElevatedDataScopeTarget[] @relation("ElevatedUserTarget")
+  orders            Order[]
 
   @@index([status])
   @@map("sys_user")
+}
+
+// 业务订单域：对外使用不可预测的订单编号，内部主键仅用于关联。
+model Order {
+  id             BigInt      @id @default(autoincrement()) @db.UnsignedBigInt
+  orderId        String      @unique @default(uuid()) @db.Char(36)
+  orderNo        String      @unique @db.VarChar(40)
+  tenantId       String?     @db.Char(36)
+  ownerId        String      @db.Char(36)
+  departmentId   String?     @db.Char(36)
+  organizationId String?     @db.Char(36)
+  customerName   String      @db.VarChar(128)
+  totalAmount    Decimal     @db.Decimal(18, 2)
+  currency       String      @default("CNY") @db.Char(3)
+  status         OrderStatus @default(DRAFT)
+  remark         String?     @db.VarChar(500)
+  createdBy      String      @db.Char(36)
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  tenant         Tenant?     @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  owner          User        @relation(fields: [ownerId], references: [userId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([tenantId, status, createdAt])
+  @@index([ownerId, createdAt])
+  @@map("biz_order")
 }
 
 model PasswordHistory {
@@ -204,24 +242,24 @@ model Role {
 }
 
 model Permission {
-  id                 String           @id @default(uuid()) @db.Char(36)
-  code               String           @unique @db.VarChar(128)
-  name               String           @db.VarChar(128)
-  resource           String           @db.VarChar(128)
-  action             String           @db.VarChar(64)
-  type               PermissionType   @default(API)
-  requiredRoleType   RoleType         @default(BUSINESS)
-  status             PermissionStatus @default(ACTIVE)
-  method             String?          @db.VarChar(16)
-  path               String?          @db.VarChar(255)
-  createdAt          DateTime         @default(now())
-  roles              RolePermission[]
-  functionPermission SystemFunction?  @relation("FunctionPermission")
-  buttonPermission   FunctionButton?  @relation("ButtonPermission")
-  functionApis       FunctionApi[]    @relation("FunctionApiPermission")
-  buttonApis         ButtonApi[]      @relation("ButtonApiPermission")
-  fieldReadDefinitions  PermissionField[] @relation("FieldReadPermission")
-  fieldWriteDefinitions PermissionField[] @relation("FieldWritePermission")
+  id                    String               @id @default(uuid()) @db.Char(36)
+  code                  String               @unique @db.VarChar(128)
+  name                  String               @db.VarChar(128)
+  resource              String               @db.VarChar(128)
+  action                String               @db.VarChar(64)
+  type                  PermissionType       @default(API)
+  status                PermissionStatus     @default(ACTIVE)
+  method                String?              @db.VarChar(16)
+  path                  String?              @db.VarChar(255)
+  createdAt             DateTime             @default(now())
+  roles                 RolePermission[]
+  roleTypes             PermissionRoleType[]
+  functionPermission    SystemFunction?      @relation("FunctionPermission")
+  buttonPermission      FunctionButton?      @relation("ButtonPermission")
+  functionApis          FunctionApi[]        @relation("FunctionApiPermission")
+  buttonApis            ButtonApi[]          @relation("ButtonApiPermission")
+  fieldReadDefinitions  PermissionField[]    @relation("FieldReadPermission")
+  fieldWriteDefinitions PermissionField[]    @relation("FieldWritePermission")
 
   @@unique([method, path])
   @@index([resource, action])
@@ -230,23 +268,51 @@ model Permission {
   @@map("sys_permission")
 }
 
+// Explicit role-type audience for a permission. This relation is the
+// authoritative allow-list used by seed, management flows and runtime auth.
+model PermissionRoleType {
+  permissionId String     @db.Char(36)
+  roleType     RoleType
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@id([permissionId, roleType])
+  @@index([roleType, permissionId])
+  @@map("sys_permission_role_type")
+}
+
+model DataResource {
+  id          String           @id @default(uuid()) @db.Char(36)
+  code        String           @unique @db.VarChar(128)
+  name        String           @db.VarChar(128)
+  description String?          @db.VarChar(255)
+  status      PermissionStatus @default(ACTIVE)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  roleDataScopes     RoleDataScope[]
+  elevatedDataScopes RoleElevatedDataScope[]
+
+  @@index([status, code])
+  @@map("sys_data_resource")
+}
+
 model PermissionField {
-  id               String           @id @default(uuid()) @db.Char(36)
-  resource         String           @db.VarChar(128)
-  field            String           @db.VarChar(128)
-  name             String           @db.VarChar(128)
-  dataType         String           @db.VarChar(32)
-  relationResource String?          @db.VarChar(128)
-  relationModel    String?          @db.VarChar(128)
-  relationField    String?          @db.VarChar(128)
-  riskLevel        FieldRiskLevel   @default(L1)
-  status           PermissionStatus @default(ACTIVE)
-  readPermissionId String           @db.Char(36)
-  writePermissionId String?         @db.Char(36)
-  createdAt        DateTime         @default(now())
-  updatedAt        DateTime         @updatedAt
-  readPermission  Permission        @relation("FieldReadPermission", fields: [readPermissionId], references: [id], onDelete: Restrict)
-  writePermission Permission?       @relation("FieldWritePermission", fields: [writePermissionId], references: [id], onDelete: Restrict)
+  id                String           @id @default(uuid()) @db.Char(36)
+  resource          String           @db.VarChar(128)
+  field             String           @db.VarChar(128)
+  name              String           @db.VarChar(128)
+  dataType          String           @db.VarChar(32)
+  relationResource  String?          @db.VarChar(128)
+  relationModel     String?          @db.VarChar(128)
+  relationField     String?          @db.VarChar(128)
+  riskLevel         FieldRiskLevel   @default(L1)
+  status            PermissionStatus @default(ACTIVE)
+  readPermissionId  String           @db.Char(36)
+  writePermissionId String?          @db.Char(36)
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  readPermission    Permission       @relation("FieldReadPermission", fields: [readPermissionId], references: [id], onDelete: Restrict)
+  writePermission   Permission?      @relation("FieldWritePermission", fields: [writePermissionId], references: [id], onDelete: Restrict)
 
   @@unique([resource, field])
   @@index([resource, status])
@@ -259,6 +325,9 @@ model SystemFunction {
   name         String           @db.VarChar(128)
   route        String           @unique @db.VarChar(255)
   component    String?          @db.VarChar(255)
+  icon         String?          @db.VarChar(128)
+  routeProps   Json?
+  nodeType     PageNodeType     @default(PAGE)
   parentId     String?          @db.Char(36)
   sort         Int              @default(0)
   status       PermissionStatus @default(ACTIVE)
@@ -317,18 +386,18 @@ model ButtonApi {
 }
 
 model UserRole {
-  userId     BigInt    @db.UnsignedBigInt
-  roleId     BigInt    @db.UnsignedBigInt
-  assignedAt DateTime  @default(now())
-  expiresAt  DateTime?
-  revokedAt  DateTime?
-  grantedBy  String? @db.Char(36)
-  revokedBy  String? @db.Char(36)
-  grantReason String? @db.VarChar(255)
-  revokeReason String? @db.VarChar(255)
-  approvalRef String? @db.Char(36)
-  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  role       Role      @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  userId       BigInt    @db.UnsignedBigInt
+  roleId       BigInt    @db.UnsignedBigInt
+  assignedAt   DateTime  @default(now())
+  expiresAt    DateTime?
+  revokedAt    DateTime?
+  grantedBy    String?   @db.Char(36)
+  revokedBy    String?   @db.Char(36)
+  grantReason  String?   @db.VarChar(255)
+  revokeReason String?   @db.VarChar(255)
+  approvalRef  String?   @db.Char(36)
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role         Role      @relation(fields: [roleId], references: [id], onDelete: Restrict)
 
   @@id([userId, roleId])
   @@index([roleId, revokedAt, expiresAt])
@@ -341,11 +410,11 @@ model RolePermission {
   assignedAt   DateTime   @default(now())
   expiresAt    DateTime?
   revokedAt    DateTime?
-  grantedBy    String? @db.Char(36)
-  revokedBy    String? @db.Char(36)
-  grantReason  String? @db.VarChar(255)
-  revokeReason String? @db.VarChar(255)
-  approvalRef  String? @db.Char(36)
+  grantedBy    String?    @db.Char(36)
+  revokedBy    String?    @db.Char(36)
+  grantReason  String?    @db.VarChar(255)
+  revokeReason String?    @db.VarChar(255)
+  approvalRef  String?    @db.Char(36)
   role         Role       @relation(fields: [roleId], references: [id], onDelete: Restrict)
   permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Restrict)
 
@@ -355,54 +424,56 @@ model RolePermission {
 }
 
 model RoleDataScope {
-  id        String                @id @default(uuid()) @db.Char(36)
-  roleId    BigInt                @db.UnsignedBigInt
-  resource  String                @db.VarChar(128)
-  scopeType StandardDataScopeType
-  expiresAt DateTime?
-  revokedAt DateTime?
-  createdAt DateTime              @default(now())
-  updatedAt DateTime              @updatedAt
-  role      Role                  @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  id                 String                @id @default(uuid()) @db.Char(36)
+  roleId             BigInt                @db.UnsignedBigInt
+  resource           String                @db.VarChar(128)
+  scopeType          StandardDataScopeType
+  expiresAt          DateTime?
+  revokedAt          DateTime?
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+  role               Role                  @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  resourceDefinition DataResource          @relation(fields: [resource], references: [code], onDelete: Restrict, onUpdate: Restrict)
 
   @@index([roleId, scopeType, revokedAt, expiresAt])
   @@map("sys_role_data_scope")
 }
 
 model RoleElevatedDataScope {
-  id          String                        @id @default(uuid()) @db.Char(36)
-  roleId      BigInt                        @db.UnsignedBigInt
-  resource    String                        @db.VarChar(128)
-  scopeType   ElevatedDataScopeType
-  reason      String                        @db.VarChar(255)
-  approvalRef String                        @db.Char(36)
-  validFrom   DateTime                      @default(now())
-  expiresAt   DateTime
-  revokedAt   DateTime?
-  createdAt   DateTime                      @default(now())
-  updatedAt   DateTime                      @updatedAt
-  role        Role                          @relation(fields: [roleId], references: [id], onDelete: Restrict)
-  targets     RoleElevatedDataScopeTarget[]
+  id                 String                        @id @default(uuid()) @db.Char(36)
+  roleId             BigInt                        @db.UnsignedBigInt
+  resource           String                        @db.VarChar(128)
+  scopeType          ElevatedDataScopeType
+  reason             String                        @db.VarChar(255)
+  approvalRef        String                        @db.Char(36)
+  validFrom          DateTime                      @default(now())
+  expiresAt          DateTime
+  revokedAt          DateTime?
+  createdAt          DateTime                      @default(now())
+  updatedAt          DateTime                      @updatedAt
+  role               Role                          @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  resourceDefinition DataResource                  @relation(fields: [resource], references: [code], onDelete: Restrict, onUpdate: Restrict)
+  targets            RoleElevatedDataScopeTarget[]
 
   @@index([roleId, scopeType, revokedAt, expiresAt])
   @@map("sys_role_elevated_data_scope")
 }
 
 model RoleElevatedDataScopeTarget {
-  id              String                @id @default(uuid()) @db.Char(36)
-  elevatedScopeId String                @db.Char(36)
-  targetType      DataScopeTargetType
-  targetId        String                @db.Char(36)
-  targetUserId String? @db.Char(36)
-  targetDepartmentId String? @db.Char(36)
-  targetOrganizationId String? @db.Char(36)
-  targetTenantId String? @db.Char(36)
-  targetUser User? @relation("ElevatedUserTarget", fields: [targetUserId], references: [userId], onDelete: Restrict, onUpdate: Restrict)
-  targetDepartment Department? @relation(fields: [targetDepartmentId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  targetOrganization Organization? @relation(fields: [targetOrganizationId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  targetTenant Tenant? @relation(fields: [targetTenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  createdAt       DateTime              @default(now())
-  elevatedScope   RoleElevatedDataScope @relation(fields: [elevatedScopeId], references: [id], onDelete: Restrict)
+  id                   String                @id @default(uuid()) @db.Char(36)
+  elevatedScopeId      String                @db.Char(36)
+  targetType           DataScopeTargetType
+  targetId             String                @db.Char(36)
+  targetUserId         String?               @db.Char(36)
+  targetDepartmentId   String?               @db.Char(36)
+  targetOrganizationId String?               @db.Char(36)
+  targetTenantId       String?               @db.Char(36)
+  targetUser           User?                 @relation("ElevatedUserTarget", fields: [targetUserId], references: [userId], onDelete: Restrict, onUpdate: Restrict)
+  targetDepartment     Department?           @relation(fields: [targetDepartmentId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  targetOrganization   Organization?         @relation(fields: [targetOrganizationId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  targetTenant         Tenant?               @relation(fields: [targetTenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  createdAt            DateTime              @default(now())
+  elevatedScope        RoleElevatedDataScope @relation(fields: [elevatedScopeId], references: [id], onDelete: Restrict)
 
   @@unique([elevatedScopeId, targetType, targetId])
   @@index([targetType, targetId])
@@ -410,18 +481,18 @@ model RoleElevatedDataScopeTarget {
 }
 
 model Session {
-  id         String    @id @db.Char(64)
-  userId     BigInt    @db.UnsignedBigInt
-  kind       SessionKind @default(AUTHENTICATED)
-  expiresAt  DateTime
-  createdAt  DateTime  @default(now())
-  lastSeenAt DateTime  @default(now())
-  revokedAt  DateTime?
-  mfaVerifiedAt DateTime?
+  id                String      @id @db.Char(64)
+  userId            BigInt      @db.UnsignedBigInt
+  kind              SessionKind @default(AUTHENTICATED)
+  expiresAt         DateTime
+  createdAt         DateTime    @default(now())
+  lastSeenAt        DateTime    @default(now())
+  revokedAt         DateTime?
+  mfaVerifiedAt     DateTime?
   reauthenticatedAt DateTime?
-  ip         String?   @db.VarChar(64)
-  userAgent  String?   @db.VarChar(512)
-  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ip                String?     @db.VarChar(64)
+  userAgent         String?     @db.VarChar(512)
+  user              User        @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, revokedAt])
   @@index([expiresAt])
@@ -429,23 +500,23 @@ model Session {
 }
 
 model AuditLog {
-  id         String      @id @default(uuid()) @db.Char(36)
-  traceId    String      @db.VarChar(64)
-  actorId    BigInt?     @db.UnsignedBigInt
-  action     String      @db.VarChar(128)
-  operationCode String?   @db.VarChar(128)
-  riskLevel  RiskLevel   @default(L0)
-  resource   String      @db.VarChar(128)
-  method     String      @db.VarChar(16)
-  path       String      @db.VarChar(512)
-  result     AuditResult
-  statusCode Int
-  ip         String?     @db.VarChar(64)
-  userAgent  String?     @db.VarChar(512)
+  id            String      @id @default(uuid()) @db.Char(36)
+  traceId       String      @db.VarChar(64)
+  actorId       BigInt?     @db.UnsignedBigInt
+  action        String      @db.VarChar(128)
+  operationCode String?     @db.VarChar(128)
+  riskLevel     RiskLevel   @default(L0)
+  resource      String      @db.VarChar(128)
+  method        String      @db.VarChar(16)
+  path          String      @db.VarChar(512)
+  result        AuditResult
+  statusCode    Int
+  ip            String?     @db.VarChar(64)
+  userAgent     String?     @db.VarChar(512)
   detail        Json?
-  integrityHash String? @db.Char(64)
-  createdAt  DateTime    @default(now())
-  actor      User?       @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+  integrityHash String?     @db.Char(64)
+  createdAt     DateTime    @default(now())
+  actor         User?       @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
 
   @@index([createdAt])
   @@index([actorId, createdAt])
@@ -456,23 +527,23 @@ model AuditLog {
 }
 
 model OperationPolicy {
-  id                  String                @id @default(uuid()) @db.Char(36)
-  operationCode       String                @unique @db.VarChar(128)
-  name                String                @db.VarChar(128)
-  resource            String                @db.VarChar(128)
-  action              String                @db.VarChar(64)
-  riskLevel           RiskLevel             @default(L1)
-  minimumRiskLevel    RiskLevel             @default(L1)
-  requireMfa          Boolean               @default(false)
-  requireReauth       Boolean               @default(false)
-  requireApproval     Boolean               @default(false)
-  requireDualControl  Boolean               @default(false)
-  auditRequired       Boolean               @default(true)
-  status              OperationPolicyStatus @default(DRAFT)
-  version             Int                   @default(1)
-  reason              String?               @db.VarChar(255)
-  createdAt           DateTime              @default(now())
-  updatedAt           DateTime              @updatedAt
+  id                 String                @id @default(uuid()) @db.Char(36)
+  operationCode      String                @unique @db.VarChar(128)
+  name               String                @db.VarChar(128)
+  resource           String                @db.VarChar(128)
+  action             String                @db.VarChar(64)
+  riskLevel          RiskLevel             @default(L1)
+  minimumRiskLevel   RiskLevel             @default(L1)
+  requireMfa         Boolean               @default(false)
+  requireReauth      Boolean               @default(false)
+  requireApproval    Boolean               @default(false)
+  requireDualControl Boolean               @default(false)
+  auditRequired      Boolean               @default(true)
+  status             OperationPolicyStatus @default(DRAFT)
+  version            Int                   @default(1)
+  reason             String?               @db.VarChar(255)
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
 
   @@index([status, riskLevel])
   @@map("sys_operation_policy")
@@ -481,32 +552,32 @@ model OperationPolicy {
 // Emergency operations are an auditable registration path, not a permission bypass.
 // Actor columns intentionally store public UUIDs so records remain useful after account cleanup.
 model OpsTicket {
-  id                    String          @id @default(uuid()) @db.Char(36)
-  ticketNo              String          @unique @db.VarChar(32)
-  type                  OpsTicketType
-  status                OpsTicketStatus @default(DRAFT)
-  riskLevel             OpsRiskLevel
-  title                 String          @db.VarChar(160)
-  reason                String          @db.VarChar(1000)
-  targetType            OpsTargetType
-  targetId              String?         @db.VarChar(128)
-  offlineBasis          String          @db.VarChar(1000)
-  identityVerification  String          @db.VarChar(500)
-  offlineApprover       String          @db.VarChar(128)
-  offlineReviewer       String          @db.VarChar(128)
-  externalRef           String?         @db.VarChar(128)
-  requestedBy           String          @db.Char(36)
-  approvedBy            String?         @db.Char(36)
-  executedBy            String?         @db.Char(36)
-  reviewedBy            String?         @db.Char(36)
-  createdAt             DateTime        @default(now())
-  updatedAt             DateTime        @updatedAt
-  approvedAt            DateTime?
-  executedAt            DateTime?
-  reviewedAt            DateTime?
-  closedAt              DateTime?
-  evidence              OpsTicketEvidence[]
-  executions            OpsTicketExecution[]
+  id                   String               @id @default(uuid()) @db.Char(36)
+  ticketNo             String               @unique @db.VarChar(32)
+  type                 OpsTicketType
+  status               OpsTicketStatus      @default(DRAFT)
+  riskLevel            OpsRiskLevel
+  title                String               @db.VarChar(160)
+  reason               String               @db.VarChar(1000)
+  targetType           OpsTargetType
+  targetId             String?              @db.VarChar(128)
+  offlineBasis         String               @db.VarChar(1000)
+  identityVerification String               @db.VarChar(500)
+  offlineApprover      String               @db.VarChar(128)
+  offlineReviewer      String               @db.VarChar(128)
+  externalRef          String?              @db.VarChar(128)
+  requestedBy          String               @db.Char(36)
+  approvedBy           String?              @db.Char(36)
+  executedBy           String?              @db.Char(36)
+  reviewedBy           String?              @db.Char(36)
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+  approvedAt           DateTime?
+  executedAt           DateTime?
+  reviewedAt           DateTime?
+  closedAt             DateTime?
+  evidence             OpsTicketEvidence[]
+  executions           OpsTicketExecution[]
 
   @@index([status, createdAt])
   @@index([type, riskLevel, createdAt])
@@ -515,42 +586,42 @@ model OpsTicket {
 }
 
 model OpsTicketEvidence {
-  id          String          @id @default(uuid()) @db.Char(36)
-  ticketId    String          @db.Char(36)
-  type        OpsEvidenceType
-  name        String          @db.VarChar(255)
-  uri         String          @db.VarChar(1024)
-  sha256      String?         @db.Char(64)
-  uploadedBy  String          @db.Char(36)
-  createdAt   DateTime        @default(now())
-  ticket      OpsTicket       @relation(fields: [ticketId], references: [id], onDelete: Restrict)
+  id         String          @id @default(uuid()) @db.Char(36)
+  ticketId   String          @db.Char(36)
+  type       OpsEvidenceType
+  name       String          @db.VarChar(255)
+  uri        String          @db.VarChar(1024)
+  sha256     String?         @db.Char(64)
+  uploadedBy String          @db.Char(36)
+  createdAt  DateTime        @default(now())
+  ticket     OpsTicket       @relation(fields: [ticketId], references: [id], onDelete: Restrict)
 
   @@index([ticketId, createdAt])
   @@map("sys_ops_ticket_evidence")
 }
 
 model OpsTicketExecution {
-  id              String             @id @default(uuid()) @db.Char(36)
-  ticketId        String             @db.Char(36)
-  ticketNo        String             @db.VarChar(32)
-  executorUserId  String?            @db.Char(36)
-  operatorOsUser  String             @db.VarChar(128)
-  operatorHost    String             @db.VarChar(255)
-  operatorIp      String?            @db.VarChar(64)
-  dbCurrentUser   String             @db.VarChar(255)
-  gitCommit       String?            @db.VarChar(128)
-  scriptName      String             @db.VarChar(255)
-  scriptVersion   String             @db.VarChar(128)
-  commandHash     String             @db.Char(64)
-  dryRun          Boolean            @default(false)
-  result          OpsExecutionResult
-  beforeSnapshot  Json?
-  afterSnapshot   Json?
+  id                 String             @id @default(uuid()) @db.Char(36)
+  ticketId           String             @db.Char(36)
+  ticketNo           String             @db.VarChar(32)
+  executorUserId     String?            @db.Char(36)
+  operatorOsUser     String             @db.VarChar(128)
+  operatorHost       String             @db.VarChar(255)
+  operatorIp         String?            @db.VarChar(64)
+  dbCurrentUser      String             @db.VarChar(255)
+  gitCommit          String?            @db.VarChar(128)
+  scriptName         String             @db.VarChar(255)
+  scriptVersion      String             @db.VarChar(128)
+  commandHash        String             @db.Char(64)
+  dryRun             Boolean            @default(false)
+  result             OpsExecutionResult
+  beforeSnapshot     Json?
+  afterSnapshot      Json?
   traceId            String             @db.VarChar(64)
   signedAt           DateTime?
   executionSignature String?            @db.Char(64)
   executedAt         DateTime           @default(now())
-  ticket          OpsTicket          @relation(fields: [ticketId], references: [id], onDelete: Restrict)
+  ticket             OpsTicket          @relation(fields: [ticketId], references: [id], onDelete: Restrict)
 
   @@index([ticketId, executedAt])
   @@map("sys_ops_ticket_execution")
@@ -559,34 +630,35 @@ model OpsTicketExecution {
 // Protected master data: hierarchy links cannot cross a tenant boundary.
 model Tenant {
   elevatedTargets RoleElevatedDataScopeTarget[]
-  id            String           @id @default(uuid()) @db.Char(36)
-  code          String           @unique @db.VarChar(64)
-  name          String           @db.VarChar(128)
-  status        PermissionStatus @default(ACTIVE)
-  createdAt     DateTime         @default(now())
-  updatedAt     DateTime         @updatedAt
-  organizations Organization[]
-  departments   Department[]
-  users         User[]
+  orders          Order[]
+  id              String                        @id @default(uuid()) @db.Char(36)
+  code            String                        @unique @db.VarChar(64)
+  name            String                        @db.VarChar(128)
+  status          PermissionStatus              @default(ACTIVE)
+  createdAt       DateTime                      @default(now())
+  updatedAt       DateTime                      @updatedAt
+  organizations   Organization[]
+  departments     Department[]
+  users           User[]
 
   @@map("sys_tenant")
 }
 
 model Organization {
   elevatedTargets RoleElevatedDataScopeTarget[]
-  id          String           @id @default(uuid()) @db.Char(36)
-  tenantId    String           @db.Char(36)
-  parentId    String?          @db.Char(36)
-  code        String           @db.VarChar(64)
-  name        String           @db.VarChar(128)
-  status      PermissionStatus @default(ACTIVE)
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
-  tenant      Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  parent      Organization?    @relation("OrganizationTree", fields: [parentId, tenantId], references: [id, tenantId], onDelete: Restrict)
-  children    Organization[]   @relation("OrganizationTree")
-  departments Department[]
-  users       User[]
+  id              String                        @id @default(uuid()) @db.Char(36)
+  tenantId        String                        @db.Char(36)
+  parentId        String?                       @db.Char(36)
+  code            String                        @db.VarChar(64)
+  name            String                        @db.VarChar(128)
+  status          PermissionStatus              @default(ACTIVE)
+  createdAt       DateTime                      @default(now())
+  updatedAt       DateTime                      @updatedAt
+  tenant          Tenant                        @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  parent          Organization?                 @relation("OrganizationTree", fields: [parentId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  children        Organization[]                @relation("OrganizationTree")
+  departments     Department[]
+  users           User[]
 
   @@unique([id, tenantId])
   @@unique([tenantId, code])
@@ -596,20 +668,20 @@ model Organization {
 
 model Department {
   elevatedTargets RoleElevatedDataScopeTarget[]
-  id             String           @id @default(uuid()) @db.Char(36)
-  tenantId       String           @db.Char(36)
-  organizationId String           @db.Char(36)
-  parentId       String?          @db.Char(36)
-  code           String           @db.VarChar(64)
-  name           String           @db.VarChar(128)
-  status         PermissionStatus @default(ACTIVE)
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
-  tenant         Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  organization   Organization     @relation(fields: [organizationId, tenantId], references: [id, tenantId], onDelete: Restrict)
-  parent         Department?      @relation("DepartmentTree", fields: [parentId, tenantId, organizationId], references: [id, tenantId, organizationId], onDelete: Restrict)
-  children       Department[]     @relation("DepartmentTree")
-  users          User[]
+  id              String                        @id @default(uuid()) @db.Char(36)
+  tenantId        String                        @db.Char(36)
+  organizationId  String                        @db.Char(36)
+  parentId        String?                       @db.Char(36)
+  code            String                        @db.VarChar(64)
+  name            String                        @db.VarChar(128)
+  status          PermissionStatus              @default(ACTIVE)
+  createdAt       DateTime                      @default(now())
+  updatedAt       DateTime                      @updatedAt
+  tenant          Tenant                        @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  organization    Organization                  @relation(fields: [organizationId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  parent          Department?                   @relation("DepartmentTree", fields: [parentId, tenantId, organizationId], references: [id, tenantId, organizationId], onDelete: Restrict)
+  children        Department[]                  @relation("DepartmentTree")
+  users           User[]
 
   @@unique([id, tenantId])
   @@unique([id, tenantId, organizationId])
@@ -621,12 +693,16 @@ model Department {
 
 enum ApprovalKind {
   ROLE_GRANT
+  ROLE_STATUS
   ROLE_PERMISSIONS
   API_ROUTE_CHANGE
   API_CREATE
   API_UPDATE
-  API_STATUS
+  API_ENABLE
+  API_DISABLE
   API_DELETE
+  PAGE_ENABLE
+  PAGE_DISABLE
   PAGE_ROUTE_CHANGE
   ELEVATED_SCOPE
   ROLE_REVOKE
@@ -640,36 +716,59 @@ enum ApprovalStatus {
   APPROVED
   EXECUTED
   REVIEWED
+  CANCELLED
 }
 
 // Immutable typed payload, public UUID actors, deliberately no foreign keys.
 model ApprovalRequest {
-  id          String         @id @default(uuid()) @db.Char(36)
-  requestNo   String         @unique @db.VarChar(20)
-  kind        ApprovalKind
-  status      ApprovalStatus @default(REQUESTED)
-  payload     Json
-  reason      String         @db.VarChar(255)
-  expiresAt   DateTime
-  applicantId String         @db.Char(36)
-  applicantDisplayName String? @db.VarChar(128)
-  approverId  String?        @db.Char(36)
-  approverDisplayName String? @db.VarChar(128)
-  executorId  String?        @db.Char(36)
-  executorDisplayName String? @db.VarChar(128)
-  reviewerId  String?        @db.Char(36)
-  reviewerDisplayName String? @db.VarChar(128)
-  approvedAt  DateTime?
-  executedAt  DateTime?
-  reviewedAt  DateTime?
-  approvalNote String?       @db.VarChar(255)
-  executionNote String?      @db.VarChar(255)
-  reviewNote  String?        @db.VarChar(255)
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
+  id                   String         @id @default(uuid()) @db.Char(36)
+  requestNo            String         @unique @db.VarChar(20)
+  kind                 ApprovalKind
+  status               ApprovalStatus @default(REQUESTED)
+  payload              Json
+  reason               String         @db.VarChar(255)
+  expiresAt            DateTime
+  applicantId          String         @db.Char(36)
+  applicantDisplayName String?        @db.VarChar(128)
+  approverId           String?        @db.Char(36)
+  approverDisplayName  String?        @db.VarChar(128)
+  executorId           String?        @db.Char(36)
+  executorDisplayName  String?        @db.VarChar(128)
+  reviewerId           String?        @db.Char(36)
+  reviewerDisplayName  String?        @db.VarChar(128)
+  approvedAt           DateTime?
+  executedAt           DateTime?
+  reviewedAt           DateTime?
+  approvalNote         String?        @db.VarChar(255)
+  executionNote        String?        @db.VarChar(255)
+  reviewNote           String?        @db.VarChar(255)
+  cancelledAt          DateTime?
+  cancellerId          String?        @db.Char(36)
+  cancellerDisplayName String?        @db.VarChar(128)
+  cancellationNote     String?        @db.VarChar(255)
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
 
   @@index([status, createdAt])
   @@index([applicantId, createdAt])
   @@index([expiresAt])
   @@map("sys_approval_request")
+}
+
+// Short-lived, actor-bound references used by the controlled-approval form.
+// The raw target UUID is never accepted from the browser as an authority.
+model ApprovalTargetRef {
+  id          String       @id @default(uuid()) @db.Char(36)
+  tokenHash   String       @unique @db.Char(64)
+  actorUserId String       @db.Char(36)
+  kind        ApprovalKind
+  targetType  String       @db.VarChar(16)
+  targetId    String       @db.Char(36)
+  expiresAt   DateTime
+  usedAt      DateTime?
+  createdAt   DateTime     @default(now())
+
+  @@index([actorUserId, expiresAt])
+  @@index([expiresAt])
+  @@map("sys_approval_target_ref")
 }

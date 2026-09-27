@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common'
+import { PageNodeType } from '@prisma/client'
 import { PermissionService } from '../services/permission.service.js'
 import type { MutationContext } from '../services/permission.service.js'
 
@@ -20,7 +21,7 @@ const api = {
   path: '/api/v1/orders',
   resource: 'order',
   action: 'read',
-  requiredRoleType: 'BUSINESS',
+  roleTypes: [{ roleType: 'BUSINESS' }],
 }
 const page = {
   id: 'page',
@@ -30,6 +31,7 @@ const page = {
   parentId: null as string | null,
   permissionId: 'page-permission',
   status: 'ACTIVE',
+  nodeType: PageNodeType.PAGE as PageNodeType,
 }
 const button = {
   id: 'button',
@@ -271,7 +273,7 @@ describe('PermissionService security boundaries', () => {
 
   it('allows an acyclic parent change and records the original parent', async () => {
     const f = fixture()
-    f.state().pages.push({ ...page, id: 'new-parent' })
+    f.state().pages.push({ ...page, id: 'new-parent', nodeType: PageNodeType.DIRECTORY })
     await f.service.updateFunction('page', { parentId: 'new-parent' }, req)
     expect(f.state().pages[0].parentId).toBe('new-parent')
     expect(f.tx.auditLog.create).toHaveBeenCalledWith({
@@ -289,7 +291,7 @@ describe('PermissionService security boundaries', () => {
     const error = { code: 'P2002', meta: { target } }
     if (target === 'route') {
       f.tx.systemFunction.create.mockRejectedValue(error)
-      await expect(f.service.createFunction({ code: 'page.new', name: 'New', route: '/orders' }, req)).rejects.toBeInstanceOf(
+      await expect(f.service.createFunction({ code: 'page.new', name: 'New', route: '/orders', component: 'orders/index' }, req)).rejects.toBeInstanceOf(
         ConflictException
       )
       expect(f.state().apis).toEqual([api])
@@ -310,6 +312,33 @@ describe('PermissionService security boundaries', () => {
       ).rejects.toBeInstanceOf(ConflictException)
     }
     expect(f.lifecycle.commits).toBe(0)
+  })
+
+  it('joins a child page route with its directory route', async () => {
+    const f = fixture()
+    f.state().pages.push({
+      id: 'business-directory',
+      code: 'business',
+      name: '业务目录',
+      route: '/business',
+      parentId: null,
+      permissionId: null as any,
+      status: 'ACTIVE',
+      nodeType: PageNodeType.DIRECTORY,
+    })
+    await f.service.createFunction(
+      {
+        name: '订单管理',
+        route: '/order-manage',
+        component: 'business/order-manage/index',
+        parentId: 'business-directory',
+      },
+      req
+    )
+    expect(f.state().pages.at(-1)).toMatchObject({
+      route: '/business/order-manage',
+      code: 'page.business.order-manage',
+    })
   })
 
   it.each(['functionApi', 'buttonApi', 'rolePermission'] as const)(

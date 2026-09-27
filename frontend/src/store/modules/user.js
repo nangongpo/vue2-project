@@ -1,10 +1,10 @@
 import { completeLogin, login, getInfo as fetchUserInfo, logout } from '@/api/user'
 import { resetRouter } from '@/router'
-import { getOptions } from '@/utils/options'
 
 const state = {
   menu_list: [],
   user_info: {},
+  // Kept as an empty compatibility object for shared form components.
   all_options: {},
   login_info_pending: false,
   authenticated: false,
@@ -20,19 +20,6 @@ const mutations = {
   },
   SET_MENU_LIST: (state, menu_list) => {
     state.menu_list = menu_list
-  },
-  SET_ALL_OPTIONS: (state, allOptions = {}) => {
-    const newOptions = {}
-    const defaultOptions = getOptions()
-    for (const key in allOptions) {
-      if (Array.isArray(allOptions[key])) {
-        const [property] = key.split('_map')
-        newOptions[property] = allOptions[key]
-      } else {
-        newOptions[key] = allOptions[key]
-      }
-    }
-    state.all_options = { ...defaultOptions, ...newOptions }
   },
 }
 
@@ -62,16 +49,27 @@ const actions = {
 
     commit('SET_USER_INFO', user_info)
     commit('SET_MENU_LIST', menu_list)
-    commit('SET_ALL_OPTIONS')
-    return { menu_list }
+    return { menu_list, navigation: user_info.navigation || [] }
   },
   // user logout
   async logout({ dispatch }) {
-    await logout()
-    await dispatch('resetToken')
-    resetRouter()
-    // reset visited views and cached views
-    await dispatch('tagsView/delAllViews', null, { root: true })
+    // 服务端退出是尽力而为；即使接口不可用，也必须清理本地会话。
+    try {
+      await logout()
+    } catch (error) {
+      // logout() 已经负责展示请求错误，这里吞掉异常以保证调用方继续跳转登录页。
+      console.warn('服务端退出接口调用失败，已清理本地登录状态', error)
+    } finally {
+      await dispatch('resetToken')
+      resetRouter()
+      // reset visited views and cached views
+      try {
+        await dispatch('tagsView/delAllViews', null, { root: true })
+      } catch (error) {
+        // 标签缓存清理失败不应阻止退出登录跳转。
+        console.warn('退出时清理标签缓存失败', error)
+      }
+    }
   },
   // remove token
   resetToken({ commit }) {

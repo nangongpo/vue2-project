@@ -60,7 +60,7 @@ export const BUTTON_FIELD_PERMISSIONS = BUTTON_FIELD_POLICIES.flatMap((policy) =
 ])
 
 function hasPermission(permissionCodes: readonly string[], code: string) {
-  return permissionCodes.includes('*') || permissionCodes.includes(code)
+  return permissionCodes.includes(code)
 }
 
 export function hasAnyButtonFieldPermission(permissionCodes: readonly string[]) {

@@ -1,6 +1,6 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
+import { BadRequestException, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common'
 import { AuditResult, Prisma, RiskLevel } from '@prisma/client'
-import { createHash, randomUUID } from 'node:crypto'
+import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto'
 import { PrismaService } from '../../database/prisma.service.js'
 import { API_CODE } from '../../common/constants/api-code.js'
 import { normalizePagination, paginationData } from '../../common/pagination.js'
@@ -20,10 +20,21 @@ const canonicalize = (value: unknown): unknown => {
   return value
 }
 
-const integrityHash = (input: Record<string, unknown>) =>
-  createHash('sha256')
+const integrityHash = (input: Record<string, unknown>) => {
+  const secret = process.env.AUDIT_INTEGRITY_SECRET
+  if (!secret || secret.length < 32)
+    throw new ServiceUnavailableException('审计完整性密钥未配置或长度不足')
+  return createHmac('sha256', secret)
     .update(JSON.stringify(canonicalize(input)))
     .digest('hex')
+}
+
+const equalDigest = (left: string | null, right: string) => {
+  if (!left || !/^[a-f0-9]{64}$/i.test(left)) return false
+  const received = Buffer.from(left, 'hex')
+  const expected = Buffer.from(right, 'hex')
+  return received.length === expected.length && timingSafeEqual(received, expected)
+}
 
 @Injectable()
 export class AuditService {
@@ -130,7 +141,6 @@ export class AuditService {
           statusCode: true,
           ip: true,
           userAgent: true,
-          integrityHash: true,
           createdAt: true,
           actor: { select: { userId: true, username: true, displayName: true } },
         },
@@ -156,7 +166,6 @@ export class AuditService {
         ip: true,
         userAgent: true,
         detail: true,
-        integrityHash: true,
         createdAt: true,
         actor: { select: { userId: true, username: true, displayName: true } },
       },
@@ -173,7 +182,11 @@ export class AuditService {
     return {
       code: API_CODE.SUCCESS,
       message: 'success',
-      data: { id, valid: storedHash !== null && storedHash === expectedHash },
+      data: {
+        id,
+        valid: equalDigest(storedHash, expectedHash),
+        algorithm: 'HMAC-SHA256',
+      },
     }
   }
 
@@ -212,7 +225,6 @@ export class AuditService {
         result: true,
         statusCode: true,
         ip: true,
-        integrityHash: true,
         createdAt: true,
         actor: { select: { userId: true, username: true } },
       },

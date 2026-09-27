@@ -10,6 +10,7 @@ lerna-debug.log*
 .pnpm-store
 node_modules
 dist
+coverage
 frontend/certs
 backend/.env
 backend/.env.production

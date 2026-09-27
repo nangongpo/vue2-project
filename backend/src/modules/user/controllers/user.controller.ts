@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   Body,
   Controller,
   Get,
@@ -31,6 +30,7 @@ import { DataFieldSecurity } from '../../../common/decorators/data-field-securit
 import { UserService } from '../services/user.service.js'
 import { actorFrom } from '../../role/domain/authorization.js'
 import type { ActorRequest } from '../../role/domain/authorization.js'
+import { PaginationQueryDto } from '../../../common/dto/pagination.dto.js'
 
 export class CreateUserDto {
   /** 登录账号。 */
@@ -58,9 +58,9 @@ export class AssignRolesDto extends ReasonDto {
   @IsOptional() @IsDateString() expiresAt?: string
 }
 
-export class UserStatusDto extends ReasonDto {
-  /** 用户状态。 */
-  @IsIn(['ACTIVE', 'DISABLED']) status!: 'ACTIVE' | 'DISABLED'
+class UserQueryDto extends PaginationQueryDto {
+  @IsOptional() @IsString() @MaxLength(64) keyword = ''
+  @IsOptional() @IsIn(['ACTIVE', 'LOCKED', 'DISABLED']) status?: 'ACTIVE' | 'LOCKED' | 'DISABLED'
 }
 
 class ResetPasswordDto {
@@ -76,30 +76,8 @@ export class UserController {
   @Get()
   @RequirePermissions('system.user.read')
   @DataFieldSecurity('system.user')
-  page(
-    @Query('keyword') keyword = '',
-    @Query('status') status?: 'ACTIVE' | 'LOCKED' | 'DISABLED',
-    @Query('page') rawPage = '1',
-    @Query('pageSize') rawPageSize = '20'
-  ) {
-    const page = Number(rawPage)
-    const pageSize = Number(rawPageSize)
-    if (
-      !Number.isInteger(page) ||
-      page < 1 ||
-      !Number.isInteger(pageSize) ||
-      pageSize < 1 ||
-      pageSize > 100
-    ) {
-      throw new BadRequestException('分页参数必须是有效整数，pageSize 最大为 100')
-    }
-    if (status && !['ACTIVE', 'LOCKED', 'DISABLED'].includes(status)) {
-      throw new BadRequestException('用户状态参数无效')
-    }
-    if (typeof keyword !== 'string' || keyword.length > 64) {
-      throw new BadRequestException('关键词长度不能超过 64 个字符')
-    }
-    return this.users.page({ keyword, status, page, pageSize })
+  page(@Query() query: UserQueryDto) {
+    return this.users.page(query)
   }
 
   @Post()
@@ -121,7 +99,7 @@ export class UserController {
   }
 
   @Patch(':id/roles')
-  @RequirePermissions('system.user.grant', 'system.role.revoke')
+  @RequirePermissions('system.user.grant')
   roles(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() body: AssignRolesDto,
@@ -130,14 +108,16 @@ export class UserController {
     return this.users.roles(id, body, actorFrom(request))
   }
 
-  @Patch(':id/status')
+  @Patch(':id/enable')
+  @RequirePermissions('system.user.enable')
+  enable(@Param('id', ParseUUIDPipe) id: string, @Body() body: ReasonDto, @Req() request: ActorRequest) {
+    return this.users.enable(id, body.reason, actorFrom(request))
+  }
+
+  @Patch(':id/disable')
   @RequirePermissions('system.user.disable')
-  status(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body() body: UserStatusDto,
-    @Req() request: ActorRequest
-  ) {
-    return this.users.status(id, body, actorFrom(request))
+  disable(@Param('id', ParseUUIDPipe) id: string, @Body() body: ReasonDto, @Req() request: ActorRequest) {
+    return this.users.disable(id, body.reason, actorFrom(request))
   }
 
   @Post(':id/unlock')

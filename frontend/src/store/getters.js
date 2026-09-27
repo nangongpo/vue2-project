@@ -7,8 +7,8 @@ const getters = {
   menu_list: (state) => state.user.menu_list,
   permission_routes: (state) => state.permission.routes,
   userInfo: (state) => state.user.user_info,
-  loginInfoPending: (state) => state.user.login_info_pending,
   allOptions: (state) => state.user.all_options,
+  loginInfoPending: (state) => state.user.login_info_pending,
   errorLogs: (state) => state.errorLog.logs,
 }
 export default getters

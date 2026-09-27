@@ -14,6 +14,8 @@ import { OpsTicketController } from './controllers/ops-ticket.controller.js'
 import { OpsTicketService } from './services/ops-ticket.service.js'
 import { DataFieldController } from './controllers/data-field.controller.js'
 import { DataFieldService } from './services/data-field.service.js'
+import { DataResourceController } from './controllers/data-resource.controller.js'
+import { DataResourceService } from './services/data-resource.service.js'
 
 /** 权限管理模块：维护功能、接口、按钮及其关联关系。 */
 @Module({
@@ -24,6 +26,7 @@ import { DataFieldService } from './services/data-field.service.js'
     DataScopeController,
     OpsTicketController,
     DataFieldController,
+    DataResourceController,
   ],
   providers: [
     {
@@ -55,6 +58,11 @@ import { DataFieldService } from './services/data-field.service.js'
     {
       provide: DataFieldService,
       useFactory: (prisma: PrismaService) => new DataFieldService(prisma),
+      inject: [PrismaService],
+    },
+    {
+      provide: DataResourceService,
+      useFactory: (prisma: PrismaService) => new DataResourceService(prisma),
       inject: [PrismaService],
     },
   ],

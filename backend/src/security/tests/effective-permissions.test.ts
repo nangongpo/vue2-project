@@ -9,7 +9,6 @@ const grant = (id: string, type: string, extra: Partial<Grant> = {}): Grant => (
   status: 'ACTIVE',
   method: type === 'API' ? 'GET' : null,
   path: type === 'API' ? `/api/v1/orders/${id}` : null,
-  requiredRoleType: 'BUSINESS',
   ...extra,
 })
 const grants = [
@@ -23,7 +22,9 @@ const pages = [
   { id: 'root-page', parentId: null, permissionId: 'root', status: 'ACTIVE' },
   { id: 'orders-page', parentId: 'root-page', permissionId: 'page', status: 'ACTIVE' },
 ]
-const buttons = [{ id: 'save-button', functionId: 'orders-page', permissionId: 'button', status: 'ACTIVE' }]
+const buttons = [
+  { id: 'save-button', functionId: 'orders-page', permissionId: 'button', status: 'ACTIVE' },
+]
 const pageApis = [{ functionId: 'orders-page', apiId: 'read' }]
 const buttonApis = [{ buttonId: 'save-button', apiId: 'write' }]
 const resolve = (selected = grants, pageRows = pages, buttonRows = buttons) =>
@@ -39,7 +40,9 @@ describe('effectivePermissions', () => {
   })
 
   it('explicit page and read API grants do not imply write access', () => {
-    expect(resolve(grants.filter((p) => ['root', 'page', 'read', 'write'].includes(p.id)))).toEqual(['root', 'page', 'read'])
+    expect(resolve(grants.filter((p) => ['root', 'page', 'read', 'write'].includes(p.id)))).toEqual(
+      ['root', 'page', 'read']
+    )
   })
 
   it('a button grant still requires an explicit API grant', () => {
@@ -50,31 +53,41 @@ describe('effectivePermissions', () => {
     expect(resolve()).toEqual(['root', 'page', 'button', 'read', 'write'])
   })
 
-  it('supports explicitly granted standalone APIs without a page binding', () => {
-    expect(resolve([grant('standalone', 'API')])).toEqual(['standalone'])
+  it('does not activate explicitly granted APIs without a page or button binding', () => {
+    expect(resolve([grant('standalone', 'API')])).toEqual([])
   })
 
-  it.each(['root', 'page'])('missing ancestor grant %s blocks all descendants and their APIs', (id) => {
-    expect(resolve(grants.filter((p) => p.id !== id))).toEqual(id === 'root' ? [] : ['root'])
-  })
-
-  it.each(['root-page', 'orders-page'])('disabled page %s blocks its descendants despite active permission records', (id) => {
-    expect(
-      resolve(
-        grants,
-        pages.map((p) => (p.id === id ? { ...p, status: 'DISABLED' } : p))
-      )
-    ).toEqual(id === 'root-page' ? [] : ['root'])
-  })
-
-  it.each(['root', 'page', 'button', 'read', 'write'])('disabled explicit permission %s is never effective', (id) => {
-    const effective = resolve(grants.map((p) => (p.id === id ? { ...p, status: 'DISABLED' } : p)))
-    expect(effective).not.toContain(id)
-    if (id === 'root' || id === 'page') {
-      for (const descendant of ['button', 'read', 'write']) expect(effective).not.toContain(descendant)
+  it.each(['root', 'page'])(
+    'missing ancestor grant %s blocks all descendants and their APIs',
+    (id) => {
+      expect(resolve(grants.filter((p) => p.id !== id))).toEqual(id === 'root' ? [] : ['root'])
     }
-    if (id === 'button') expect(effective).not.toContain('write')
-  })
+  )
+
+  it.each(['root-page', 'orders-page'])(
+    'disabled page %s blocks its descendants despite active permission records',
+    (id) => {
+      expect(
+        resolve(
+          grants,
+          pages.map((p) => (p.id === id ? { ...p, status: 'DISABLED' } : p))
+        )
+      ).toEqual(id === 'root-page' ? [] : ['root'])
+    }
+  )
+
+  it.each(['root', 'page', 'button', 'read', 'write'])(
+    'disabled explicit permission %s is never effective',
+    (id) => {
+      const effective = resolve(grants.map((p) => (p.id === id ? { ...p, status: 'DISABLED' } : p)))
+      expect(effective).not.toContain(id)
+      if (id === 'root' || id === 'page') {
+        for (const descendant of ['button', 'read', 'write'])
+          expect(effective).not.toContain(descendant)
+      }
+      if (id === 'button') expect(effective).not.toContain('write')
+    }
+  )
 
   it('disabled buttons block writes but preserve separately granted page reads', () => {
     expect(
@@ -106,14 +119,21 @@ describe('effectivePermissions', () => {
   })
 
   it('retired wildcard and monolithic permissions never become effective', () => {
-    expect(resolve([grant('wildcard', 'API', { code: '*' }), grant('legacy', 'MANAGEMENT', { code: 'system.permission.manage' })])).toEqual(
-      []
-    )
+    expect(
+      resolve([
+        grant('wildcard', 'API', { code: '*' }),
+        grant('legacy', 'MANAGEMENT', { code: 'system.permission.manage' }),
+      ])
+    ).toEqual([])
   })
 
   it('rejects unknown resource types and incomplete API grants', () => {
     expect(
-      resolve([grant('unknown', 'UNKNOWN'), grant('methodless', 'API', { method: null }), grant('pathless', 'API', { path: null })])
+      resolve([
+        grant('unknown', 'UNKNOWN'),
+        grant('methodless', 'API', { method: null }),
+        grant('pathless', 'API', { path: null }),
+      ])
     ).toEqual([])
   })
 })

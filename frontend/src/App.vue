@@ -32,6 +32,9 @@ export default {
       securityStepUpContext: null,
       securityStepUpResolver: null,
       securityStepUpPromise: null,
+      sessionExpiryTimer: null,
+      sessionExpiryNotification: null,
+      sessionExpiryKey: '',
     }
   },
   computed: {
@@ -42,12 +45,21 @@ export default {
       )
     },
   },
-  created() {
+  mounted() {
     setSecurityStepUpHandler((context) => this.openSecurityStepUp(context))
+  },
+  watch: {
+    '$store.state.user.user_info.sessionExpiresAt': {
+      immediate: true,
+      handler(value) {
+        this.scheduleSessionExpiryNotice(value)
+      },
+    },
   },
   beforeDestroy() {
     setSecurityStepUpHandler(null)
     this.resolveSecurityStepUp(false)
+    this.clearSessionExpiryNotice()
   },
   methods: {
     openSecurityStepUp(context) {
@@ -89,8 +101,9 @@ export default {
       this.securityStepUpBusy = true
       this.securityStepUpError = ''
       try {
+        const renewSession = Boolean(this.securityStepUpContext?.renewSession)
         const result = await axiosPost(
-          '/auth/reauth',
+          renewSession ? '/auth/session/renew' : '/auth/reauth',
           {
             password: this.securityStepUpPassword,
             ...(this.securityStepUpMfaEnabled ? { otp: this.securityStepUpOtp } : {}),
@@ -107,6 +120,45 @@ export default {
       } finally {
         this.securityStepUpBusy = false
       }
+    },
+    clearSessionExpiryNotice() {
+      if (this.sessionExpiryTimer) clearTimeout(this.sessionExpiryTimer)
+      this.sessionExpiryTimer = null
+      if (this.sessionExpiryNotification) this.sessionExpiryNotification.close()
+      this.sessionExpiryNotification = null
+      this.sessionExpiryKey = ''
+    },
+    scheduleSessionExpiryNotice(value) {
+      if (this.sessionExpiryTimer) clearTimeout(this.sessionExpiryTimer)
+      this.sessionExpiryTimer = null
+      const expiry = Date.parse(value || '')
+      if (!Number.isFinite(expiry) || !this.$store.state.user.authenticated) return
+      const serverTime = Date.parse(this.$store.state.user.user_info.serverTime || '')
+      const clockOffset = Number.isFinite(serverTime) ? serverTime - Date.now() : 0
+      const remaining = expiry - (Date.now() + clockOffset)
+      if (remaining <= 0) return
+      const delay = Math.max(remaining - 5 * 60 * 1000, 1000)
+      const key = String(expiry)
+      this.sessionExpiryTimer = setTimeout(() => this.showSessionExpiryNotice(key), delay)
+    },
+    showSessionExpiryNotice(key) {
+      if (this.sessionExpiryKey === key || !this.$store.state.user.authenticated) return
+      this.sessionExpiryKey = key
+      this.sessionExpiryNotification = this.$notify({
+        title: '登录会话即将过期',
+        message: '会话将在 5 分钟后过期，点击此通知进行安全续签。',
+        type: 'warning',
+        duration: 0,
+        onClick: async () => {
+          this.sessionExpiryNotification?.close()
+          this.sessionExpiryNotification = null
+          await this.openSecurityStepUp({
+            renewSession: true,
+            riskLevel: '会话续签',
+            requiredFactors: this.$store.state.user.user_info.mfaEnabled ? ['PASSWORD', 'OTP'] : ['PASSWORD'],
+          })
+        },
+      })
     },
   },
 }

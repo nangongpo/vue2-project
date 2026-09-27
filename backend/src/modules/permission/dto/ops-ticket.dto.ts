@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer'
 import { IsBoolean, IsIn, IsISO8601, IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator'
+import { PaginationQueryDto } from '../../../common/dto/pagination.dto.js'
 
 const ticketTypes = ['MFA_RESET_EMERGENCY', 'DB_MANUAL_FIX', 'PERMISSION_RECOVERY', 'ACCOUNT_RECOVERY', 'OTHER'] as const
 const statuses = ['DRAFT', 'SUBMITTED', 'APPROVED', 'EXECUTED', 'REVIEWED', 'REJECTED', 'CANCELLED'] as const
@@ -45,12 +46,10 @@ export class PatchOpsTicketDto {
   @IsOptional() @IsString() @MaxLength(128) externalRef?: string
 }
 
-export class OpsTicketQueryDto {
+export class OpsTicketQueryDto extends PaginationQueryDto {
   @IsOptional() @IsIn(statuses) status?: (typeof statuses)[number]
   @IsOptional() @IsIn(ticketTypes) type?: OpsTicketTypeValue
   @IsOptional() @IsIn(risks) riskLevel?: (typeof risks)[number]
-  @Type(() => Number) @IsOptional() page = 1
-  @Type(() => Number) @IsOptional() pageSize = 20
 }
 
 export class OpsNoteDto {

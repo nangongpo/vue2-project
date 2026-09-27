@@ -108,3 +108,10 @@ pnpm lint:frontend
 - 登录、MFA 绑定、MFA 确认和重新认证均由 backend 校验。
 - 前后端接口使用标准 JSON 和 HttpOnly Cookie；生产环境必须使用 HTTPS，不能依赖前端加密伪装传输安全。
 - 不要在前端环境文件中放置数据库密码、Redis 密钥、验证码服务密钥或 MFA 加密密钥。
+
+
+sys_permission_role_type  表已添加， 先需要管理页面动态维护, 分配角色类别、绑定接口、字段权限等
+
+frontend/src/views/system/role/components/RolePermissionGrantDialog.vue
+
+样式不能使用 grid, 要兼容chrome49， 没用的样式直接删掉吧

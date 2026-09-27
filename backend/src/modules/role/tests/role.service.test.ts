@@ -9,7 +9,7 @@ const permission = {
   id: uuid,
   code: 'business.order.read',
   resource: 'order',
-  requiredRoleType: 'BUSINESS',
+  roleTypes: [{ roleType: 'BUSINESS' }],
   type: 'API',
   method: 'GET',
   path: '/api/v1/orders',
@@ -37,7 +37,10 @@ function fixture() {
       delete: vi.fn(),
     },
     permission: { findMany: vi.fn().mockResolvedValue([permission]) },
-    userRole: { findFirst: vi.fn().mockResolvedValue(null) },
+    userRole: {
+      findFirst: vi.fn().mockResolvedValue(null),
+      count: vi.fn().mockResolvedValue(0),
+    },
     rolePermission: {
       findMany: vi.fn().mockResolvedValue([]),
       updateMany: vi.fn(),
@@ -59,6 +62,7 @@ describe('RoleService', () => {
             id: 'r1',
             publicId: 'public-role-1',
             code: 'admin',
+            name: 'admin',
             permissions: [],
             _count: { users: 1 },
           },
@@ -66,19 +70,31 @@ describe('RoleService', () => {
       },
     }
     const result = await new RoleService(prisma as any).list()
-    expect(result).toMatchObject({ code: '000000', data: [{ code: 'admin' }] })
+    expect(result).toMatchObject({ code: '000000', data: [{ name: 'admin' }] })
+    expect(result.data[0]).not.toHaveProperty('code')
+    expect(result.data[0]).not.toHaveProperty('roleType')
+    expect(result.data[0]).not.toHaveProperty('status')
+    expect(result.data[0]).not.toHaveProperty('permissions')
+    expect(result.data[0]).not.toHaveProperty('permissionIds')
   })
 
   it('converts duplicate role codes to a conflict error', async () => {
     const { tx, service } = fixture()
     tx.role.create.mockRejectedValue({ code: 'P2002' })
-    await expect(service.create({ code: 'admin', name: 'Admin' }, actor)).rejects.toBeInstanceOf(ConflictException)
+    await expect(service.create({ name: 'Admin' }, actor)).rejects.toBeInstanceOf(ConflictException)
   })
 
   it('creates BUSINESS roles only and audits inside a serializable transaction', async () => {
     const { tx, prisma, service } = fixture()
-    await service.create({ code: 'operator', name: 'Operator' }, actor)
-    expect(tx.role.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ roleType: 'BUSINESS' }) }))
+    await service.create({ name: 'Operator' }, actor)
+    expect(tx.role.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          code: expect.stringMatching(/^role_[a-f0-9]{32}$/),
+          roleType: 'BUSINESS',
+        }),
+      })
+    )
     expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
       isolationLevel: 'Serializable',
     })
@@ -89,9 +105,9 @@ describe('RoleService', () => {
     )
   })
 
-  it.each(['roleType', 'permissionIds', 'status'])('rejects embedded %s for create and update', async (field) => {
+  it.each(['code', 'roleType', 'permissionIds', 'status'])('rejects embedded %s for create and update', async (field) => {
     const { tx, service } = fixture()
-    const input = { code: 'operator', name: 'Operator', [field]: [] }
+    const input = { name: 'Operator', [field]: [] }
     await expect(service.create(input, actor)).rejects.toBeInstanceOf(BadRequestException)
     await expect(service.update(uuid, input, actor)).rejects.toBeInstanceOf(BadRequestException)
     expect(tx.role.create).not.toHaveBeenCalled()
@@ -134,7 +150,7 @@ describe('RoleService', () => {
     { code: '*' },
     { code: 'system.permission.manage' },
     { status: 'DISABLED' },
-    { requiredRoleType: 'SECURITY' },
+    { roleTypes: [{ roleType: 'SECURITY' }] },
     { resource: 'user' },
     { resource: 'users' },
     { code: 'system.audit.export' },
@@ -162,7 +178,7 @@ describe('RoleService', () => {
     const { tx, service } = fixture()
     tx.role.findUniqueOrThrow.mockResolvedValue({ ...role, roleType })
     await expect(service.grants(uuid, { permissionIds: [], reason: 'Test' }, actor)).rejects.toBeInstanceOf(ForbiddenException)
-    await expect(service.update(uuid, { code: 'other', name: 'Other' }, actor)).rejects.toBeInstanceOf(ForbiddenException)
+    await expect(service.update(uuid, { name: 'Other' }, actor)).rejects.toBeInstanceOf(ForbiddenException)
   })
 
   it('rejects disabled target roles and nonexistent permissions', async () => {
@@ -204,5 +220,35 @@ describe('RoleService', () => {
       expect(() => grantInput([...ids], reason, expiry)).toThrow(BadRequestException)
     }
     expect(ordinaryPermission(permission)).toBe(true)
+  })
+
+  it('allows business approval pages and APIs while rejecting permission-management APIs', () => {
+    expect(
+      ordinaryPermission({
+        code: 'page.sales.order-manage',
+        resource: '/sales/order-manage',
+        type: 'PAGE',
+        method: null,
+        path: null,
+        status: 'ACTIVE',
+        roleTypes: [{ roleType: 'BUSINESS' }],
+      })
+    ).toBe(true)
+    expect(
+      ordinaryPermission({
+        ...permission,
+        code: 'system.approval.read',
+        resource: 'system.approval',
+        path: '/api/v1/permission/approvals',
+      })
+    ).toBe(true)
+    expect(
+      ordinaryPermission({
+        ...permission,
+        code: 'system.permission.read',
+        resource: 'system.permission',
+        path: '/api/v1/permission/apis',
+      })
+    ).toBe(false)
   })
 })

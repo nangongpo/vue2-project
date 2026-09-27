@@ -2,98 +2,53 @@
   <div class="page-container">
     <el-card shadow="never">
       <div class="toolbar">
-        <el-button v-permission="'system.role.create'" type="primary" @click="openForm()"
-          >新增角色</el-button
-        >
+        <el-button v-permission="'system.role.create'" type="primary" @click="openForm()">新增角色</el-button>
         <el-button v-permission="'system.role.read'" @click="loadRoles">刷新</el-button>
       </div>
       <el-alert v-if="loadError" :title="loadError" type="error" :closable="false" />
       <el-table v-loading="loading" :data="roles" border stripe>
-        <el-table-column prop="code" label="角色编码" min-width="150" />
-        <el-table-column prop="name" label="角色名称" min-width="150" />
-        <el-table-column label="角色类型" width="120"
-          ><template slot-scope="{ row }">{{ roleTypeLabel(row.roleType) }}</template></el-table-column
-        >
+        <el-table-column prop="name" label="角色名称" width="140" />
+        <el-table-column label="角色类型" width="100"><template slot-scope="{ row }">{{ row.roleTypeLabel
+            }}</template></el-table-column>
         <el-table-column prop="description" label="职责说明" min-width="180" />
-        <el-table-column label="状态" width="90"
-          ><template slot-scope="{ row }"
-            ><el-tag :type="row.status === 'ACTIVE' ? 'success' : 'info'">{{
-              row.status === 'ACTIVE' ? '启用' : '停用'
-            }}</el-tag></template
-          ></el-table-column
-        >
+        <el-table-column label="状态" width="70"><template slot-scope="{ row }"><el-tag
+              :type="row.isActive ? 'success' : 'info'">{{ row.statusLabel }}</el-tag></template></el-table-column>
         <el-table-column prop="userCount" label="用户数" width="80" />
-        <el-table-column label="操作" width="310"
-          ><template slot-scope="{ row }">
-            <el-button v-permission="'system.role.update'" type="text" @click="openForm(row)"
-              >编辑</el-button
-            >
-            <el-button
-              v-if="canGrant"
-              type="text"
-              :disabled="row.status !== 'ACTIVE' || row.roleType !== 'BUSINESS'"
-              @click="openGrants(row)"
-              >授权</el-button
-            >
-            <el-button
-              v-permission="'system.role.disable'"
-              type="text"
-              :disabled="saving"
-              @click="changeStatus(row)"
-              >{{ row.status === 'ACTIVE' ? '停用' : '启用' }}</el-button
-            >
-            <el-button v-permission="'system.data.read'" type="text" @click="openScopes(row)"
-              >数据范围</el-button
-            >
-            <el-button
-              v-permission="'system.role.delete'"
-              type="text"
-              :disabled="saving || row.roleType !== 'BUSINESS' || row.userCount > 0"
-              @click="remove(row)"
-              >删除</el-button
-            >
-          </template></el-table-column
-        >
+        <el-table-column label="操作" width="240" fixed="right"><template slot-scope="{ row }">
+            <el-button v-permission="'system.role.update'" type="text" :disabled="!row.capabilities?.canEdit" @click="openForm(row)">编辑</el-button>
+            <el-button v-if="canGrant" type="text" title="配置角色权限" :disabled="!row.capabilities?.canGrant"
+              @click="openGrants(row)">权限配置</el-button>
+            <el-button v-permission="row.isActive ? 'system.role.disable' : 'system.role.enable'" type="text" :disabled="saving" @click="changeStatus(row)">{{
+              row.isActive ? '停用' : '启用' }}</el-button>
+            <el-button v-permission="'system.data-scope.read'" type="text" @click="openScopes(row)">数据范围</el-button>
+            <el-button v-permission="'system.role.delete'" type="text" class="text-danger"
+              :disabled="saving || !row.capabilities?.canDelete || row.userCount > 0" @click="remove(row)">删除</el-button>
+          </template></el-table-column>
       </el-table>
     </el-card>
-    <el-dialog
-      :title="editingId ? '编辑角色' : '新增角色'"
-      :visible.sync="dialogVisible"
-      width="480px"
+    <el-dialog :title="editingId ? '编辑角色' : '新增角色'" :visible.sync="dialogVisible" width="480px"
       :close-on-click-modal="false">
       <el-form ref="roleForm" :model="form" :rules="rules" label-width="90px">
-        <el-form-item label="角色编码" prop="code"
-          ><el-input v-model.trim="form.code" maxlength="64"
-        /></el-form-item>
-        <el-form-item label="角色名称" prop="name"
-          ><el-input v-model.trim="form.name" maxlength="128"
-        /></el-form-item>
-        <el-form-item label="职责说明"
-          ><el-input v-model.trim="form.description" type="textarea" maxlength="255"
-        /></el-form-item>
+        <el-form-item label="角色名称" prop="name"><el-input v-model.trim="form.name" maxlength="128" /></el-form-item>
+        <el-form-item label="职责说明"><el-input v-model.trim="form.description" type="textarea"
+            maxlength="255" /></el-form-item>
       </el-form>
-      <span slot="footer"
-        ><el-button @click="dialogVisible = false">取消</el-button
-        ><el-button type="primary" :loading="saving" @click="submitRole">保存</el-button></span
-      >
+      <span slot="footer"><el-button @click="dialogVisible = false">取消</el-button><el-button type="primary"
+          :loading="saving" @click="submitRole">保存</el-button></span>
     </el-dialog>
-    <permission-grant-dialog
-      :visible.sync="grantsVisible"
-      :target="grantTarget"
-      kind="role"
-      @saved="loadRoles" />
+    <role-permission-grant-dialog :visible.sync="grantsVisible" :role="grantTarget" @saved="handleGrantsSaved" />
     <role-data-scope-dialog :visible.sync="scopesVisible" :role="scopeRole" />
   </div>
 </template>
 
 <script>
-import { createRole, deleteRole, getRoles, updateRole, setRoleStatus } from '@/api/admin'
-import PermissionGrantDialog from '@/components/PermissionGrantDialog/index.vue'
-import RoleDataScopeDialog from '@/components/RoleDataScopeDialog/index.vue'
+import { createRole, deleteRole, getRoles, updateRole, enableRole, disableRole } from '@/api/admin'
+import RolePermissionGrantDialog from './components/RolePermissionGrantDialog.vue'
+import RoleDataScopeDialog from './components/RoleDataScopeDialog.vue'
 import { requiredText, requestReason } from '../permission/utils'
 export default {
   name: 'SystemRole',
-  components: { PermissionGrantDialog, RoleDataScopeDialog },
+  components: { RolePermissionGrantDialog, RoleDataScopeDialog },
   data() {
     return {
       loading: false,
@@ -106,16 +61,15 @@ export default {
       grantTarget: null,
       scopesVisible: false,
       scopeRole: null,
-      form: { code: '', name: '', description: '' },
+      form: { name: '', description: '' },
       rules: {
-        code: [...requiredText('角色编码'), { min: 2, message: '至少 2 个字符', trigger: 'blur' }],
         name: requiredText('角色名称'),
       },
     }
   },
   computed: {
     canGrant() {
-      return ['system.role.grant', 'system.role.revoke', 'system.role.options'].every(this.can)
+      return ['system.role.grant', 'system.role.grants.read', 'system.role.options'].every(this.can)
     },
   },
   created() {
@@ -128,15 +82,7 @@ export default {
     },
     can(code) {
       const codes = this.$store.getters.menu_list || []
-      return codes.includes(code) || codes.includes('*')
-    },
-    roleTypeLabel(type) {
-      return {
-        BUSINESS: '业务管理员',
-        SYSTEM: '系统管理员',
-        SECURITY: '安全管理员',
-        AUDIT: '审计管理员',
-      }[type] || type
+      return codes.includes(code)
     },
     async loadRoles() {
       if (!this.can('system.role.read')) {
@@ -146,7 +92,8 @@ export default {
       this.loading = true
       this.loadError = ''
       try {
-        this.roles = (await getRoles()) || []
+      this.roles = (await getRoles()) || []
+      return this.roles
       } catch (error) {
         this.roles = []
         this.loadError = error.message || '角色加载失败'
@@ -154,11 +101,32 @@ export default {
         this.loading = false
       }
     },
+    async handleGrantsSaved() {
+      const roles = (await this.loadRoles()) || []
+      const role = roles.find((item) => item.roleId === this.grantTarget?.roleId)
+      const userCount = Number(role?.userCount || 0)
+      if (userCount > 0) {
+        this.$message.success('权限已对 ' + userCount + ' 个用户生效')
+        return
+      }
+      const goToUsers = await this.$confirm(
+        '角色暂无绑定用户，请先在用户管理中分配角色。',
+        '权限配置完成',
+        {
+          type: 'info',
+          confirmButtonText: '前往用户管理',
+          cancelButtonText: '稍后处理',
+        }
+      )
+        .then(() => true)
+        .catch(() => false)
+      if (goToUsers) this.$router.push('/system/user')
+    },
     openForm(role) {
       this.editingId = role?.roleId || null
       this.form = role
-        ? { code: role.code, name: role.name, description: role.description || '' }
-        : { code: '', name: '', description: '' }
+        ? { name: role.name, description: role.description || '' }
+        : { name: '', description: '' }
       this.dialogVisible = true
       this.$nextTick(() => this.$refs.roleForm?.clearValidate())
     },
@@ -172,9 +140,9 @@ export default {
       if (!(await this.$refs.roleForm.validate().catch(() => false))) return
       this.saving = true
       try {
-        const { code, name, description } = this.form
-        if (this.editingId) await updateRole(this.editingId, { code, name, description })
-        else await createRole({ code, name, description })
+        const { name, description } = this.form
+        if (this.editingId) await updateRole(this.editingId, { name, description })
+        else await createRole({ name, description })
         this.dialogVisible = false
         this.$message.success('角色已保存')
         await this.loadRoles()
@@ -185,8 +153,9 @@ export default {
       }
     },
     async changeStatus(role) {
-      if (this.saving || !this.can('system.role.disable')) return
-      const status = role.status === 'ACTIVE' ? 'DISABLED' : 'ACTIVE'
+      const status = role.isActive ? 'DISABLED' : 'ACTIVE'
+      const permission = role.isActive ? 'system.role.disable' : 'system.role.enable'
+      if (this.saving || !this.can(permission)) return
       const reason = await requestReason(
         this,
         (status === 'DISABLED' ? '停用' : '启用') + '角色“' + role.name + '”',
@@ -195,7 +164,8 @@ export default {
       if (!reason) return
       this.saving = true
       try {
-        await setRoleStatus(role.roleId, { status, reason })
+        if (role.isActive) await disableRole(role.roleId, reason)
+        else await enableRole(role.roleId, reason)
         this.$message.success('角色状态已更新')
         await this.loadRoles()
       } catch {
@@ -233,6 +203,7 @@ export default {
 .page-container {
   padding: 20px;
 }
+
 .toolbar,
 .el-alert {
   margin-bottom: 16px;

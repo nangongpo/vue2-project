@@ -38,7 +38,9 @@ export const DATA_FIELD_DEFINITIONS: readonly DataFieldDefinition[] = [
     riskLevel: 'L1',
     writable: true,
   },
-  { resource: 'system.user', field: 'status', name: '状态', dataType: 'enum', riskLevel: 'L3' },
+  { resource: 'system.user', field: 'statusLabel', name: '用户状态', dataType: 'string', riskLevel: 'L1' },
+  { resource: 'system.user', field: 'isActive', name: '是否启用', dataType: 'boolean', riskLevel: 'L1' },
+  { resource: 'system.user', field: 'isLocked', name: '是否锁定', dataType: 'boolean', riskLevel: 'L2' },
   {
     resource: 'system.user',
     field: 'failedLogins',
@@ -69,6 +71,13 @@ export const DATA_FIELD_DEFINITIONS: readonly DataFieldDefinition[] = [
     relationModel: 'Role',
     relationField: 'role',
     riskLevel: 'L2',
+  },
+  {
+    resource: 'system.user',
+    field: 'needsRoleApproval',
+    name: '角色分配审批标记',
+    dataType: 'boolean',
+    riskLevel: 'L3',
   },
   {
     resource: 'system.user',
@@ -116,7 +125,7 @@ export const DATA_FIELD_DEFINITIONS: readonly DataFieldDefinition[] = [
     dataType: 'enum',
     riskLevel: 'L3',
   },
-  { resource: 'system.role', field: 'status', name: '角色状态', dataType: 'enum', riskLevel: 'L3' },
+  { resource: 'system.role', field: 'statusLabel', name: '角色状态', dataType: 'string', riskLevel: 'L1' },
   {
     resource: 'system.role',
     field: 'createdAt',
@@ -131,6 +140,22 @@ export const DATA_FIELD_DEFINITIONS: readonly DataFieldDefinition[] = [
     dataType: 'number',
     riskLevel: 'L2',
   },
+  {
+    resource: 'system.role',
+    field: 'roleTypeLabel',
+    name: '角色类别名称',
+    dataType: 'string',
+    riskLevel: 'L1',
+  },
+  {
+    resource: 'system.role',
+    field: 'statusLabel',
+    name: '角色状态名称',
+    dataType: 'string',
+    riskLevel: 'L1',
+  },
+  { resource: 'system.role', field: 'isActive', name: '是否启用', dataType: 'boolean', riskLevel: 'L1' },
+  { resource: 'system.role', field: 'capabilities', name: '角色操作能力', dataType: 'object', riskLevel: 'L2' },
   {
     resource: 'system.role',
     field: 'permissionIds',
@@ -164,7 +189,8 @@ export const DATA_FIELD_DEFINITIONS: readonly DataFieldDefinition[] = [
     riskLevel: 'L1',
   },
   { resource: 'system.api', field: 'path', name: '请求路径', dataType: 'string', riskLevel: 'L2' },
-  { resource: 'system.api', field: 'status', name: '接口状态', dataType: 'enum', riskLevel: 'L3' },
+  { resource: 'system.api', field: 'statusLabel', name: '接口状态', dataType: 'string', riskLevel: 'L1' },
+  { resource: 'system.api', field: 'isActive', name: '是否启用', dataType: 'boolean', riskLevel: 'L1' },
   { resource: 'system.api', field: 'type', name: '权限类型', dataType: 'enum', riskLevel: 'L2' },
   {
     resource: 'system.api',
@@ -465,13 +491,6 @@ export const DATA_FIELD_DEFINITIONS: readonly DataFieldDefinition[] = [
   },
   {
     resource: 'system.permission',
-    field: 'requiredRoleType',
-    name: '要求角色类型',
-    dataType: 'enum',
-    riskLevel: 'L3',
-  },
-  {
-    resource: 'system.permission',
     field: 'status',
     name: '权限状态',
     dataType: 'enum',
@@ -518,6 +537,13 @@ export const DATA_FIELD_DEFINITIONS: readonly DataFieldDefinition[] = [
     name: '审批类型',
     dataType: 'enum',
     riskLevel: 'L2',
+  },
+  {
+    resource: 'system.approval',
+    field: 'kindLabel',
+    name: '审批类型名称',
+    dataType: 'string',
+    riskLevel: 'L1',
   },
   {
     resource: 'system.approval',

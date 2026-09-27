@@ -100,4 +100,25 @@ export class MfaController {
     const data = await this.mfa.reauthenticate(request.user.internalId, body.password, body.otp, request.authToken)
     return { code: API_CODE.SUCCESS, message: 'success', data }
   }
+
+  @Post('session/renew')
+  @HttpCode(HttpStatus.OK)
+  @AuditAction('auth.session.renew')
+  async renewSession(
+    @Body() body: ReauthenticateDto,
+    @Req() request: AuthRequest,
+    @Res({ passthrough: true }) response: FastifyReply
+  ) {
+    assertSameOrigin(request)
+    if (request.authCookie === PREAUTH_COOKIE) throw new UnauthorizedException('临时登录状态不能续签')
+    const data = await this.mfa.reauthenticate(
+      request.user.internalId,
+      body.password,
+      body.otp,
+      request.authToken,
+      true
+    )
+    response.setCookie(SESSION_COOKIE, request.authToken!, sessionCookieOptions(Number(process.env.SESSION_TTL_SECONDS || 28800)))
+    return { code: API_CODE.SUCCESS, message: 'success', data }
+  }
 }

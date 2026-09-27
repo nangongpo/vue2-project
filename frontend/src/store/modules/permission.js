@@ -1,45 +1,59 @@
 import { constantRoutes, asyncRoutes } from '@/router/auto-router'
 
-/**
- * Use meta.role to determine if the current user has permission
- * @param roles
- * @param route
- */
-function hasPermission(menu_list, route) {
-  if (menu_list.includes('*')) return true
-  if (route.children && route.children.length) {
-    const childrenName = route.children.filter((v) => hasPermission(menu_list, v))
-    return childrenName.length > 0
-  } else {
-    return (
-      route.meta?.authenticatedOnly === true ||
-      (route.meta && route.meta.permission && menu_list.includes(route.meta.permission)) ||
-      route.hidden
-    )
-  }
+function routePath(route) {
+  return route.meta && route.meta.routePath
 }
 
-/**
- * Filter asynchronous routing tables by recursion
- * @param routes asyncRoutes
- * @param roles
- */
-export function filterAsyncRoutes(routes, menu_list) {
-  const res = []
+function canEnter(navigationPaths, route) {
+  if (route.children && route.children.length) {
+    return route.children.some((child) => canEnter(navigationPaths, child))
+  }
+  if (route.hidden) {
+    const path = routePath(route)
+    return !path || navigationPaths.some((item) => path === item || path.startsWith(item + '/'))
+  }
+  return navigationPaths.includes(routePath(route))
+}
+
+function applyNavigation(route, navigationMap) {
+  const item = navigationMap.get(routePath(route))
+  if (!item) return route
+  const meta = { ...route.meta, title: item.title }
+  if (item.icon) meta.icon = item.icon
+  const next = { ...route, meta }
+  if (item.props !== null && item.props !== undefined) next.props = item.props
+  return next
+}
+
+function sortByNavigation(routes, navigation) {
+  if (!navigation.length) return routes
+  const order = new Map(navigation.map((item, index) => [item.path, index]))
+  return routes
+    .map((route, index) => ({ route, index }))
+    .sort((a, b) => {
+      const aOrder = order.get(routePath(a.route))
+      const bOrder = order.get(routePath(b.route))
+      if (aOrder === undefined && bOrder === undefined) return a.index - b.index
+      if (aOrder === undefined) return 1
+      if (bOrder === undefined) return -1
+      return aOrder - bOrder || a.index - b.index
+    })
+    .map(({ route }) => route)
+}
+
+export function filterAsyncRoutes(routes, navigation = []) {
+  const navigationPaths = navigation.map((item) => item.path)
+  const navigationMap = new Map(navigation.map((item) => [item.path, item]))
+  const filtered = []
 
   routes.forEach((route) => {
-    const tmp = { ...route }
-    if (hasPermission(menu_list, tmp)) {
-      if (tmp.children) {
-        tmp.children = filterAsyncRoutes(tmp.children, menu_list)
-      }
-      res.push(tmp)
-    }
+    const current = applyNavigation({ ...route }, navigationMap)
+    if (!canEnter(navigationPaths, current)) return
+    if (current.children) current.children = filterAsyncRoutes(current.children, navigation)
+    filtered.push(current)
   })
 
-  return res
-  // 去除权限的限制
-  // return routes
+  return sortByNavigation(filtered, navigation)
 }
 
 const state = {
@@ -55,13 +69,10 @@ const mutations = {
 }
 
 const actions = {
-  generateRoutes({ commit }, menu_list) {
-    return new Promise((resolve) => {
-      const accessedRoutes = filterAsyncRoutes(asyncRoutes, menu_list)
-
-      commit('SET_ROUTES', accessedRoutes)
-      resolve(accessedRoutes)
-    })
+  generateRoutes({ commit }, { navigation = [] }) {
+    const accessedRoutes = filterAsyncRoutes(asyncRoutes, navigation)
+    commit('SET_ROUTES', accessedRoutes)
+    return Promise.resolve(accessedRoutes)
   },
 }
 

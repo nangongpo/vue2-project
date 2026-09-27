@@ -1,4 +1,10 @@
-type Page = { id: string; parentId: string | null; permissionId: string | null; status: string }
+type Page = {
+  id: string
+  parentId: string | null
+  permissionId: string | null
+  nodeType?: string
+  status: string
+}
 type Button = { id: string; functionId: string; permissionId: string | null; status: string }
 type Grant = {
   id: string
@@ -7,10 +13,9 @@ type Grant = {
   status: string
   method: string | null
   path: string | null
-  requiredRoleType: string
 }
 
-/** Explicit grants are prerequisites; bindings never manufacture grants. */
+/** API grants are prerequisites; a page or button binding is also mandatory. */
 export function effectivePermissions(
   grants: Grant[],
   pages: Page[],
@@ -30,11 +35,10 @@ export function effectivePermissions(
       if (visited.has(cursor)) return false
       visited.add(cursor)
       const page: Page | undefined = pageMap.get(cursor)
+      if (!page || page.status !== 'ACTIVE') return false
       if (
-        !page ||
-        page.status !== 'ACTIVE' ||
-        !page.permissionId ||
-        !granted.has(page.permissionId)
+        page.nodeType !== 'DIRECTORY' &&
+        (!page.permissionId || !granted.has(page.permissionId))
       )
         return false
       cursor = page.parentId
@@ -62,7 +66,9 @@ export function effectivePermissions(
     if (p.type !== 'API' || !p.method || !p.path) return false
     const parents = pageApis.filter((edge) => edge.apiId === p.id)
     const operations = buttonApis.filter((edge) => edge.apiId === p.id)
-    if (!parents.length && !operations.length) return true
+    // An explicitly granted API without a page/button binding is intentionally
+    // inactive. This makes unbinding a page API revoke the effective access.
+    if (!parents.length && !operations.length) return false
     return (
       parents.some((edge) => allowedPages.has(edge.functionId)) ||
       operations.some((edge) => allowedButtons.has(edge.buttonId))

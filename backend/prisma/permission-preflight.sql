@@ -5,6 +5,29 @@
 --
 -- 约定：以下每个结果集都应该为空。脚本只报告问题，不自动删除、修改或回收数据。
 
+-- 0. 最终职责模型必须已完成：显式职责关系表存在且数据完整。
+SELECT 'permission_role_type_table_missing' AS check_name
+WHERE NOT EXISTS (
+  SELECT 1
+  FROM information_schema.tables
+  WHERE table_schema = DATABASE()
+    AND table_name = 'sys_permission_role_type'
+);
+
+-- 0.1 启用权限必须至少声明一个允许的角色职责。
+SELECT p.id, p.code, p.type, p.status
+FROM sys_permission AS p
+LEFT JOIN sys_permission_role_type AS prt ON prt.permissionId = p.id
+WHERE p.status = 'ACTIVE'
+GROUP BY p.id, p.code, p.type, p.status
+HAVING COUNT(prt.roleType) = 0;
+
+-- 0.2 职责关系不能悬挂到不存在的权限。
+SELECT prt.permissionId, prt.roleType
+FROM sys_permission_role_type AS prt
+LEFT JOIN sys_permission AS p ON p.id = prt.permissionId
+WHERE p.id IS NULL;
+
 -- 1. 页面路由必须唯一。
 SELECT route, COUNT(*) AS duplicate_count
 FROM sys_function
@@ -75,6 +98,14 @@ JOIN sys_function AS f ON f.id = fa.functionId
 JOIN sys_permission AS p ON p.id = fa.apiId
 WHERE p.type <> 'API' OR p.method <> 'GET';
 
+-- 8.1 页面基础接口必须是只读动作；写入、导出和审批接口应绑定按钮。
+SELECT f.code AS function_code, p.code AS api_code, p.method, p.action, p.path
+FROM sys_function_api AS fa
+JOIN sys_function AS f ON f.id = fa.functionId
+JOIN sys_permission AS p ON p.id = fa.apiId
+WHERE p.method <> 'GET'
+   OR p.action NOT IN ('read', 'list', 'detail', 'init', 'options', 'references');
+
 -- 9. 页面/API 和按钮/API 绑定必须指向启用的 API 权限。
 SELECT 'function_api' AS binding_type, fa.functionId AS owner_id, fa.apiId, p.code, p.type, p.status
 FROM sys_function_api AS fa
@@ -99,27 +130,16 @@ JOIN sys_role AS r ON r.id = rp.roleId
 JOIN sys_permission AS p ON p.id = rp.permissionId
 WHERE rp.revokedAt IS NULL AND p.status <> 'ACTIVE';
 
--- 12. 角色类型与管理权限职责必须一致。
--- 共享审批查询和跨 SECURITY/SYSTEM 的运维读取是明确例外。
-SELECT r.code AS role_code, r.roleType, p.code AS permission_code, p.requiredRoleType
+-- 12. 角色类型必须命中权限的显式职责关联。
+-- sys_permission_role_type 是唯一判定来源；缺少关联的绑定必须先修复。
+SELECT r.code AS role_code, r.roleType, p.code AS permission_code
 FROM sys_role_permission AS rp
 JOIN sys_role AS r ON r.id = rp.roleId
 JOIN sys_permission AS p ON p.id = rp.permissionId
+LEFT JOIN sys_permission_role_type AS prt
+  ON prt.permissionId = p.id AND prt.roleType = r.roleType
 WHERE rp.revokedAt IS NULL
-  AND r.roleType <> p.requiredRoleType
-  AND p.code NOT IN (
-    'system.approval.read', 'system.approval.detail', 'page.system.approval',
-    'system.ops-ticket.read', 'system.ops-ticket.detail'
-  )
-  AND NOT (
-    p.code IN (
-      'system.ops-ticket.create', 'system.ops-ticket.update',
-      'system.ops-ticket.submit', 'system.ops-ticket.approve',
-      'system.ops-ticket.execute', 'system.ops-ticket.cancel',
-      'system.ops-ticket.evidence', 'system.ops-ticket.executions'
-    )
-    AND r.roleType IN ('SECURITY', 'SYSTEM')
-  );
+  AND prt.permissionId IS NULL;
 
 -- 13. 同一有效账户不能同时拥有多个高危管理员职责。
 SELECT u.userId, u.username,

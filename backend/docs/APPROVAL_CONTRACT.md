@@ -2,11 +2,11 @@
 
 Base URL: `/api/v1/permission/approvals`. UUIDs are public identifiers, never database integer IDs.
 
-| HTTP | Suffix | Exact route permission | requiredRoleType | Additional service permission |
+| HTTP | Suffix | Exact route permission | 允许角色类型 | Additional service permission |
 | --- | --- | --- | --- | --- |
 | POST | (base) | system.approval.create | SECURITY | system.role.grant; revocation requires system.role.revoke; MFA reset requires system.user.mfa-reset |
-| GET | (base) | system.approval.read | BUSINESS (explicit shared catalog exception) | SECURITY or AUDIT role |
-| GET | /:id | system.approval.detail | BUSINESS (explicit shared catalog exception) | SECURITY or AUDIT role |
+| GET | (base) | system.approval.read | SECURITY / AUDIT | SECURITY or AUDIT role |
+| GET | /:id | system.approval.detail | SECURITY / AUDIT | SECURITY or AUDIT role |
 | POST | /:id/approve | system.approval.approve | SECURITY | system.role.review |
 | POST | /:id/execute | system.approval.execute | SECURITY | system.role.grant; revocation requires system.role.revoke; MFA reset requires system.user.mfa-reset |
 | POST | /:id/review | system.approval.review | AUDIT | system.audit.review |
@@ -17,7 +17,7 @@ Creation body:
 
 ```ts
 type CreateApproval = {
-  kind: 'ROLE_GRANT' | 'ROLE_PERMISSIONS' | 'API_ROUTE_CHANGE' | 'API_CREATE' | 'API_UPDATE' | 'API_STATUS' | 'API_DELETE' | 'PAGE_ROUTE_CHANGE' | 'ELEVATED_SCOPE' | 'ROLE_REVOKE' | 'ROLE_PERMISSION_REVOKE' | 'ELEVATED_REVOKE' | 'MFA_RESET'
+  kind: 'ROLE_GRANT' | 'ROLE_PERMISSIONS' | 'API_ROUTE_CHANGE' | 'API_CREATE' | 'API_UPDATE' | 'API_ENABLE' | 'API_DISABLE' | 'API_DELETE' | 'PAGE_ROUTE_CHANGE' | 'ELEVATED_SCOPE' | 'ROLE_REVOKE' | 'ROLE_PERMISSION_REVOKE' | 'ELEVATED_REVOKE' | 'MFA_RESET'
   reason: string // nonblank, <=255 characters
   expiresAt: string // ISO-8601 timestamp; future, at most 24 hours after creation
   payload:
@@ -26,7 +26,7 @@ type CreateApproval = {
     | { apiId: string; code: string; method: 'GET'|'POST'|'PUT'|'PATCH'|'DELETE'; path: string }
     | { code: string; name: string; method: 'GET'|'POST'|'PUT'|'PATCH'|'DELETE'; path: string; resource: string; action: string } // API_CREATE
     | { apiId: string; name: string } // API_UPDATE
-    | { apiId: string; status: 'ACTIVE'|'DISABLED' } // API_STATUS
+    | { apiId: string } // API_ENABLE / API_DISABLE; target status is fixed by kind
     | { apiId: string } // API_DELETE
     | { pageId: string; route: string } // PAGE_ROUTE_CHANGE
     | { roleId: string; scopeType: 'CUSTOM'|'ALL'; resource: string;

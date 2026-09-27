@@ -29,7 +29,7 @@ export function handleUnauthorized() {
   if (sessionExpiredHandled) return Promise.resolve()
 
   sessionExpiredHandled = true
-  
+
   sessionExpiredPromise = MessageBox
     .confirm('登录失效，请重新登录', '消息提示', {
       type: 'warning',
@@ -42,22 +42,34 @@ export function handleUnauthorized() {
       closeOnHashChange: false,
       customClass: 'confirm',
     })
-    .then(() => store.dispatch('user/resetToken'))
-    .then(() => {
-      resetRouter()
-      return store.dispatch('tagsView/delAllViews', null, { root: true })
-    })
-    .then(() => router.replace('/login'))
-    .then(
-      (value) => {
-        return value
-      },
-      (error) => {
-        sessionExpiredPromise = null
-        sessionExpiredHandled = false
-        return Promise.reject(error)
+    .then(async () => {
+      const currentPath = router.currentRoute?.fullPath || '/'
+      const loginLocation = currentPath === '/login'
+        ? { path: '/login' }
+        : { path: '/login', query: { redirect: currentPath } }
+
+      // 导航必须独立于本地状态清理；清理失败不能阻止用户回到登录页。
+      try {
+        await store.dispatch('user/resetToken')
+      } finally {
+        resetRouter()
+        await router.replace(loginLocation)
       }
+
+      try {
+        await store.dispatch('tagsView/delAllViews', null, { root: true })
+      } catch {
+        // 标签缓存清理失败不影响会话失效后的登录跳转。
+      }
+    })
+    .then(
+      (value) => value,
+      (error) => Promise.reject(error)
     )
+    .finally(() => {
+      sessionExpiredPromise = null
+      sessionExpiredHandled = false
+    })
 
   return sessionExpiredPromise
 }

@@ -63,7 +63,7 @@
             >确认执行</el-button
           >
           <el-button
-            v-if="ticket.status === 'EXECUTED' && can('system.ops-ticket.executions')"
+            v-if="ticket.status === 'EXECUTED' && can('system.ops-ticket.execution.create')"
             :loading="saving"
             @click="executionVisible = true"
             >回写执行记录</el-button
@@ -86,7 +86,7 @@
           <el-button
             v-if="
               !['REVIEWED', 'CANCELLED'].includes(ticket.status) &&
-              can('system.ops-ticket.evidence')
+              can('system.ops-ticket.evidence.create')
             "
             @click="evidenceVisible = true"
             >追加证据</el-button

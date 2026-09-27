@@ -12,6 +12,21 @@ export function canonicalPath(path: string) {
   return path.replace(/\/$/, '')
 }
 
+const PAGE_ROUTE_PATTERN = /^\/[a-zA-Z0-9_-]+(?:\/[a-zA-Z0-9_-]+)*\/?$/
+const COMPONENT_PATH_PATTERN = /^[a-zA-Z][a-zA-Z0-9_-]*(?:\/[a-zA-Z][a-zA-Z0-9_-]*)*$/
+
+export function canonicalPagePath(path: string) {
+  if (!PAGE_ROUTE_PATTERN.test(path))
+    throw new BadRequestException('前端路由必须使用 /order 形式，只允许字母、数字、下划线和短横线')
+  return path.replace(/\/$/, '')
+}
+
+export function canonicalComponentPath(path: string) {
+  if (!COMPONENT_PATH_PATTERN.test(path))
+    throw new BadRequestException('组件路径必须使用 system/health/index 形式，不能以 / 开头')
+  return path
+}
+
 export function assertApi(input: { code: string; method: string; path: string }) {
   if (RETIRED_CODES.includes(input.code) || !/^[a-z][a-z0-9_.:-]{1,127}$/.test(input.code))
     throw new BadRequestException('权限码无效或已停止使用')

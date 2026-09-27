@@ -1,7 +1,9 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
 import { PermissionStatus, RoleType } from '@prisma/client'
+import { randomBytes } from 'node:crypto'
 import { PrismaService } from '../../../database/prisma.service.js'
 import { API_CODE } from '../../../common/constants/api-code.js'
+import { ENABLEMENT_STATUS_LABELS, ROLE_TYPE_LABELS } from '../../../common/constants/enum-labels.js'
 import {
   audit,
   grantInput,
@@ -15,6 +17,19 @@ import {
 } from '../domain/authorization.js'
 import type { Actor } from '../domain/authorization.js'
 
+function roleView(role: { status: 'ACTIVE' | 'DISABLED'; [key: string]: unknown }) {
+  const { status, ...rest } = role
+  return {
+    ...rest,
+    statusLabel: ENABLEMENT_STATUS_LABELS[status],
+    isActive: status === 'ACTIVE',
+  }
+}
+
+function generatedRoleCode() {
+  return `role_${randomBytes(16).toString('hex')}`
+}
+
 @Injectable()
 export class RoleService {
   constructor(private readonly prisma: PrismaService) {}
@@ -24,34 +39,10 @@ export class RoleService {
       orderBy: { createdAt: 'desc' },
       select: {
         roleId: true,
-        code: true,
         name: true,
         description: true,
         roleType: true,
         status: true,
-        createdAt: true,
-        permissions: {
-          where: {
-            revokedAt: null,
-            OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
-            permission: { status: PermissionStatus.ACTIVE },
-          },
-          select: {
-            permission: {
-              select: {
-                id: true,
-                code: true,
-                name: true,
-                resource: true,
-                action: true,
-                type: true,
-                method: true,
-                path: true,
-                status: true,
-              },
-            },
-          },
-        },
         _count: { select: { users: true } },
       },
     })
@@ -60,56 +51,102 @@ export class RoleService {
       message: 'success',
       data: roles.map((role) => ({
         roleId: role.roleId,
-        code: role.code,
         name: role.name,
         description: role.description,
-        roleType: role.roleType,
-        status: role.status,
-        createdAt: role.createdAt,
+        roleTypeLabel: ROLE_TYPE_LABELS[role.roleType],
+        statusLabel: ENABLEMENT_STATUS_LABELS[role.status],
+        isActive: role.status === 'ACTIVE',
         userCount: role._count.users,
-        permissionIds: role.permissions.filter((item) => item.permission.code !== '*').map((item) => item.permission.id),
-        permissions: role.permissions.map((item) => ({
-          permission: {
-            code: item.permission.code,
-            name: item.permission.name,
-            resource: item.permission.resource,
-            action: item.permission.action,
-            type: item.permission.type,
-            method: item.permission.method,
-            path: item.permission.path,
-          },
-        })),
+        capabilities: {
+          canEdit: role.roleType === RoleType.BUSINESS,
+          canGrant: role.roleType === RoleType.BUSINESS && role.status === 'ACTIVE',
+          canManageDataScope: role.roleType === RoleType.BUSINESS && role.status === 'ACTIVE',
+          canDelete: role.roleType === RoleType.BUSINESS,
+        },
       })),
+    }
+  }
+
+  async listGrants(id: string) {
+    const role = await this.prisma.role.findUnique({
+      where: { roleId: id },
+      select: {
+        permissions: {
+          where: {
+            revokedAt: null,
+            OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+            permission: { status: PermissionStatus.ACTIVE },
+          },
+          select: { permission: { select: { id: true, code: true } } },
+        },
+      },
+    })
+    if (!role) throw new NotFoundException('角色不存在')
+    return {
+      code: API_CODE.SUCCESS,
+      message: 'success',
+      data: { permissionIds: role.permissions.filter((item) => item.permission.code !== '*').map((item) => item.permission.id) },
     }
   }
 
   async permissionOptions() {
     const items = await this.prisma.permission.findMany({
-      where: { status: PermissionStatus.ACTIVE, requiredRoleType: RoleType.BUSINESS },
+      where: {
+        status: PermissionStatus.ACTIVE,
+        roleTypes: { some: { roleType: RoleType.BUSINESS } },
+      },
       orderBy: [{ resource: 'asc' }, { action: 'asc' }],
       select: {
         id: true,
         code: true,
         name: true,
         resource: true,
-        requiredRoleType: true,
         type: true,
         status: true,
         method: true,
         path: true,
+        roleTypes: { select: { roleType: true } },
       },
     })
-    return { code: API_CODE.SUCCESS, message: 'success', data: items.filter(ordinaryPermission) }
+    return {
+      code: API_CODE.SUCCESS,
+      message: 'success',
+      data: items.filter(ordinaryPermission).map(({ roleTypes: _roleTypes, status, ...item }) => ({
+        ...item,
+        statusLabel: ENABLEMENT_STATUS_LABELS[status],
+        isActive: status === PermissionStatus.ACTIVE,
+      })),
+    }
   }
 
-  async create(input: { code: string; name: string; description?: string }, actor: Actor) {
-    rejectFields(input, ['roleType', 'permissionIds', 'status'])
+  async assignmentOptions() {
+    const roles = await this.prisma.role.findMany({
+      where: { status: 'ACTIVE', roleType: RoleType.BUSINESS },
+      orderBy: [{ name: 'asc' }, { createdAt: 'desc' }],
+      select: { roleId: true, code: true, name: true, status: true },
+    })
+    return {
+      code: API_CODE.SUCCESS,
+      message: 'success',
+      data: roles.map(({ status, ...role }) => ({
+        id: role.roleId,
+        code: role.code,
+        name: role.name,
+        type: 'ROLE',
+        statusLabel: ENABLEMENT_STATUS_LABELS[status],
+        isActive: status === PermissionStatus.ACTIVE,
+      })),
+    }
+  }
+
+  async create(input: { name: string; description?: string }, actor: Actor) {
+    rejectFields(input, ['code', 'roleType', 'permissionIds', 'status'])
     try {
       const role = await this.prisma.$transaction(async (tx) => {
         await requireActor(tx, actor)
         const created = await tx.role.create({
           data: {
-            code: input.code,
+            code: generatedRoleCode(),
             name: input.name,
             description: input.description,
             roleType: RoleType.BUSINESS,
@@ -126,15 +163,15 @@ export class RoleService {
         await audit(tx, actor, 'system.role.create', created.roleId, null, created)
         return created
       }, serializable)
-      return { code: API_CODE.SUCCESS, message: 'success', data: role }
+      return { code: API_CODE.SUCCESS, message: 'success', data: roleView(role) }
     } catch (error) {
-      if ((error as { code?: string }).code === 'P2002') throw new ConflictException('角色编码已存在')
+      if ((error as { code?: string }).code === 'P2002') throw new ConflictException('角色标识生成冲突，请重试')
       throw error
     }
   }
 
-  async update(id: string, input: { code: string; name: string; description?: string }, actor: Actor) {
-    rejectFields(input, ['roleType', 'permissionIds', 'status'])
+  async update(id: string, input: { name: string; description?: string }, actor: Actor) {
+    rejectFields(input, ['code', 'roleType', 'permissionIds', 'status'])
     const role = await this.prisma.$transaction(async (tx) => {
       await requireActor(tx, actor)
       const exists = await tx.role.findUnique({ where: { roleId: id } })
@@ -143,7 +180,7 @@ export class RoleService {
       await preventOwnRoleChange(tx, exists.id, actor)
       const updated = await tx.role.update({
         where: { id: exists.id },
-        data: { code: input.code, name: input.name, description: input.description },
+        data: { name: input.name, description: input.description },
         select: {
           roleId: true,
           code: true,
@@ -156,7 +193,7 @@ export class RoleService {
       await audit(tx, actor, 'system.role.update', id, exists, updated)
       return updated
     }, serializable)
-    return { code: API_CODE.SUCCESS, message: 'success', data: role }
+    return { code: API_CODE.SUCCESS, message: 'success', data: roleView(role) }
   }
 
   async grants(id: string, input: { permissionIds: string[]; reason: string; expiresAt?: string }, actor: Actor) {
@@ -170,6 +207,7 @@ export class RoleService {
       await preventOwnRoleChange(tx, role.id, actor)
       const permissions = await tx.permission.findMany({
         where: { id: { in: input.permissionIds } },
+        include: { roleTypes: { select: { roleType: true } } },
       })
       if (permissions.length !== input.permissionIds.length || permissions.some((permission) => !ordinaryPermission(permission)))
         throw new BadRequestException('权限无效、已禁用或需要高危审批')
@@ -208,15 +246,41 @@ export class RoleService {
       await requireActor(tx, actor)
       const before = await tx.role.findUnique({ where: { roleId: id } })
       if (!before) throw new NotFoundException('角色不存在')
-      await ordinaryRole(tx, before.id)
+      const boundUserCount = await tx.userRole.count({
+        where: {
+          roleId: before.id,
+          revokedAt: null,
+          OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+        },
+      })
+      // A role with no active users can be disabled directly. Roles that are
+      // still in use and contain administrative permissions must go through
+      // the controlled ROLE_STATUS approval flow.
+      if (boundUserCount > 0) await ordinaryRole(tx, before.id)
       await preventOwnRoleChange(tx, before.id, actor)
       const after = await tx.role.update({
         where: { id: before.id },
         data: { status: input.status },
       })
-      await audit(tx, actor, 'system.role.disable', id, before, after, input.reason)
+      await audit(
+        tx,
+        actor,
+        input.status === 'ACTIVE' ? 'system.role.enable' : 'system.role.disable',
+        id,
+        before,
+        after,
+        input.reason
+      )
     }, serializable)
     return { code: API_CODE.SUCCESS, message: 'success', data: null }
+  }
+
+  async enable(id: string, reason: string, actor: Actor) {
+    return this.status(id, { status: 'ACTIVE', reason }, actor)
+  }
+
+  async disable(id: string, reason: string, actor: Actor) {
+    return this.status(id, { status: 'DISABLED', reason }, actor)
   }
 
   async remove(id: string, actor: Actor) {

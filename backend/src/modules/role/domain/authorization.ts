@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client'
 import { randomUUID } from 'node:crypto'
 import { isUUID } from 'class-validator'
 import { riskLevelForOperation } from '../../../security/policies/risk-policy.js'
+import { isCatalogManagementCode, isManagementApiPath, isManagementResource } from '../../../security/policies/permission-catalog.js'
 
 export type Actor = {
   internalId: bigint
@@ -11,11 +12,9 @@ export type Actor = {
   userAgent?: string
   method?: string
   path?: string
-  mfaVerifiedAt?: Date | null
-  reauthenticatedAt?: Date | null
 }
 export type ActorRequest = {
-  user: { internalId: bigint; mfaVerifiedAt?: Date | null; reauthenticatedAt?: Date | null }
+  user: { internalId: bigint }
   traceId?: string
   ip?: string
   method?: string
@@ -24,8 +23,6 @@ export type ActorRequest = {
 }
 export const actorFrom = (request: ActorRequest): Actor => ({
   internalId: request.user.internalId,
-  mfaVerifiedAt: request.user.mfaVerifiedAt,
-  reauthenticatedAt: request.user.reauthenticatedAt,
   traceId: request.traceId,
   ip: request.ip,
   userAgent: request.headers['user-agent'],
@@ -65,27 +62,24 @@ export function requireReason(reason: string) {
 type PermissionPolicy = {
   code: string
   resource: string
-  requiredRoleType: string
   type: string
   method: string | null
   path: string | null
   status: string
+  roleTypes?: readonly { roleType: string }[]
 }
-const administrative =
-  /^(?:system[.:])?(?:users?|roles?|permissions?|pages?|buttons?|apis?|audits?|sessions?|security|auth|data-scopes?|dataScope)(?:[.:/]|$)/i
 export function ordinaryPermission(permission: PermissionPolicy) {
   return (
     permission.status === 'ACTIVE' &&
-    permission.requiredRoleType === 'BUSINESS' &&
+    permission.roleTypes?.some((item) => item.roleType === 'BUSINESS') &&
     !permission.code.includes('*') &&
     !permission.resource.includes('*') &&
+    (!isManagementResource(permission.resource) || ['system.approval.read', 'system.approval.detail'].includes(permission.code)) &&
+    (!isCatalogManagementCode(permission.code) || ['system.approval.read', 'system.approval.detail'].includes(permission.code)) &&
+    (!isManagementApiPath(permission.path || '') || ['system.approval.read', 'system.approval.detail'].includes(permission.code)) &&
     permission.code !== 'system.permission.manage' &&
-    !administrative.test(permission.code) &&
-    !administrative.test(permission.resource) &&
-    !/(?:^|[.:])(?:superadmin|super-admin|impersonate|all|custom)(?:[.:]|$)/i.test(permission.code) &&
-    (!permission.path ||
-      (!permission.path.includes('*') &&
-        !/^\/(?:api\/v\d+\/)?(?:users|roles|permission|audit|sessions|auth|security)(?:\/|$)/i.test(permission.path))) &&
+    !permission.code.split('.').some((part) => ['superadmin', 'super-admin', 'impersonate', 'all', 'custom'].includes(part.toLowerCase())) &&
+    !permission.path?.includes('*') &&
     ['PAGE', 'BUTTON', 'API'].includes(permission.type) &&
     (permission.type !== 'API' ||
       (['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'].includes(permission.method || '') && !!permission.path))
@@ -143,7 +137,10 @@ export async function ordinaryRole(tx: Prisma.TransactionClient, id: bigint) {
   const role = await tx.role.findUniqueOrThrow({
     where: { id },
     include: {
-      permissions: { where: { revokedAt: null }, include: { permission: true } },
+      permissions: {
+        where: { revokedAt: null },
+        include: { permission: { include: { roleTypes: { select: { roleType: true } } } } },
+      },
       elevatedDataScopes: { where: { revokedAt: null } },
     },
   })

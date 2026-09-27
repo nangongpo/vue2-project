@@ -282,7 +282,7 @@ function createPages() {
           path: routePath,
           name: routeName,
           component: modules[filePath],
-          meta: config.meta,
+          meta: { ...config.meta, routePath },
           ...config.routeFields,
         },
       })
@@ -340,7 +340,7 @@ function createLayoutGroup(parentPath, hasIndexPage) {
   const route = {
     path: parentPath,
     component: () => import('@/layout/index.vue'),
-    meta: config.meta,
+    meta: { ...config.meta, routePath: parentPath },
     ...config.routeFields,
     children: [],
   }
@@ -466,70 +466,3 @@ export const asyncRoutes = [
     hidden: true,
   },
 ]
-
-console.log('🔒 初始常量路由:', constantRoutes)
-console.log('🔑 待触发动态追加路由:', asyncRoutes)
-
-/**
- * 生成包含搜索有效菜单的权限列表
- * @returns { menuList: [], menuListGroup: {} }
- */
-export function getAllMenu() {
-  const menuList = []
-
-  const menuListGroup = {
-    system: [],
-  }
-  let index = 0
-  // 生成基于角色分类roleType的权限列表
-  asyncRoutes.map((item) => {
-    if (item.meta) {
-      const label = item.meta.title
-      let children
-      // 根路由包含ignore
-      if (item.children) {
-        children = item.children.reduce((t, v) => {
-          const { title, api, buttons = [] } = v.meta || {}
-          if (v.hidden) return t
-          index++
-          let btns = [{ label: '查看', value: v.name, api }]
-          let roleType = v.meta.roleType
-          if (!roleType) {
-            // console.error('未设置roleType: ' + JSON.stringify(v))
-          } else {
-            if (!menuListGroup[roleType]) {
-              menuListGroup[roleType] = []
-            }
-            menuListGroup[roleType].push(btns[0].value)
-          }
-          if (buttons.length) {
-            btns = buttons.reduce((t1, v1) => {
-              const value = `${v.name}.${v1.value}`
-
-              roleType = v1.roleType || v.meta.roleType
-              if (!menuListGroup[roleType]) {
-                menuListGroup[roleType] = []
-              }
-              menuListGroup[roleType].push(value)
-
-              return [...t1, { ...v1, value, api: v1.api }]
-            }, btns)
-            return [...t, { label: title, value: index, children: btns }]
-          }
-          return [...t, { label: title, value: index, children: btns }]
-        }, [])
-      }
-      index++
-      if (item.ignore && children) {
-        menuList.push(...children)
-      } else {
-        menuList.push({ label, value: index, children: children })
-      }
-    }
-  })
-
-  return {
-    menuList,
-    menuListGroup,
-  }
-}

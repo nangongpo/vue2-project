@@ -19,7 +19,15 @@ pnpm install
 cp backend/.env.example backend/.env
 ```
 
-修改 `backend/.env` 中的数据库、MFA、验证码和种子管理员配置，然后初始化数据库：
+修改 `backend/.env` 中的数据库、MFA、验证码、种子管理员和审计完整性密钥配置，然后初始化数据库：
+
+`AUDIT_INTEGRITY_SECRET` 必须配置至少 32 个字符的随机密钥，用于审计日志 HMAC-SHA-256 完整性保护。可以使用以下命令生成：
+
+```bash
+openssl rand -hex 32
+```
+
+密钥只能保存在服务端密钥管理系统或受保护的环境变量中，不能写入数据库、前端或提交到 Git。密钥更换必须执行受控轮换；开发环境更换算法或密钥后应清空旧审计日志。
 
 ```bash
 pnpm --filter backend db:generate
@@ -37,6 +45,18 @@ pnpm dev:backend
 ```
 
 backend 默认监听 `0.0.0.0:3000`，API 前缀为 `/api/v1`。
+
+## 审计日志完整性
+
+审计日志写入时使用服务端密钥计算 HMAC-SHA-256 摘要。数据库写入者即使能够修改日志内容，也无法在没有服务端密钥的情况下生成有效摘要。
+
+审计日志列表和详情接口不会返回内部摘要字段。需要校验单条日志时调用：
+
+```text
+GET /api/v1/audit-logs/:id/integrity
+```
+
+接口只返回 HMAC-SHA-256 校验结果和算法状态。开发环境不兼容旧 SHA-256 摘要，切换后应清空旧审计日志。
 
 ## 常用地址
 

@@ -16,7 +16,6 @@ import {
   ArrayUnique,
   IsArray,
   IsDateString,
-  IsIn,
   IsOptional,
   IsString,
   IsUUID,
@@ -32,8 +31,6 @@ import { actorFrom } from '../domain/authorization.js'
 import type { ActorRequest } from '../domain/authorization.js'
 
 export class CreateRoleDto {
-  /** 角色编码。 */
-  @IsString() @MinLength(2) @MaxLength(64) code!: string
   /** 角色名称。 */
   @IsString() @MinLength(1) @MaxLength(128) name!: string
   /** 角色描述。 */
@@ -55,10 +52,7 @@ export class GrantPermissionsDto {
   @IsOptional() @IsDateString() expiresAt?: string
 }
 
-export class RoleStatusDto {
-  /** 角色状态。 */
-  @IsIn(['ACTIVE', 'DISABLED']) status!: 'ACTIVE' | 'DISABLED'
-  /** 状态变更原因。 */
+export class ReasonDto {
   @IsString() @Matches(/\S/) @MaxLength(255) reason!: string
 }
 
@@ -80,6 +74,18 @@ export class RoleController {
     return this.roles.permissionOptions()
   }
 
+  @Get('assignment-options')
+  @RequirePermissions('system.role.assignment-options')
+  assignmentOptions() {
+    return this.roles.assignmentOptions()
+  }
+
+  @Get(':id/grants')
+  @RequirePermissions('system.role.grants.read')
+  grantsList(@Param('id', ParseUUIDPipe) id: string) {
+    return this.roles.listGrants(id)
+  }
+
   @Post()
   @RequirePermissions('system.role.create')
   @DataFieldSecurity('system.role')
@@ -98,8 +104,12 @@ export class RoleController {
     return this.roles.update(id, body, actorFrom(request))
   }
 
-  @Patch(':id/grants')
-  @RequirePermissions('system.role.grant', 'system.role.revoke')
+@Patch(':id/grants')
+  // Granting and revoking permissions are one atomic authorization change.
+  // The service records both directions in the same audit event; requiring
+  // the separate approval-only revoke capability here incorrectly denied the
+  // security administrator before the request could reach the risk flow.
+  @RequirePermissions('system.role.grant')
   grants(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() body: GrantPermissionsDto,
@@ -108,14 +118,16 @@ export class RoleController {
     return this.roles.grants(id, body, actorFrom(request))
   }
 
-  @Patch(':id/status')
+  @Patch(':id/enable')
+  @RequirePermissions('system.role.enable')
+  enable(@Param('id', ParseUUIDPipe) id: string, @Body() body: ReasonDto, @Req() request: ActorRequest) {
+    return this.roles.enable(id, body.reason, actorFrom(request))
+  }
+
+  @Patch(':id/disable')
   @RequirePermissions('system.role.disable')
-  status(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body() body: RoleStatusDto,
-    @Req() request: ActorRequest
-  ) {
-    return this.roles.status(id, body, actorFrom(request))
+  disable(@Param('id', ParseUUIDPipe) id: string, @Body() body: ReasonDto, @Req() request: ActorRequest) {
+    return this.roles.disable(id, body.reason, actorFrom(request))
   }
 
   @Delete(':id')

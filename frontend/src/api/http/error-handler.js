@@ -46,7 +46,8 @@ export function createErrorHandler(request) {
     const response = error?.response
     const problem = response?.data && typeof response.data === 'object' ? response.data : {}
     const status = response?.status || 0
-    const code = problem.code || codeFromStatus(status)
+    const rawCode = problem.code ?? codeFromStatus(status)
+    const code = rawCode === null || rawCode === undefined ? '' : String(rawCode)
     const traceId =
       problem.traceId ||
       problem.data?.traceId ||
@@ -76,7 +77,9 @@ export function createErrorHandler(request) {
       silent: Boolean(error?.silent),
     })
 
-    if (code === REQUEST_CODE.SECURITY_STEP_UP_REQUIRED) {
+    const needsSecurityStepUp = code === REQUEST_CODE.SECURITY_STEP_UP_REQUIRED
+    if (needsSecurityStepUp) {
+      normalizedError.code = REQUEST_CODE.SECURITY_STEP_UP_REQUIRED
       normalizedError.silent = true
       if (securityStepUpHandler && !error?.config?.__stepUpRetried) {
         return securityStepUpHandler({

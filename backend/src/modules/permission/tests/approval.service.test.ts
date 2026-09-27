@@ -59,7 +59,7 @@ function harness() {
     id: uuid(30),
     status: 'ACTIVE',
     code: 'system.role.read',
-    requiredRoleType: 'SECURITY',
+    roleTypes: [{ roleType: 'SECURITY' }],
     type: 'API',
     method: 'GET',
     path: '/api/v1/roles',
@@ -156,6 +156,9 @@ function harness() {
       findMany: vi.fn(async () => [permission]),
       findFirst: vi.fn(async () => null),
       update: vi.fn(async ({ data }) => ({ ...permission, ...data })),
+    },
+    dataResource: {
+      findFirst: vi.fn(async () => ({ id: uuid(40), code: 'orders', name: '订单' })),
     },
     roleElevatedDataScope: {
       create: vi.fn(async ({ data }) => (scope = { id: uuid(91), revokedAt: null, ...data })),
@@ -344,7 +347,7 @@ describe('approval authorization and validation', () => {
               routeOptions: { url: path },
               user: {
                 ...user,
-                apiPermissions: [{ code, method: 'GET', path, requiredRoleType: 'BUSINESS' }],
+                apiPermissions: [{ code, method: 'GET', path }],
               },
             }),
           }),
@@ -368,13 +371,6 @@ describe('approval authorization and validation', () => {
     await expect(h.service.detail(uuid(90), user)).rejects.toThrow('显式权限')
     await expect(h.service.list({}, user)).resolves.toMatchObject({ data: { items: [] } })
   })
-  it.each(['mfaVerifiedAt', 'reauthenticatedAt'] as const)('fails closed for missing, expired, invalid and future %s', async (field) => {
-    for (const value of [undefined, new Date(Date.now() - 300_001), new Date(NaN), new Date(Date.now() + 60_000)]) {
-      const h = harness()
-      await expect(h.service.create(input(), { ...actor(), [field]: value })).rejects.toThrow('MFA')
-      expect(h.prisma.$transaction).not.toHaveBeenCalled()
-    }
-  })
   it.each(['BUSINESS', 'SYSTEM', 'AUDIT'])('rejects %s creation even with all permission codes', async (type) => {
     await expect(harness().service.create(input(), actor(1, type))).rejects.toThrow('显式权限')
   })
@@ -391,6 +387,13 @@ describe('approval authorization and validation', () => {
     const user = actor()
     user.permissions = user.permissions.filter((code) => code !== 'system.role.grant')
     await expect(harness().service.create(input(), user)).rejects.toThrow('显式权限')
+  })
+
+  it('does not create an approval that has no independent MFA-enabled security approver', async () => {
+    const h = harness()
+    h.tx.user.findFirst.mockResolvedValueOnce(null)
+    await expect(h.service.create(input(), actor())).rejects.toThrow('没有可用的独立安全管理员')
+    expect(h.tx.approvalRequest.create).not.toHaveBeenCalled()
   })
   it('rejects mixed administrator identities', async () => {
     const user = actor()
@@ -577,7 +580,7 @@ describe('approval target policies', () => {
     h.role.roleType = roleType
     h.permission.code = 'system.approval.read'
     h.permission.path = '/api/v1/permission/approvals'
-    h.permission.requiredRoleType = 'BUSINESS'
+    h.permission.roleTypes = [{ roleType }]
     await expect(
       h.service.create(input('ROLE_PERMISSIONS', { roleId: uuid(20), permissionIds: [uuid(30)] }), actor())
     ).resolves.toMatchObject({ data: { status: 'REQUESTED' } })
@@ -585,7 +588,6 @@ describe('approval target policies', () => {
   it('denies cross-admin paths even when permission code and classification are misleading', async () => {
     const h = harness()
     h.permission.code = 'orders.read'
-    h.permission.requiredRoleType = 'BUSINESS'
     h.permission.path = '/api/v1/audit'
     await expect(h.service.create(input('ROLE_PERMISSIONS', { roleId: uuid(20), permissionIds: [uuid(30)] }), actor())).rejects.toThrow(
       '路径管理职责冲突'
@@ -603,17 +605,18 @@ describe('approval target policies', () => {
   it.each(['*', 'system.permission.manage', 'system.audit.delete'])('rejects forbidden permission %s', async (code) => {
     const h = harness()
     h.permission.code = code
+    if (code === 'system.audit.delete') h.permission.resource = 'system.audit'
     await expect(h.service.create(input('ROLE_PERMISSIONS', { roleId: uuid(20), permissionIds: [uuid(30)] }), actor())).rejects.toThrow()
   })
   it('rejects admin API access for BUSINESS and cross-admin permissions', async () => {
     const h = harness()
     h.role.roleType = 'BUSINESS'
-    h.permission.requiredRoleType = 'BUSINESS'
     await expect(h.service.create(input('ROLE_PERMISSIONS', { roleId: uuid(20), permissionIds: [uuid(30)] }), actor())).rejects.toThrow(
       '业务角色'
     )
     h.role.roleType = 'SECURITY'
     h.permission.code = 'system.audit.read'
+    h.permission.roleTypes = [{ roleType: 'AUDIT' }]
     await expect(h.service.create(input('ROLE_PERMISSIONS', { roleId: uuid(20), permissionIds: [uuid(30)] }), actor())).rejects.toThrow(
       '职责冲突'
     )

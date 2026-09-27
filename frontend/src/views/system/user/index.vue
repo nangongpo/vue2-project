@@ -19,8 +19,8 @@
         <el-table-column prop="displayName" label="姓名" width="120" />
         <el-table-column label="状态" width="110">
           <template #default="scope">
-            <el-tag :type="statusTagType(scope.row.status)" size="small">
-              {{ statusLabel(scope.row.status) }}
+            <el-tag :type="scope.row.isLocked ? 'danger' : scope.row.isActive ? 'success' : 'info'" size="small">
+              {{ scope.row.statusLabel }}
             </el-tag>
           </template>
         </el-table-column>
@@ -28,7 +28,7 @@
           <template #default="scope">
             {{
               (scope.row.roles || [])
-                .map((item) => item && item.role && item.role.name)
+                .map(roleLabel)
                 .filter(Boolean)
                 .join('、') || '未分配'
             }}
@@ -39,7 +39,7 @@
             {{ formatDate(scope.row.lastLoginAt) || '暂无记录' }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="350" fixed="right">
+        <el-table-column label="操作" width="230" fixed="right">
           <template #default="scope">
             <el-button v-permission="'system.user.update'" type="text" @click="openEdit(scope.row)">
               编辑
@@ -53,25 +53,26 @@
             <el-button
               v-if="canGrant"
               type="text"
-              :disabled="scope.row.status !== 'ACTIVE'"
-              @click="openGrants(scope.row)"
-              >分配角色</el-button
-            >
+              :disabled="!scope.row.isActive"
+              @click="openGrants(scope.row)">
+              分配角色
+            </el-button>
             <el-button
-              v-permission="'system.user.disable'"
+              v-permission="scope.row.isActive ? 'system.user.disable' : 'system.user.enable'"
               type="text"
-              :disabled="saving || scope.row.status === 'LOCKED'"
-              @click="changeStatus(scope.row)"
-              >{{ scope.row.status === 'DISABLED' ? '启用' : '停用' }}</el-button
-            >
+              :disabled="saving || scope.row.isLocked"
+              :class="scope.row.isActive ? 'text-danger' : 'text-success'"
+              @click="changeStatus(scope.row)">
+              {{ scope.row.isActive ? '停用' : '启用' }}
+            </el-button>
             <el-button
-              v-if="scope.row.status === 'LOCKED'"
+              v-if="scope.row.isLocked"
               v-permission="'system.user.unlock'"
               type="text"
               :disabled="saving"
-              @click="unlock(scope.row)"
-              >解锁</el-button
-            >
+              @click="unlock(scope.row)">
+              解锁
+            </el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -127,10 +128,9 @@
         <el-button type="primary" :loading="resetting" @click="submitReset"> 确认重置 </el-button>
       </span>
     </el-dialog>
-    <permission-grant-dialog
+    <user-role-assignment-dialog
       :visible.sync="grantsVisible"
-      :target="grantTarget"
-      kind="user"
+      :user="grantTarget"
       @saved="loadUsers" />
   </div>
 </template>
@@ -141,17 +141,18 @@ import {
   getUsers,
   resetUserPassword,
   updateUser,
-  setUserStatus,
+  enableUser,
+  disableUser,
   unlockUser,
 } from '@/api/admin'
-import PermissionGrantDialog from '@/components/PermissionGrantDialog/index.vue'
+import UserRoleAssignmentDialog from './components/UserRoleAssignmentDialog.vue'
 import { requiredText, requestReason } from '../permission/utils'
 import { dateFormat } from '@/utils/date'
 import allPatterns from '@/utils/patterns'
 
 export default {
   name: 'SystemUser',
-  components: { PermissionGrantDialog },
+  components: { UserRoleAssignmentDialog },
   data() {
     return {
       loading: false,
@@ -184,8 +185,8 @@ export default {
       return [
         'system.user.grant',
         'system.role.revoke',
-        'system.role.options',
         'system.role.read',
+        'system.role.assignment-options',
       ].every(this.can)
     },
   },
@@ -198,6 +199,12 @@ export default {
     },
     statusLabel(status) {
       return { ACTIVE: '启用', DISABLED: '停用', LOCKED: '锁定' }[status] || status || '未知'
+    },
+    roleStatusLabel(status) {
+      return { ACTIVE: '启用', DISABLED: '停用' }[status] || status || '未知'
+    },
+    roleLabel(item) {
+      return item?.role?.name
     },
     statusTagType(status) {
       return { ACTIVE: 'success', DISABLED: 'info', LOCKED: 'danger' }[status] || 'warning'
@@ -271,7 +278,8 @@ export default {
         this.dialogVisible = false
         this.$message.success('用户已保存')
         await this.loadUsers()
-      } catch {
+      } catch (error) {
+        if (error?.code === '100013') this.$message.info('已取消本次操作，用户尚未创建')
         /* Keep edits for retry. */
       } finally {
         this.saving = false
@@ -298,8 +306,9 @@ export default {
       }
     },
     async changeStatus(user) {
-      if (this.saving || user.status === 'LOCKED' || !this.can('system.user.disable')) return
-      const status = user.status === 'DISABLED' ? 'ACTIVE' : 'DISABLED'
+      const status = user.isActive ? 'DISABLED' : 'ACTIVE'
+      const permission = user.isActive ? 'system.user.disable' : 'system.user.enable'
+      if (this.saving || user.isLocked || !this.can(permission)) return
       const reason = await requestReason(
         this,
         (status === 'DISABLED' ? '停用' : '启用') + '用户“' + user.displayName + '”',
@@ -308,7 +317,8 @@ export default {
       if (!reason) return
       this.saving = true
       try {
-        await setUserStatus(user.userId, { status, reason })
+        if (user.isActive) await disableUser(user.userId, reason)
+        else await enableUser(user.userId, reason)
         this.$message.success('用户状态已更新')
         await this.loadUsers()
       } catch {

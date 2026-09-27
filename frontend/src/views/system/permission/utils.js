@@ -1,5 +1,12 @@
 export const HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
 
+export function methodTagType(method) {
+  return (
+    { GET: '', POST: 'success', PUT: 'warning', PATCH: 'warning', DELETE: 'danger' }[method] ||
+    'info'
+  )
+}
+
 export const requiredText = (label) => [
   { required: true, whitespace: true, message: `请输入${label}`, trigger: 'blur' },
 ]
@@ -13,7 +20,7 @@ export function searchableText(...values) {
 }
 
 export function activeApis(apis) {
-  return apis.filter((api) => api.status === 'ACTIVE' && HTTP_METHODS.includes(api.method))
+  return apis.filter((api) => api.isActive && HTTP_METHODS.includes(api.method))
 }
 
 export function pageApis(apis) {

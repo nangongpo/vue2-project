@@ -17,7 +17,11 @@ const authorized = () => ({
   mfaVerifiedAt: new Date(),
   reauthenticatedAt: new Date(),
 })
-function fixture(required: string[] | undefined = [code], overrides: Record<string, unknown> = {}, auth?: any) {
+function fixture(
+  required: string[] | undefined = [code],
+  overrides: Record<string, unknown> = {},
+  auth?: any
+) {
   const handler = () => undefined
   class Controller {}
   if (required !== undefined) Reflect.defineMetadata(REQUIRED_PERMISSIONS, required, handler)
@@ -60,12 +64,31 @@ describe('PermissionGuard', () => {
       { method: 'GET', routeOptions: { url: '/api/v1/health/:id' } },
     ]) {
       const denied = fixture([], request)
-      await expect(denied.guard.canActivate(denied.context)).rejects.toBeInstanceOf(ForbiddenException)
+      await expect(denied.guard.canActivate(denied.context)).rejects.toBeInstanceOf(
+        ForbiddenException
+      )
     }
   })
 
   it('matches the explicit code, method and Fastify template, not the concrete URL', async () => {
     const { guard, context } = fixture()
+    await expect(guard.canActivate(context)).resolves.toBe(true)
+  })
+
+  it('allows the page API option query without high-risk proof', async () => {
+    const optionCode = 'system.page.api.options'
+    const optionPath = '/api/v1/permission/functions/api-options'
+    const { guard, context } = fixture([optionCode], {
+      method: 'GET',
+      routeOptions: { url: optionPath },
+      user: {
+        permissions: [optionCode],
+        apiPermissions: [{ code: optionCode, method: 'GET', path: optionPath }],
+        mfaRequired: false,
+        mfaVerifiedAt: null,
+        reauthenticatedAt: null,
+      },
+    })
     await expect(guard.canActivate(context)).resolves.toBe(true)
   })
 
@@ -119,7 +142,9 @@ describe('PermissionGuard', () => {
 
   it('requires additional revoke capability without requiring a second API for the same route', async () => {
     const denied = fixture([code, 'system.role.revoke'])
-    await expect(denied.guard.canActivate(denied.context)).rejects.toBeInstanceOf(ForbiddenException)
+    await expect(denied.guard.canActivate(denied.context)).rejects.toBeInstanceOf(
+      ForbiddenException
+    )
     const allowed = fixture([code, 'system.role.revoke'], {
       user: { ...authorized(), permissions: [code, 'system.role.revoke'] },
     })
@@ -151,10 +176,18 @@ describe('PermissionGuard', () => {
 
   it('authenticates missing context and propagates authentication outages closed', async () => {
     const auth = { authenticate: vi.fn().mockResolvedValue(authorized()) }
-    const { guard, context } = fixture([code], { user: undefined, cookies: { [SESSION_COOKIE]: 'session' } }, auth)
+    const { guard, context } = fixture(
+      [code],
+      { user: undefined, cookies: { [SESSION_COOKIE]: 'session' } },
+      auth
+    )
     await expect(guard.canActivate(context)).resolves.toBe(true)
     expect(auth.authenticate).toHaveBeenCalledWith('session', 'AUTHENTICATED')
-    const outage = fixture([code], { user: undefined }, { authenticate: vi.fn().mockRejectedValue(new Error('Unavailable')) })
+    const outage = fixture(
+      [code],
+      { user: undefined },
+      { authenticate: vi.fn().mockRejectedValue(new Error('Unavailable')) }
+    )
     await expect(outage.guard.canActivate(outage.context)).rejects.toThrow('Unavailable')
   })
 
@@ -167,7 +200,9 @@ describe('PermissionGuard', () => {
     Reflect.defineMetadata(SECURITY_OPERATION, 'auth.password.change', handler)
     const policies = { resolve: vi.fn().mockResolvedValue({ riskLevel: 'L2' }) }
     const secured = new PermissionGuard(new Reflector(), undefined, policies as any)
-    await expect(secured.canActivate(context)).rejects.toMatchObject({ response: expect.objectContaining({ code: '100013' }) })
+    await expect(secured.canActivate(context)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: '100013' }),
+    })
     expect(request.operationCode).toBe('auth.password.change')
     expect(policies.resolve).toHaveBeenCalledWith('auth.password.change')
   })

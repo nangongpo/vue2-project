@@ -18,7 +18,8 @@ export function responseHandler(response) {
     return response
   }
 
-  const { code, data, msg, message, timestamp } = payload
+  const { code: rawCode, data, msg, message, timestamp } = payload
+  const code = rawCode === null || rawCode === undefined ? '' : String(rawCode)
   if (isSuccessCode(code)) {
     return checkType(data, 'object') ? { ...data, timestamp } : data
   }

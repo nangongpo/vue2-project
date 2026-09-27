@@ -35,6 +35,7 @@ export function createViteConfig(mode) {
     server: {
       https: httpsOptions,
       port,
+      strictPort: true,
       host: '0.0.0.0',
       open: true,
       cors: true,

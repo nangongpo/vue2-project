@@ -4,6 +4,7 @@ import { PrismaService } from '../../../database/prisma.service.js'
 import { PasswordService } from '../../../security/services/password.service.js'
 import { PasswordPolicyService } from '../../../security/services/password-policy.service.js'
 import { API_CODE } from '../../../common/constants/api-code.js'
+import { ENABLEMENT_STATUS_LABELS, USER_STATUS_LABELS } from '../../../common/constants/enum-labels.js'
 import { normalizePagination, paginationData } from '../../../common/pagination.js'
 import {
   activeGrant,
@@ -25,6 +26,16 @@ const userSelect = {
   failedLogins: true,
   lockedUntil: true,
 } as const
+
+function userView(user: { status: UserStatus; [key: string]: unknown }) {
+  const { status, ...rest } = user
+  return {
+    ...rest,
+    statusLabel: USER_STATUS_LABELS[status],
+    isActive: status === UserStatus.ACTIVE,
+    isLocked: status === UserStatus.LOCKED,
+  }
+}
 
 @Injectable()
 export class UserService {
@@ -58,15 +69,30 @@ export class UserService {
           createdAt: true,
           roles: {
             where: { ...activeGrant(), role: { status: 'ACTIVE' } },
-            select: { role: { select: { roleId: true, code: true, name: true } } },
+            select: { role: { select: { roleId: true, code: true, name: true, roleType: true, status: true } } },
           },
         },
       }),
     ])
     const pageItems = items.map((item) => ({
-      ...item,
+      userId: item.userId,
+      username: item.username,
+      displayName: item.displayName,
+      statusLabel: USER_STATUS_LABELS[item.status],
+      isActive: item.status === 'ACTIVE',
+      isLocked: item.status === 'LOCKED',
+      failedLogins: item.failedLogins,
+      lastLoginAt: item.lastLoginAt,
+      createdAt: item.createdAt,
+      needsRoleApproval: item.roles.some(({ role }) => role.roleType !== 'BUSINESS'),
       roles: item.roles.map(({ role }) => ({
-        role: { roleId: role.roleId, code: role.code, name: role.name },
+        role: {
+          roleId: role.roleId,
+          code: role.code,
+          name: role.name,
+          statusLabel: ENABLEMENT_STATUS_LABELS[role.status],
+          isActive: role.status === 'ACTIVE',
+        },
       })),
     }))
     return {
@@ -89,7 +115,7 @@ export class UserService {
         await audit(tx, actor, 'system.user.create', created.userId, null, created)
         return created
       }, serializable)
-      return { code: API_CODE.SUCCESS, message: 'success', data: user }
+      return { code: API_CODE.SUCCESS, message: 'success', data: userView(user) }
     } catch (error) {
       if ((error as { code?: string }).code === 'P2002') throw new ConflictException('账号已存在')
       throw error
@@ -110,7 +136,7 @@ export class UserService {
       await audit(tx, actor, 'system.user.update', id, before, after)
       return after
     }, serializable)
-    return { code: API_CODE.SUCCESS, message: 'success', data: user }
+    return { code: API_CODE.SUCCESS, message: 'success', data: userView(user) }
   }
 
   async resetPassword(id: string, password: string, actor: Actor) {
@@ -196,9 +222,18 @@ export class UserService {
     return { code: API_CODE.SUCCESS, message: 'success', data: null }
   }
 
+  async enable(id: string, reason: string, actor: Actor) {
+    return this.changeStatus(id, { status: 'ACTIVE', reason }, actor, false)
+  }
+
+  /** Internal compatibility for service callers; HTTP clients use enable/disable routes. */
   async status(id: string, input: { status: 'ACTIVE' | 'DISABLED'; reason: string }, actor: Actor) {
     if (!['ACTIVE', 'DISABLED'].includes(input.status)) throw new BadRequestException('用户状态无效')
     return this.changeStatus(id, input, actor, false)
+  }
+
+  async disable(id: string, reason: string, actor: Actor) {
+    return this.changeStatus(id, { status: 'DISABLED', reason }, actor, false)
   }
 
   async unlock(id: string, reason: string, actor: Actor) {
@@ -227,7 +262,15 @@ export class UserService {
         where: { userId: before.id, revokedAt: null },
         data: { revokedAt: new Date() },
       })
-      await audit(tx, actor, unlock ? 'system.user.unlock' : 'system.user.disable', id, before, after, input.reason)
+      await audit(
+        tx,
+        actor,
+        unlock ? 'system.user.unlock' : input.status === 'ACTIVE' ? 'system.user.enable' : 'system.user.disable',
+        id,
+        before,
+        after,
+        input.reason
+      )
     }, serializable)
     return { code: API_CODE.SUCCESS, message: 'success', data: null }
   }

@@ -1,19 +1,12 @@
-import {
-  BadRequestException,
-  Controller,
-  Get,
-  Inject,
-  Param,
-  Query,
-  UseGuards,
-} from '@nestjs/common'
+import { BadRequestException, Controller, Get, Inject, Param, ParseUUIDPipe, Query, UseGuards } from '@nestjs/common'
 import { AuthGuard } from '../../security/guards/auth.guard.js'
 import { RequirePermissions } from '../../security/decorators/permission.decorator.js'
 import { DataFieldSecurity } from '../../common/decorators/data-field-security.decorator.js'
 import { AuditService } from '../services/audit.service.js'
 import { AuditAction } from '../decorators/audit.decorator.js'
-import { IsIn, IsISO8601, IsOptional, IsString, MaxLength } from 'class-validator'
+import { IsDateString, IsIn, IsISO8601, IsOptional, IsString, IsUUID, Matches, MaxLength } from 'class-validator'
 import { RiskLevel } from '@prisma/client'
+import { PaginationQueryDto } from '../../common/dto/pagination.dto.js'
 
 class ExportAuditQuery {
   @IsISO8601() from!: string
@@ -22,6 +15,16 @@ class ExportAuditQuery {
   @IsOptional() @IsIn(['SUCCESS', 'FAILURE']) result?: 'SUCCESS' | 'FAILURE'
   @IsOptional() @IsIn(['L0', 'L1', 'L2', 'L3']) riskLevel?: RiskLevel
   @IsOptional() @IsString() @MaxLength(128) operationCode?: string
+}
+
+class AuditQueryDto extends PaginationQueryDto {
+  @IsOptional() @IsString() @MaxLength(128) keyword = ''
+  @IsOptional() @IsIn(['SUCCESS', 'FAILURE']) result?: 'SUCCESS' | 'FAILURE'
+  @IsOptional() @IsIn(['L0', 'L1', 'L2', 'L3']) riskLevel?: RiskLevel
+  @IsOptional() @IsString() @Matches(/^[a-z][a-z0-9_.:-]{2,127}$/) operationCode?: string
+  @IsOptional() @IsUUID() actorId?: string
+  @IsOptional() @IsDateString() from?: string
+  @IsOptional() @IsDateString() to?: string
 }
 
 @Controller('audit-logs')
@@ -33,55 +36,20 @@ export class AuditController {
   @Get()
   @AuditAction('audit.logs.list')
   @DataFieldSecurity('system.audit')
-  page(
-    @Query('keyword') keyword = '',
-    @Query('result') result?: 'SUCCESS' | 'FAILURE',
-    @Query('riskLevel') riskLevel?: RiskLevel,
-    @Query('operationCode') operationCode?: string,
-    @Query('actorId') actorId?: string,
-    @Query('from') rawFrom?: string,
-    @Query('to') rawTo?: string,
-    @Query('page') rawPage = '1',
-    @Query('pageSize') rawPageSize = '20'
-  ) {
-    const page = Number(rawPage)
-    const pageSize = Number(rawPageSize)
-    if (
-      !Number.isInteger(page) ||
-      page < 1 ||
-      !Number.isInteger(pageSize) ||
-      pageSize < 1 ||
-      pageSize > 100
-    ) {
-      throw new BadRequestException('分页参数必须是有效整数，pageSize 最大为 100')
-    }
-    if (
-      keyword.length > 128 ||
-      (actorId && actorId.length > 64) ||
-      (operationCode && operationCode.length > 128)
-    )
-      throw new BadRequestException('查询参数长度无效')
-    if (result && !['SUCCESS', 'FAILURE'].includes(result))
-      throw new BadRequestException('审计结果参数无效')
-    if (riskLevel && !['L0', 'L1', 'L2', 'L3'].includes(riskLevel))
-      throw new BadRequestException('风险等级参数无效')
-
-    const from = rawFrom ? new Date(rawFrom) : undefined
-    const to = rawTo ? new Date(rawTo) : undefined
-    if ((from && Number.isNaN(from.getTime())) || (to && Number.isNaN(to.getTime())))
-      throw new BadRequestException('时间参数格式无效')
+  page(@Query() query: AuditQueryDto) {
+    const from = query.from ? new Date(query.from) : undefined
+    const to = query.to ? new Date(query.to) : undefined
     if (from && to && from > to) throw new BadRequestException('开始时间不能晚于结束时间')
-
     return this.audit.page({
-      keyword,
-      result,
-      riskLevel,
-      operationCode,
-      actorId,
+      keyword: query.keyword,
+      result: query.result,
+      riskLevel: query.riskLevel,
+      operationCode: query.operationCode,
+      actorId: query.actorId,
       from,
       to,
-      page,
-      pageSize,
+      page: query.page,
+      pageSize: query.pageSize,
     })
   }
 
@@ -96,16 +64,14 @@ export class AuditController {
   @RequirePermissions('system.audit.detail')
   @AuditAction('audit.logs.detail')
   @DataFieldSecurity('system.audit')
-  detail(@Param('id') id: string) {
-    if (!id || id.length > 64) throw new BadRequestException('审计记录 ID 无效')
+  detail(@Param('id', ParseUUIDPipe) id: string) {
     return this.audit.detail(id)
   }
 
   @Get(':id/integrity')
   @RequirePermissions('system.audit.integrity')
   @AuditAction('audit.logs.integrity')
-  verify(@Param('id') id: string) {
-    if (!id || id.length > 64) throw new BadRequestException('审计记录 ID 无效')
+  verify(@Param('id', ParseUUIDPipe) id: string) {
     return this.audit.verify(id)
   }
 }

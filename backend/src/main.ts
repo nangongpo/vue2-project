@@ -35,7 +35,7 @@ const env = Joi.object({
     .allow('')
     .default(''),
   REDIS_ENABLED: Joi.boolean().truthy('true').falsy('false').default(true),
-  SESSION_TTL_SECONDS: Joi.number().integer().min(300).max(86400).default(1800),
+  SESSION_TTL_SECONDS: Joi.number().integer().min(300).max(86400).default(28800),
   SESSION_MAX_CONCURRENT: Joi.number().integer().min(1).max(100).default(3),
   SESSION_IDLE_TTL_SECONDS: Joi.number().integer().min(300).max(86400).default(1800),
   PREAUTH_TTL_SECONDS: Joi.number().integer().min(60).max(900).default(300),
@@ -56,6 +56,7 @@ const env = Joi.object({
   CAPTCHA_SERVICE_SECRET: Joi.string().min(1).allow('').default(''),
   CAPTCHA_SERVICE_TIMEOUT_MS: Joi.number().integer().min(200).max(10000).default(2000),
   OPS_EXECUTION_SIGNING_SECRET: Joi.string().min(32).allow('').default(''),
+  AUDIT_INTEGRITY_SECRET: Joi.string().min(32).required(),
   SEED_SECURITY_USERNAME: Joi.string().min(1).default('security-admin'),
   SEED_SECURITY_PASSWORD: Joi.string().min(12).default('change-this-password'),
   SWAGGER_ENABLED: Joi.boolean().truthy('true').falsy('false').default(true),

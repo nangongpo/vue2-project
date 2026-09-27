@@ -1,9 +1,13 @@
-import { BadRequestException, Body, Controller, Get, Inject, Param, ParseUUIDPipe, Patch, Post, Query, UseGuards } from '@nestjs/common'
-import { IsBoolean, IsIn, IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator'
+import { Body, Controller, Get, Inject, Param, ParseUUIDPipe, Patch, Post, Query, UseGuards } from '@nestjs/common'
+import { IsBoolean, IsEnum, IsIn, IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator'
 import { RiskLevel, OperationPolicyStatus } from '@prisma/client'
 import { AuthGuard } from '../guards/auth.guard.js'
 import { RequirePermissions } from '../decorators/permission.decorator.js'
 import { OperationPolicyService } from '../services/operation-policy.service.js'
+
+class OperationPolicyQueryDto {
+  @IsOptional() @IsEnum(OperationPolicyStatus) status?: OperationPolicyStatus
+}
 
 class CreateOperationPolicyDto {
   @IsString() @Matches(/^[a-z][a-z0-9_.:-]{2,127}$/) operationCode!: string
@@ -27,20 +31,18 @@ export class OperationPolicyController {
 
   @Get()
   @RequirePermissions('system.operation-policy.read')
-  list(@Query('status') status?: OperationPolicyStatus) {
-    if (status && !Object.values(OperationPolicyStatus).includes(status)) throw new BadRequestException('策略状态参数无效')
-    return this.policies.list(status)
+  list(@Query() query: OperationPolicyQueryDto) {
+    return this.policies.list(query.status)
   }
 
   @Get('catalog')
   @RequirePermissions('system.operation-policy.read')
-  catalog(@Query('status') status?: OperationPolicyStatus) {
-    if (status && !Object.values(OperationPolicyStatus).includes(status)) throw new BadRequestException('策略状态参数无效')
-    return this.policies.catalog(status)
+  catalog(@Query() query: OperationPolicyQueryDto) {
+    return this.policies.catalog(query.status)
   }
 
   @Post()
-  @RequirePermissions('system.operation-policy.manage')
+  @RequirePermissions('system.operation-policy.create')
   create(@Body() body: CreateOperationPolicyDto) {
     return this.policies.create(body)
   }
@@ -52,7 +54,7 @@ export class OperationPolicyController {
   }
 
   @Patch(':id/disable')
-  @RequirePermissions('system.operation-policy.disable')
+  @RequirePermissions('system.operation-policy.status')
   disable(@Param('id', ParseUUIDPipe) id: string) {
     return this.policies.disable(id)
   }

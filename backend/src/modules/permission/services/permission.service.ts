@@ -4,15 +4,36 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
-import { Prisma } from '@prisma/client'
+import { PageNodeType, PermissionStatus, Prisma } from '@prisma/client'
 import { randomUUID } from 'node:crypto'
 import { PrismaService } from '../../../database/prisma.service.js'
 import { normalizePagination, paginationData } from '../../../common/pagination.js'
-import { assertAcyclic, assertApi, canonicalPath, ok, RETIRED_CODES } from '../policies/policy.js'
-import { riskLevelForOperation, type RiskLevel } from '../../../security/policies/risk-policy.js'
+import {
+  assertAcyclic,
+  assertApi,
+  canonicalComponentPath,
+  canonicalPagePath,
+  ok,
+  RETIRED_CODES,
+} from '../policies/policy.js'
+import {
+  hasRecentSecurityProof,
+  riskLevelForOperation,
+  securityStepUpException,
+  type RiskLevel,
+} from '../../../security/policies/risk-policy.js'
+import { ENABLEMENT_STATUS_LABELS } from '../../../common/constants/enum-labels.js'
+import { isCatalogManagementCode, isManagementApiPath, isManagementResource } from '../../../security/policies/permission-catalog.js'
 
 export type MutationContext = {
-  user: { internalId: bigint; userId: string; roles?: unknown[] }
+  user: {
+    internalId: bigint
+    userId: string
+    roles?: unknown[]
+    mfaEnabled?: boolean
+    mfaVerifiedAt?: Date | null
+    reauthenticatedAt?: Date | null
+  }
   traceId?: string
   method: string
   url: string
@@ -23,10 +44,35 @@ type PageInput = {
   name?: string
   route?: string
   component?: string
+  icon?: string
+  routeProps?: Record<string, unknown>
   parentId?: string | null
   sort?: number
 }
 type ButtonInput = { name?: string; label?: string; sort?: number }
+function nodeCodeFromRoute(route: string) {
+  return route.replace(/^\/+/, '').replace(/[^a-zA-Z0-9_.:-]+/g, '.').toLowerCase()
+}
+function nodeCodeFromParentRoute(
+  route: string,
+  parent?: { code: string; route: string } | null
+) {
+  if (!parent) return nodeCodeFromRoute(route)
+  const routeSegments = route.split('/').filter(Boolean)
+  const parentRouteSegments = parent.route.split('/').filter(Boolean)
+  const hasParentPrefix = parentRouteSegments.every((segment, index) => routeSegments[index] === segment)
+  const suffix = hasParentPrefix ? routeSegments.slice(parentRouteSegments.length) : routeSegments
+  const parentCode = parent.code.replace(/^directory\./, '').split('.').filter(Boolean)
+  return [...parentCode, ...suffix].join('.').toLowerCase()
+}
+
+function routeFromParentRoute(route: string, parent?: { route: string } | null) {
+  const normalized = canonicalPagePath(route)
+  if (!parent) return normalized
+  const parentRoute = canonicalPagePath(parent.route)
+  if (normalized === parentRoute || normalized.startsWith(`${parentRoute}/`)) return normalized
+  return canonicalPagePath(`${parentRoute}/${normalized.replace(/^\/+/, '')}`)
+}
 const apiSelect = {
   id: true,
   code: true,
@@ -39,12 +85,56 @@ const apiSelect = {
   type: true,
 } as const
 
+/** API status is an internal enum; responses expose only its safe presentation fields. */
+function toApiView(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(toApiView)
+  if (!value || typeof value !== 'object') return value
+  const object = value as Record<string, unknown>
+  const projected = Object.fromEntries(
+    Object.entries(object).map(([key, item]) => [key, toApiView(item)])
+  )
+  if (projected.type === 'API' && typeof object.status === 'string') {
+    const status = object.status as PermissionStatus
+    delete projected.status
+    projected.statusLabel = ENABLEMENT_STATUS_LABELS[status]
+    projected.isActive = status === PermissionStatus.ACTIVE
+  }
+  return projected
+}
+
 @Injectable()
 export class PermissionService {
   constructor(private readonly prisma: PrismaService) {}
+  async getFunctionRoute(id: string) {
+    const page = await this.prisma.systemFunction.findUnique({ where: { id }, select: { route: true } })
+    if (!page) throw new NotFoundException('页面不存在')
+    return page.route
+  }
+  async assertPageMetadataSecurity(id: string, req: MutationContext) {
+    const page = await this.prisma.systemFunction.findUnique({
+      where: { id },
+      select: { permission: { select: { roleTypes: { select: { roleType: true } } } } },
+    })
+    if (!page) throw new NotFoundException('页面不存在')
+    const isBusinessPage = page.permission?.roleTypes.some((item) => item.roleType === 'BUSINESS')
+    const riskLevel: RiskLevel = isBusinessPage ? 'L2' : 'L3'
+    req.riskLevel = riskLevel
+    if (!hasRecentSecurityProof(req.user, riskLevel))
+      throw securityStepUpException(req.user, riskLevel, 'system.page.update')
+    return riskLevel
+  }
+  async pageStatusRisk(id: string): Promise<RiskLevel> {
+    const page = await this.prisma.systemFunction.findUnique({
+      where: { id },
+      select: { nodeType: true, permission: { select: { roleTypes: { select: { roleType: true } } } } },
+    })
+    if (!page || page.nodeType === PageNodeType.DIRECTORY)
+      throw new BadRequestException('目录节点不能单独停用或启用')
+    return page.permission?.roleTypes.some((item) => item.roleType === 'BUSINESS') ? 'L2' : 'L3'
+  }
   async listFunctions() {
     return ok(
-      await this.prisma.systemFunction.findMany({
+      toApiView(await this.prisma.systemFunction.findMany({
         orderBy: [{ sort: 'asc' }, { createdAt: 'asc' }],
         include: {
           permission: { select: { id: true, code: true } },
@@ -57,7 +147,7 @@ export class PermissionService {
             },
           },
         },
-      })
+      }))
     )
   }
   async listButtons(functionId: string) {
@@ -67,14 +157,14 @@ export class PermissionService {
     })
     if (!page) throw new NotFoundException('页面不存在')
     return ok(
-      await this.prisma.functionButton.findMany({
+      toApiView(await this.prisma.functionButton.findMany({
         where: { functionId },
         orderBy: [{ sort: 'asc' }, { createdAt: 'asc' }],
         include: {
           permission: { select: { id: true, code: true, status: true } },
           apis: { include: { api: { select: apiSelect } } },
         },
-      })
+      }))
     )
   }
   async listFunctionApis(functionId: string) {
@@ -84,10 +174,10 @@ export class PermissionService {
     })
     if (!page) throw new NotFoundException('页面不存在')
     return ok(
-      await this.prisma.functionApi.findMany({
+      toApiView(await this.prisma.functionApi.findMany({
         where: { functionId },
         include: { api: { select: apiSelect } },
-      })
+      }))
     )
   }
   async listApis(
@@ -124,15 +214,30 @@ export class PermissionService {
         },
       }),
     ])
-    return ok(paginationData(items, total, { page, pageSize }))
+    return ok(toApiView(paginationData(items, total, { page, pageSize })))
   }
   async apiOptions() {
     return ok(
-      await this.prisma.permission.findMany({
+      toApiView(await this.prisma.permission.findMany({
         where: { type: 'API', status: 'ACTIVE', code: { notIn: RETIRED_CODES } },
         orderBy: { code: 'asc' },
         select: apiSelect,
-      })
+      }))
+    )
+  }
+  async pageApiOptions() {
+    return ok(
+      toApiView(await this.prisma.permission.findMany({
+        where: {
+          type: 'API',
+          status: 'ACTIVE',
+          method: 'GET',
+          action: { in: ['read', 'list', 'detail', 'init', 'options', 'references'] },
+          code: { notIn: RETIRED_CODES },
+        },
+        orderBy: { code: 'asc' },
+        select: apiSelect,
+      }))
     )
   }
   async createApi(
@@ -147,17 +252,19 @@ export class PermissionService {
     req: MutationContext
   ) {
     const path = assertApi(input)
-    if (
-      /^(system\.|page\.system\.)/.test(input.code) ||
-      /^\/api\/v1\/(permission|roles|users|audit-logs|auth)(\/|$)/.test(path)
-    )
+    if (isManagementResource(input.resource) || isCatalogManagementCode(input.code) || isManagementApiPath(input.path))
       throw new BadRequestException('受保护的管理接口由服务端目录维护')
-    return this.change(req, 'api.create', async (tx) => ({
-      before: null,
-      after: await tx.permission.create({
-        data: { ...input, path, type: 'API', requiredRoleType: 'BUSINESS' },
-      }),
-    }))
+    return this.change(req, 'api.create', async (tx) => {
+      const after = await tx.permission.create({
+        data: {
+          ...input,
+          path,
+          type: 'API',
+          roleTypes: { create: { roleType: 'BUSINESS' } },
+        },
+      })
+      return { before: null, after }
+    })
   }
   async updateApi(
     id: string,
@@ -178,21 +285,39 @@ export class PermissionService {
     })
   }
   async createFunction(
-    input: PageInput & { code: string; name: string; route: string; apiIds?: string[] },
+    input: PageInput & { code?: string; name: string; route: string; apiIds?: string[] },
     req: MutationContext
   ) {
-    const route = canonicalPath(input.route)
     return this.change(req, 'page.create', async (tx) => {
-      if (input.parentId) await this.page(tx, input.parentId, true)
+      let parent: { code: string; route: string; nodeType: PageNodeType } | null = null
+      if (input.parentId) {
+        parent = await this.page(tx, input.parentId, true)
+        if (parent.nodeType !== PageNodeType.DIRECTORY)
+          throw new BadRequestException('页面只能挂在目录节点下')
+      }
+      const route = routeFromParentRoute(input.route, parent)
+      if (!input.component) throw new BadRequestException('页面必须填写组件路径')
+      canonicalComponentPath(input.component)
+      const code = `page.${nodeCodeFromParentRoute(route, parent)}`
       const permission = await tx.permission.create({
-        data: { code: input.code, name: input.name, resource: route, action: 'view', type: 'PAGE' },
+        data: {
+          code,
+          name: input.name,
+          resource: route,
+          action: 'view',
+          type: 'PAGE',
+          roleTypes: { create: { roleType: 'BUSINESS' } },
+        },
       })
       const after = await tx.systemFunction.create({
         data: {
-          code: input.code,
+          code,
           name: input.name,
           route,
           component: input.component,
+          icon: input.icon || null,
+          routeProps: input.routeProps ? (input.routeProps as Prisma.InputJsonValue) : Prisma.JsonNull,
+          nodeType: PageNodeType.PAGE,
           parentId: input.parentId || null,
           sort: input.sort || 0,
           permissionId: permission.id,
@@ -202,20 +327,147 @@ export class PermissionService {
       return { before: null, after: { ...after, apiIds: input.apiIds || [] } }
     })
   }
-  async updateFunction(id: string, input: PageInput, req: MutationContext) {
-    return this.change(req, 'page.update', async (tx) => {
+  async createDirectory(
+    input: { name: string; route: string; parentId?: string | null; sort?: number; icon?: string },
+    req: MutationContext
+  ) {
+    return this.change(
+      req,
+      'system.directory.create',
+      async (tx) => {
+      let parent: { code: string; route: string; nodeType: PageNodeType } | null = null
+      if (input.parentId) {
+        parent = await this.page(tx, input.parentId, true)
+        if (parent.nodeType !== PageNodeType.DIRECTORY)
+          throw new BadRequestException('目录节点只能挂在目录节点下')
+      }
+      const route = routeFromParentRoute(input.route, parent)
+      const code = nodeCodeFromParentRoute(route, parent)
+      const after = await tx.systemFunction.create({
+        data: {
+          code,
+          name: input.name,
+          route,
+          component: null,
+          icon: input.icon || null,
+          nodeType: PageNodeType.DIRECTORY,
+          parentId: input.parentId || null,
+          sort: input.sort || 0,
+          permissionId: null,
+        },
+      })
+        return { before: null, after }
+      },
+      '目录路由已存在，请更换目录路由'
+    )
+  }
+  async deleteDirectory(id: string, req: MutationContext) {
+    return this.change(req, 'system.directory.delete', async (tx) => {
       const before = await this.page(tx, id)
+      if (before.nodeType !== PageNodeType.DIRECTORY)
+        throw new BadRequestException('只能删除目录节点')
+      const childCount = await tx.systemFunction.count({ where: { parentId: id } })
+      if (childCount > 0) throw new ConflictException('目录包含子节点，不能删除')
+      const [apiCount, buttonCount] = await Promise.all([
+        tx.functionApi.count({ where: { functionId: id } }),
+        tx.functionButton.count({ where: { functionId: id } }),
+      ])
+      if (apiCount || buttonCount) throw new ConflictException('目录存在绑定资源，不能删除')
+      const after = await tx.systemFunction.delete({ where: { id } })
+      return { before, after }
+    })
+  }
+  async deleteFunction(id: string, req: MutationContext) {
+    return this.change(req, 'page.delete', async (tx) => {
+      const before = await this.page(tx, id)
+      if (before.nodeType === PageNodeType.DIRECTORY)
+        throw new BadRequestException('目录节点请使用目录删除操作')
+      const [childCount, apiCount, buttonCount] = await Promise.all([
+        tx.systemFunction.count({ where: { parentId: id } }),
+        tx.functionApi.count({ where: { functionId: id } }),
+        tx.functionButton.count({ where: { functionId: id } }),
+      ])
+      if (childCount > 0) throw new ConflictException('页面包含子节点，不能删除')
+      if (apiCount > 0) throw new ConflictException('页面存在基础接口绑定，不能删除')
+      if (buttonCount > 0) throw new ConflictException('页面存在按钮绑定，不能删除')
+      if (before.permissionId) {
+        const roleCount = await tx.rolePermission.count({ where: { permissionId: before.permissionId } })
+        if (roleCount > 0) throw new ConflictException('页面存在角色授权，不能删除')
+      }
+      const after = await tx.systemFunction.delete({ where: { id } })
+      if (before.permissionId) await tx.permission.delete({ where: { id: before.permissionId } })
+      return { before, after }
+    })
+  }
+  async updateFunction(id: string, input: PageInput, req: MutationContext) {
+    return this.updateFunctionWithAction(id, input, req, 'page.update')
+  }
+  async updateDirectory(id: string, input: PageInput, req: MutationContext) {
+    return this.updateFunctionWithAction(id, input, req, 'system.directory.update', PageNodeType.DIRECTORY)
+  }
+  private async updateFunctionWithAction(
+    id: string,
+    input: PageInput,
+    req: MutationContext,
+    action: string,
+    expectedNodeType?: PageNodeType
+  ) {
+    return this.change(req, action, async (tx) => {
+      const before = await this.page(tx, id)
+      if (expectedNodeType && before.nodeType !== expectedNodeType)
+        throw new BadRequestException('节点类型与编辑接口不匹配')
+      const nodeType = before.nodeType
+      if (nodeType === PageNodeType.DIRECTORY) {
+        const [apiCount, buttonCount] = await Promise.all([
+          tx.functionApi.count({ where: { functionId: id } }),
+          tx.functionButton.count({ where: { functionId: id } }),
+        ])
+        if (apiCount || buttonCount)
+          throw new ConflictException('目录节点不能包含页面接口或按钮，请先解除绑定')
+      }
+      let routeParent: { code: string; route: string; nodeType: PageNodeType } | null = null
+      const targetParentId = input.parentId !== undefined ? input.parentId : before.parentId
+      if (targetParentId) {
+        const parent = await this.page(tx, targetParentId, true)
+        routeParent = parent
+        if (parent.nodeType !== PageNodeType.DIRECTORY)
+          throw new BadRequestException('页面和目录都只能挂在目录节点下')
+      }
       if (input.parentId !== undefined) {
-        if (input.parentId) await this.page(tx, input.parentId, true)
         assertAcyclic(
           id,
           input.parentId,
           await tx.systemFunction.findMany({ select: { id: true, parentId: true } })
         )
       }
+      if (nodeType === PageNodeType.DIRECTORY && input.route && !routeParent && before.parentId)
+        routeParent = await this.page(tx, before.parentId, true)
+      const nextRoute = input.route ? routeFromParentRoute(input.route, routeParent) : undefined
+      if (nodeType !== PageNodeType.DIRECTORY && input.component !== undefined) {
+        if (!input.component) throw new BadRequestException('页面必须填写组件路径')
+        canonicalComponentPath(input.component)
+      }
       const after = await tx.systemFunction.update({
         where: { id },
-        data: { ...input, ...(input.route ? { route: canonicalPath(input.route) } : {}) },
+        data: {
+          ...(input.name !== undefined ? { name: input.name } : {}),
+          ...(nextRoute ? { route: nextRoute } : {}),
+          ...(nodeType === PageNodeType.DIRECTORY && input.route
+            ? { code: nodeCodeFromParentRoute(nextRoute!, routeParent) }
+            : {}),
+          ...(input.parentId !== undefined ? { parentId: input.parentId } : {}),
+          ...(input.sort !== undefined ? { sort: input.sort } : {}),
+          ...(input.icon !== undefined ? { icon: input.icon || null } : {}),
+          ...(input.routeProps !== undefined
+            ? { routeProps: input.routeProps ? (input.routeProps as Prisma.InputJsonValue) : Prisma.JsonNull }
+            : {}),
+          nodeType,
+          ...(nodeType === PageNodeType.DIRECTORY
+            ? { component: null, routeProps: Prisma.JsonNull }
+            : input.component !== undefined
+            ? { component: input.component }
+            : {}),
+        },
       })
       if (input.name && before.permissionId)
         await tx.permission.update({
@@ -237,6 +489,8 @@ export class PermissionService {
   ) {
     return this.change(req, 'button.create', async (tx) => {
       const parent = await this.page(tx, input.functionId, true)
+      if (parent.nodeType === PageNodeType.DIRECTORY)
+        throw new BadRequestException('目录节点不能配置按钮')
       const permission = await tx.permission.create({
         data: {
           code: input.code,
@@ -244,6 +498,7 @@ export class PermissionService {
           resource: parent.code,
           action: 'operate',
           type: 'BUTTON',
+          roleTypes: { create: { roleType: 'BUSINESS' } },
         },
       })
       const after = await tx.functionButton.create({
@@ -297,6 +552,8 @@ export class PermissionService {
           ? await this.page(tx, id)
           : await tx.functionButton.findUnique({ where: { id } })
       if (!before) throw new NotFoundException('资源不存在')
+      if (kind === 'page' && 'nodeType' in before && before.nodeType === PageNodeType.DIRECTORY)
+        throw new BadRequestException('目录节点不能单独停用或启用，请调整子页面状态')
       const after =
         kind === 'page'
           ? await tx.systemFunction.update({ where: { id }, data: { status } })
@@ -363,7 +620,11 @@ export class PermissionService {
     req: MutationContext
   ) {
     return this.change(req, `${kind}.bind-api`, async (tx) => {
-      if (kind === 'page') await this.page(tx, id, true)
+      if (kind === 'page') {
+        const page = await this.page(tx, id, true)
+        if (page.nodeType === PageNodeType.DIRECTORY)
+          throw new BadRequestException('目录节点不能绑定页面基础接口')
+      }
       else {
         const button = await tx.functionButton.findUnique({ where: { id } })
         if (!button || button.status !== 'ACTIVE') throw new NotFoundException('按钮不存在或已停用')
@@ -433,7 +694,8 @@ export class PermissionService {
   private async change(
     req: MutationContext,
     action: string,
-    fn: (tx: Prisma.TransactionClient) => Promise<{ before: unknown; after: unknown }>
+    fn: (tx: Prisma.TransactionClient) => Promise<{ before: unknown; after: unknown }>,
+    conflictMessage = '权限码、路由或接口方法与路径已存在'
   ) {
     try {
       return await this.prisma.$transaction(
@@ -465,7 +727,7 @@ export class PermissionService {
       )
     } catch (error) {
       const code = (error as { code?: string }).code
-      if (code === 'P2002') throw new ConflictException('权限码、路由或接口方法与路径已存在')
+      if (code === 'P2002') throw new ConflictException(conflictMessage)
       if (code === 'P2003') throw new ConflictException('资源存在引用，不能删除')
       if (code === 'P2034') throw new ConflictException('资源已被并发修改，请刷新后重试')
       throw error

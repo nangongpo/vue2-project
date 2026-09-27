@@ -4,8 +4,7 @@ import { AuthService, SESSION_COOKIE } from '../services/auth.service.js'
 import { AuthenticatedUser } from '../types/auth.types.js'
 import { REQUIRED_PERMISSIONS } from '../decorators/permission.decorator.js'
 import { canonicalPath } from '../../modules/permission/policies/policy.js'
-import { hasRecentSecurityProof, highestRiskLevel } from '../policies/risk-policy.js'
-import { API_CODE } from '../../common/constants/api-code.js'
+import { hasRecentSecurityProof, highestRiskLevel, securityStepUpException } from '../policies/risk-policy.js'
 import { SECURITY_OPERATION } from '../decorators/operation.decorator.js'
 import { OperationPolicyService } from '../services/operation-policy.service.js'
 
@@ -41,6 +40,7 @@ export class PermissionGuard implements CanActivate {
       'POST /api/v1/auth/mfa/enroll',
       'POST /api/v1/auth/mfa/confirm',
       'POST /api/v1/auth/reauth',
+      'POST /api/v1/auth/session/renew',
       'POST /api/v1/captcha/challenges',
       'POST /api/v1/captcha/verify',
     ])
@@ -62,17 +62,7 @@ export class PermissionGuard implements CanActivate {
         : highestRiskLevel([])
       request.operationCode = operationCode
       request.riskLevel = riskLevel
-      if (!hasRecentSecurityProof(request.user, riskLevel)) {
-        throw new ForbiddenException({
-          code: API_CODE.SECURITY_STEP_UP_REQUIRED,
-          message: '需要完成高风险操作验证',
-          data: {
-            riskLevel,
-            operationCode,
-            requiredFactors: request.user.mfaEnabled ? ['PASSWORD', 'OTP'] : ['PASSWORD'],
-          },
-        })
-      }
+      if (!hasRecentSecurityProof(request.user, riskLevel)) throw securityStepUpException(request.user, riskLevel, operationCode)
       return true
     }
     if (!required.every((permission) => permissions.includes(permission)))
@@ -93,17 +83,11 @@ export class PermissionGuard implements CanActivate {
       : highestRiskLevel(required)
     if (operationCode) request.operationCode = operationCode
     request.riskLevel = riskLevel
-    if (!hasRecentSecurityProof(request.user, riskLevel)) {
-      throw new ForbiddenException({
-        code: API_CODE.SECURITY_STEP_UP_REQUIRED,
-        message: '需要完成高风险操作验证',
-        data: {
-          riskLevel,
-          operationCode: operationCode || null,
-          requiredFactors: request.user.mfaEnabled ? ['PASSWORD', 'OTP'] : ['PASSWORD'],
-        },
-      })
-    }
+    // Page metadata changes are classified by the target page in the permission
+    // service (BUSINESS=L2, built-in/admin=L3). Do not apply the static
+    // system.page.update fallback here or business pages could never use L2.
+    if (!required.includes('system.page.update') && !hasRecentSecurityProof(request.user, riskLevel))
+      throw securityStepUpException(request.user, riskLevel, operationCode)
     return true
   }
 }

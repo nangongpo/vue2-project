@@ -1,6 +1,7 @@
-import { Prisma, PrismaClient } from '@prisma/client'
+import { Prisma, PrismaClient, RoleType } from '@prisma/client'
 import type { DataFieldDefinition } from './static-field-definitions.js'
 import { DATA_FIELD_OVERRIDES, MODEL_RESOURCE_MAP } from './data-field-overrides.js'
+import { allowedRoleTypesForPermission } from './permission-catalog.js'
 
 type DmmfField = {
   name: string
@@ -104,6 +105,8 @@ export async function upsertGeneratedDataFields(
     for (const field of definitions) {
       const readCode = `${field.resource}.field.${field.field}.read`
       const writeCode = `${field.resource}.field.${field.field}.write`
+      const readRoleTypes = allowedRoleTypesForPermission({ code: readCode, type: 'FIELD' }) as readonly RoleType[]
+      const writeRoleTypes = allowedRoleTypesForPermission({ code: writeCode, type: 'FIELD' }) as readonly RoleType[]
       const readPermission = await tx.permission.upsert({
         where: { code: readCode },
         create: {
@@ -112,12 +115,16 @@ export async function upsertGeneratedDataFields(
           resource: field.resource,
           action: `field.${field.field}.read`,
           type: 'FIELD',
-          requiredRoleType: 'SECURITY',
+          roleTypes: { create: readRoleTypes.map((roleType) => ({ roleType })) },
         },
         update: {
           name: `${field.name}查看`,
           resource: field.resource,
           action: `field.${field.field}.read`,
+          roleTypes: {
+            deleteMany: {},
+            create: readRoleTypes.map((roleType) => ({ roleType })),
+          },
         },
       })
       const writePermission = field.writable
@@ -129,12 +136,16 @@ export async function upsertGeneratedDataFields(
               resource: field.resource,
               action: `field.${field.field}.write`,
               type: 'FIELD',
-              requiredRoleType: 'SECURITY',
+              roleTypes: { create: writeRoleTypes.map((roleType) => ({ roleType })) },
             },
             update: {
-              name: `${field.name}修改`,
-              resource: field.resource,
-              action: `field.${field.field}.write`,
+            name: `${field.name}修改`,
+            resource: field.resource,
+            action: `field.${field.field}.write`,
+            roleTypes: {
+              deleteMany: {},
+              create: writeRoleTypes.map((roleType) => ({ roleType })),
+            },
             },
           })
         : null
@@ -165,20 +176,22 @@ export async function upsertGeneratedDataFields(
         },
       })
       const roles = await tx.role.findMany({
-        where: { code: { in: ['builtin_security', 'builtin_system'] } },
-        select: { id: true },
+        where: { roleType: { in: [...new Set([...readRoleTypes, ...writeRoleTypes])] } },
+        select: { id: true, roleType: true },
       })
       for (const role of roles) {
-        await tx.rolePermission.upsert({
-          where: { roleId_permissionId: { roleId: role.id, permissionId: readPermission.id } },
-          create: {
-            roleId: role.id,
-            permissionId: readPermission.id,
-            grantReason: '字段权限自动生成',
-          },
-          update: {},
-        })
-        if (writePermission) {
+        if (readRoleTypes.includes(role.roleType)) {
+          await tx.rolePermission.upsert({
+            where: { roleId_permissionId: { roleId: role.id, permissionId: readPermission.id } },
+            create: {
+              roleId: role.id,
+              permissionId: readPermission.id,
+              grantReason: '字段权限自动生成',
+            },
+            update: {},
+          })
+        }
+        if (writePermission && writeRoleTypes.includes(role.roleType)) {
           await tx.rolePermission.upsert({
             where: { roleId_permissionId: { roleId: role.id, permissionId: writePermission.id } },
             create: {
@@ -190,6 +203,12 @@ export async function upsertGeneratedDataFields(
           })
         }
       }
+      await tx.rolePermission.deleteMany({
+        where: {
+          permissionId: { in: [readPermission.id, ...(writePermission ? [writePermission.id] : [])] },
+          role: { roleType: { notIn: [...new Set([...readRoleTypes, ...writeRoleTypes])] } },
+        },
+      })
       results.push(permissionField)
     }
     return results

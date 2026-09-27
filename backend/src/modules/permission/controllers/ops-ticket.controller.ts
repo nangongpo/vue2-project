@@ -98,7 +98,7 @@ export class OpsTicketController {
     return this.service.cancel(id, body, actorFrom(request))
   }
   @Post(':id/evidence')
-  @RequirePermissions('system.ops-ticket.evidence')
+  @RequirePermissions('system.ops-ticket.evidence.create')
   evidence(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() body: OpsEvidenceDto,
@@ -107,7 +107,7 @@ export class OpsTicketController {
     return this.service.addEvidence(id, body, actorFrom(request))
   }
   @Post(':id/executions')
-  @RequirePermissions('system.ops-ticket.executions')
+  @RequirePermissions('system.ops-ticket.execution.create')
   executions(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() body: OpsExecutionDto,

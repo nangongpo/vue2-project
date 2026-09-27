@@ -68,13 +68,20 @@ export class CaptchaService {
   }
   private async readAttempt(attemptId: string) {
     const raw = await this.redis.get(this.attemptKey(attemptId))
-    if (!raw) throw new ServiceUnavailableException('验证码流程已失效')
+    if (!raw)
+      throw new HttpException(
+        { code: API_CODE.CAPTCHA_INVALID, message: '验证码流程已失效，请重新获取验证码' },
+        400
+      )
     try {
       const attempt = JSON.parse(raw) as Attempt
       if (attempt.expiresAt < Date.now()) throw new Error('expired')
       return attempt
     } catch {
-      throw new ServiceUnavailableException('验证码流程已失效')
+      throw new HttpException(
+        { code: API_CODE.CAPTCHA_INVALID, message: '验证码流程已失效，请重新获取验证码' },
+        400
+      )
     }
   }
   async createChallenge(username: string, ip?: string, userAgent?: string) {

@@ -162,7 +162,7 @@ export class MfaService {
     if (!encrypted) throw new BadRequestException('绑定已过期，请重新验证密码')
     const step = this.matchStep(this.decrypt(encrypted, userId), otp, null)
     const now = new Date()
-    const sessionTtl = Number(process.env.SESSION_TTL_SECONDS || 1800)
+    const sessionTtl = Number(process.env.SESSION_TTL_SECONDS || 28800)
     const rotatedToken = rotateSession ? randomBytes(32).toString('base64url') : undefined
     await this.prisma.$transaction(async (tx) => {
       const changed = await tx.user.updateMany({
@@ -236,12 +236,20 @@ export class MfaService {
     if (changed.count !== 1) throw this.invalidOtp()
   }
 
-  async reauthenticate(userId: bigint, password: string, otp: string | undefined, rawToken?: string) {
+  async reauthenticate(
+    userId: bigint,
+    password: string,
+    otp: string | undefined,
+    rawToken?: string,
+    renewSession = false
+  ) {
     await this.rateLimit(userId, 'password')
     const user = await this.activeUser(userId)
     if (!(await this.passwords.verify(password, user.passwordHash))) throw new ForbiddenException('密码验证失败')
     if (user.mfaEnabled) await this.verify(userId, otp || '')
     const now = new Date()
+    const sessionTtl = Number(process.env.SESSION_TTL_SECONDS || 28800)
+    const sessionExpiresAt = renewSession ? new Date(now.getTime() + sessionTtl * 1000) : undefined
     await this.prisma.$transaction(async (tx) => {
       // Lock/check the exact account state proved above before updating the session.
       const account = await tx.user.updateMany({
@@ -258,10 +266,18 @@ export class MfaService {
       if (account.count !== 1) throw new ForbiddenException('账号状态已变化，请重新登录')
       const result = await tx.session.updateMany({
         where: this.sessionWhere(userId, rawToken),
-        data: { reauthenticatedAt: now, ...(user.mfaEnabled ? { mfaVerifiedAt: now } : {}) },
+        data: {
+          reauthenticatedAt: now,
+          ...(user.mfaEnabled ? { mfaVerifiedAt: now } : {}),
+          ...(sessionExpiresAt ? { expiresAt: sessionExpiresAt, lastSeenAt: now } : {}),
+        },
       })
       if (result.count !== 1) throw new UnauthorizedException('登录状态已失效')
     })
-    return { reauthenticatedAt: now, ...(user.mfaEnabled ? { mfaVerifiedAt: now } : {}) }
+    return {
+      reauthenticatedAt: now,
+      ...(user.mfaEnabled ? { mfaVerifiedAt: now } : {}),
+      ...(sessionExpiresAt ? { sessionExpiresAt } : {}),
+    }
   }
 }

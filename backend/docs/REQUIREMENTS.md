@@ -310,6 +310,59 @@ AUDIT
 - 会话必须支持绝对超时、闲置超时、主动注销、服务端吊销和并发会话控制。
 - 账户、会话、角色和权限状态校验必须在后端完成，不能依赖前端缓存。
 
+### 4.2 会话 Cookie 生命周期与变更清单
+
+系统使用 HttpOnly Cookie 承载登录会话，前端不得读取、拼接、存储或修改会话令牌。正式登录 Cookie 为 `app_session`，临时 MFA 登录 Cookie 为 `app_pre_auth`。
+
+会话时间要求：
+
+- `SESSION_IDLE_TTL_SECONDS` 默认为 1800 秒，即连续闲置 30 分钟后由服务端使会话失效。
+- `SESSION_TTL_SECONDS` 默认为 28800 秒，即登录会话最长有效 8 小时。
+- Cookie 的 `maxAge` 必须与正式会话绝对有效期一致，不能因 Cookie 提前过期造成活动用户突然退出。
+- 有效请求更新服务端 `lastSeenAt`，但不得超过绝对过期时间。
+- 高风险操作的 MFA 和重新认证证明有效期为 5 分钟，与登录会话有效期相互独立。
+
+允许修改 Cookie 的操作仅限以下服务端流程：
+
+| 操作 | `app_session` | `app_pre_auth` | 说明 |
+|---|---|---|---|
+| 普通登录成功 | 设置 | 清除 | 创建正式认证会话 |
+| 登录需要 MFA | 清除旧值 | 设置 | 仅允许继续完成登录或 MFA 绑定 |
+| MFA 完成登录 | 设置 | 清除 | 临时会话升级为正式会话 |
+| MFA 绑定并升级会话 | 设置 | 清除 | 必要时轮换会话令牌 |
+| 继续登录/会话续签 | 刷新 | 不变 | 必须完成密码及 MFA 验证，刷新会话有效期 |
+| 用户主动退出 | 清除 | 清除 | 同时吊销服务端会话 |
+
+以下操作不得修改或清除登录 Cookie：
+
+- 打开或关闭高风险操作验证窗口。
+- 高风险操作验证失败或取消。
+- 进入、离开或刷新审批授权页面。
+- 查询用户、角色、权限和审批数据。
+- 普通的 MFA/重新认证证明更新（不包含明确的会话续签流程）。
+
+会话续签要求：
+
+- 绝对过期前 5 分钟，前端显示非阻塞提示，允许用户主动选择“继续登录”。
+- “继续登录”必须在当前页面完成，不得刷新页面、跳转路由或清空未提交表单。
+- 续签必须调用独立的受控接口，要求当前密码；启用 MFA 时还必须提交动态验证码。
+- 验证取消、失败或超时不得续签，不得注销当前会话，不得提交原业务操作。
+- 续签成功后服务端更新会话绝对过期时间并重新设置 `app_session`，前端同步新的过期时间。
+- 续签不能恢复已经闲置超时、已吊销或已经过期的会话；此类情况必须重新登录。
+- 续签不能绕过账户状态、MFA 状态、并发会话数和服务端权限校验。
+
+Cookie 安全属性必须满足：
+
+```text
+HttpOnly: true
+Secure: 生产环境必须为 true
+SameSite: Lax
+Path: /
+Domain: 仅在明确配置时设置
+```
+
+服务端不得把会话令牌、Cookie 原值或 MFA 敏感信息写入响应体、日志、审计详情或错误信息。会话缺失、闲置超时、绝对过期和服务端吊销应使用不同的内部原因记录；客户端可以统一引导重新登录，但不得把高风险验证取消误判为登录失效。
+
 ## 5. 权限资源模型
 
 ```text
@@ -455,6 +508,7 @@ ALL     全部数据
 system.user.read
 system.user.create
 system.user.update
+system.user.enable
 system.user.disable
 system.user.reset-password
 system.user.unlock
@@ -467,6 +521,7 @@ system.user.mfa-reset
 system.role.read
 system.role.create
 system.role.update
+system.role.enable
 system.role.disable
 system.role.grant
 system.role.revoke
@@ -479,7 +534,7 @@ system.role.review
 system.page.read
 system.page.create
 system.page.update
-system.page.disable
+system.page.status
 ```
 
 ### 6.4 按钮权限管理
@@ -488,8 +543,8 @@ system.page.disable
 system.button.read
 system.button.create
 system.button.update
-system.button.disable
-system.button.bind-api
+system.button.status
+system.button.api.bind
 ```
 
 ### 6.5 接口管理
@@ -498,6 +553,7 @@ system.button.bind-api
 system.api.read
 system.api.create
 system.api.update
+system.api.enable
 system.api.disable
 system.api.delete
 system.api.review
@@ -604,7 +660,7 @@ approvalRef
 建议路由：
 
 ```text
-/system/permission/api
+/system/api
 ```
 
 必须独立于页面权限页面，支持：
@@ -668,7 +724,7 @@ HTTP 方法
 建议路由：
 
 ```text
-/system/permission/approval
+/system/approval
 ```
 
 页面必须支持：
@@ -792,7 +848,8 @@ PATCH /api/v1/permission/buttons/:id/apis
 GET    /api/v1/permission/apis
 POST   /api/v1/permission/apis
 PATCH  /api/v1/permission/apis/:id
-PATCH  /api/v1/permission/apis/:id/status
+PATCH  /api/v1/permission/apis/:id/enable
+PATCH  /api/v1/permission/apis/:id/disable
 DELETE /api/v1/permission/apis/:id
 GET    /api/v1/permission/apis/:id/references
 ```
@@ -800,6 +857,8 @@ GET    /api/v1/permission/apis/:id/references
 接口管理要求：
 
 - `method` 只允许白名单方法。
+- 启用和停用使用不同的动作接口，客户端不得提交目标 `status`；服务端根据动作固定目标状态。
+- 接口查询响应不返回内部状态编码，仅返回 `statusLabel` 和 `isActive`。
 - `path` 必须符合实际后端路由模板。
 - 客户端不得覆盖服务端推导的 `type`、`resource`、`action`。
 - 修改权限码、方法或路径必须记录变更前后值。
@@ -1064,6 +1123,7 @@ DELETE 删除成功       204 No Content
 - 页面权限不能自动获得按钮权限。
 - 页面基础接口不能自动获得写接口权限。
 - 按钮权限只能调用明确绑定的 API。
+- API 必须同时满足角色显式授权、页面或按钮绑定、资源状态有效和方法/路由精确匹配；解除绑定后，显式 API 授权也不得单独恢复访问。
 - 禁用用户、角色、页面、按钮或接口后权限立即失效。
 - 数据权限不能通过客户端参数绕过。
 

@@ -283,20 +283,12 @@ div:focus {
     color: rgb(32, 160, 255);
   }
 
-  &.is-disabled {
-    color: $gray;
-  }
-
   &.text-danger {
     color: $red;
 
     &:hover,
     &:focus {
       color: $red;
-    }
-
-    &.is-disabled {
-      color: $gray;
     }
   }
 }

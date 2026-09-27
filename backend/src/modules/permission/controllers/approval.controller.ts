@@ -14,7 +14,12 @@ import {
 import { AuthGuard } from '../../../security/guards/auth.guard.js'
 import { RequirePermissions } from '../../../security/decorators/permission.decorator.js'
 import { DataFieldSecurity } from '../../../common/decorators/data-field-security.decorator.js'
-import { ApprovalActionDto, ApprovalQueryDto, CreateApprovalDto } from '../dto/approval.dto.js'
+import {
+  ApprovalActionDto,
+  ApprovalQueryDto,
+  ApprovalTargetOptionsQuery,
+  CreateApprovalDto,
+} from '../dto/approval.dto.js'
 import { ApprovalActor, ApprovalContext, ApprovalService } from '../services/approval.service.js'
 
 type Request = {
@@ -42,7 +47,13 @@ export class ApprovalController {
   @Post()
   @RequirePermissions('system.approval.create')
   create(@Body() body: CreateApprovalDto, @Req() req: Request) {
-    return this.service.create(body, req.user, context(req))
+    return this.service.create(body, req.user, context(req), true)
+  }
+
+  @Get('target-options')
+  @RequirePermissions('system.approval.target-options')
+  targetOptions(@Query() query: ApprovalTargetOptionsQuery, @Req() req: Request) {
+    return this.service.targetOptions(query, req.user)
   }
 
   @Get()
@@ -90,5 +101,16 @@ export class ApprovalController {
     @Req() req: Request
   ) {
     return this.service.transition(id, 'review', body, req.user, context(req))
+  }
+
+  @Post(':id/cancel')
+  @HttpCode(200)
+  @RequirePermissions('system.approval.cancel')
+  cancel(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: ApprovalActionDto,
+    @Req() req: Request
+  ) {
+    return this.service.cancel(id, body, req.user, context(req))
   }
 }

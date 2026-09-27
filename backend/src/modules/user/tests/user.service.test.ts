@@ -185,7 +185,7 @@ describe('UserService', () => {
       ...role,
       permissions: [
         {
-          permission: { code: '*', resource: '*', status: 'ACTIVE', requiredRoleType: 'BUSINESS' },
+          permission: { code: '*', resource: '*', status: 'ACTIVE', roleTypes: [{ roleType: 'BUSINESS' }] },
         },
       ],
     } as any)

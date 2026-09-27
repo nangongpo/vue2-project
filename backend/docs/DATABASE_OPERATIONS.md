@@ -62,9 +62,9 @@ pnpm --filter backend db:migrate
    pnpm --filter backend db:deploy
    ```
 
-6. 仅在本次发布明确需要同步权限目录或初始化管理员时执行 `db:seed`，并确认三个独立高风险角色账号已配置。
+6. 仅在本次发布明确需要同步权限目录或初始化管理员时执行 `db:seed`，并确认两名独立安全管理员、系统管理员和审计管理员账号均已配置；两名安全管理员首次登录后都必须绑定 MFA。
 7. 检查 `/api/v1/health`、`/api/v1/ready`、登录/MFA、权限和审计日志。
 
 `db:deploy` 没有业务级自动回滚，MySQL DDL 也不应假设具备完整事务回滚能力。迁移失败时保留现场并检查 `_prisma_migrations`，不要编辑已应用的迁移或执行 `db:reset`；回滚应使用经验证的备份恢复，或提交新的前向修复迁移。
 
-当前仓库的初始迁移为 `prisma/migrations/20260923010000_init/migration.sql`。已有 `_prisma_migrations` 记录的数据库不得直接删除迁移历史后重新部署；如需基线调整，必须先备份并制定单独的迁移方案。
+当前仓库只保留一个可从空库执行的基线迁移：`prisma/migrations/20260927190000_baseline/migration.sql`。新环境直接执行 `db:deploy`；已有 `_prisma_migrations` 记录的数据库不得直接删除迁移历史后重新部署。切换到基线前必须先备份、执行 preflight，并由 DBA 按实际表结构和迁移记录制定一次性基线切换方案。

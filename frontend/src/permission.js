@@ -21,8 +21,10 @@ router.beforeEach(async (to, from, next) => {
 
   try {
     // HttpOnly Cookie 不能被 JavaScript 读取，必须由后端 /auth/me 确认会话。
-    const { menu_list } = await store.dispatch('user/getInfo')
-    const accessRoutes = await store.dispatch('permission/generateRoutes', menu_list)
+    const { navigation } = await store.dispatch('user/getInfo')
+    const accessRoutes = await store.dispatch('permission/generateRoutes', {
+      navigation,
+    })
     accessRoutes.forEach((item) => router.addRoute(item))
     next({ ...to, replace: true })
   } catch {

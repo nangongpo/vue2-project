@@ -60,10 +60,10 @@
             style="width: 100%"
             @click="handleLogin">
             <span class="btn-loading-icon"></span>
-            <span class="btn-text">{{
+            {{
               loadingText ||
               (captchaCooldownSeconds ? `${captchaCooldownSeconds} 秒后可重新验证` : '验证并登录')
-            }}</span>
+            }}
           </button>
         </div>
       </section>
@@ -329,9 +329,9 @@ export default {
           if (
             error &&
             error.code === REQUEST_CODE.CAPTCHA_INVALID &&
-            /尝试次数|已失效|不存在/.test(error.message || '')
+            /尝试次数|已失效|不存在|重新获取/.test(error.message || '')
           ) {
-            this.handleCaptchaAttemptExhausted(error)
+            this.handleCaptchaAttemptExpired(error)
           }
         },
       })
@@ -438,6 +438,18 @@ export default {
         closeOnClickModal: false,
         closeOnPressEscape: false,
       }).catch(() => {})
+    },
+    handleCaptchaAttemptExpired(error) {
+      const message =
+        error && error.message ? error.message : '验证码已失效，请点击登录重新获取验证码'
+      this.captchaVerified = false
+      this.captchaResult = null
+      this.captchaChallenge = null
+      this.captchaUsername = ''
+      this.loginError = message
+      if (this.sliderCaptcha) this.sliderCaptcha.destroy()
+      this.sliderCaptcha = null
+      this.captchaDialogVisible = false
     },
     handleCaptchaCooldown(error) {
       const message = error && error.message ? error.message : '验证请求过于频繁，请稍后再试'
@@ -658,20 +670,24 @@ export default {
   line-height: 1.6;
 }
 
+::v-deep .captcha-dialog,
+::v-deep .otp-verification-dialog,
 ::v-deep .security-dialog {
   position: absolute;
   top: 50%;
   left: 50%;
-  max-height: calc(100vh - 40px);
   margin: 0 !important;
+  max-height: calc(100vh - 40px);
   transform: translate(-50%, -50%);
 }
 
+/* ::v-deep .captcha-dialog .el-dialog__body,
+::v-deep .otp-verification-dialog .el-dialog__body,
 ::v-deep .security-dialog .el-dialog__body {
   padding: 0 22px 0;
   max-height: calc(100vh - 160px);
   overflow-y: auto;
-}
+} */
 
 ::v-deep .security-dialog .page-title {
   padding: 8px 0 10px 0;
@@ -719,9 +735,9 @@ export default {
 .login-btn {
   width: 100%;
   padding: 14px;
-  background: linear-gradient(90deg, #00cbd9, #00f2fe);
+  background: linear-gradient(90deg, #007f8d, #009eaa);
   border: none;
-  color: #060913;
+  color: #dddddd;
   font-size: 16px;
   font-weight: bold;
   cursor: pointer;
@@ -731,12 +747,12 @@ export default {
 }
 
 .login-btn:hover {
-  background: linear-gradient(90deg, #00b8c6, #00d9e8);
+  background: linear-gradient(90deg, #006d7a, #008d99);
 }
 
 .login-btn:disabled {
-  background-color: #13394d;
-  color: #7094a6;
+  background: #234d60;
+  color: #e1f7fa;
   cursor: not-allowed;
 }
 
@@ -756,8 +772,8 @@ export default {
   margin-bottom: 4px;
   width: 14px;
   height: 14px;
-  border: 2px solid #7094a6;
-  border-top-color: #00f2fe;
+  border: 2px solid rgba(255, 255, 255, 0.45);
+  border-top-color: #ffffff;
   border-radius: 50%;
   animation: btnSpinner 0.8s linear infinite;
 }

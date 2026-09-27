@@ -29,6 +29,18 @@ describe('OperationPolicyService', () => {
     })
   })
 
+  it('resolves data-scope operations from the code-owned security baseline', async () => {
+    const { service } = makeService()
+    await expect(service.resolve('data-scope.read', ['system.data-scope.read'])).resolves.toMatchObject({
+      operationCode: 'data-scope.read',
+      riskLevel: 'L2',
+      requireMfa: true,
+      requireReauth: true,
+      requireApproval: false,
+      auditRequired: true,
+    })
+  })
+
   it('fails closed for an unregistered business operation', async () => {
     const { service } = makeService()
     await expect(service.resolve('order.refund')).rejects.toBeInstanceOf(ForbiddenException)

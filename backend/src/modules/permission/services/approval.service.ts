@@ -7,40 +7,61 @@ import {
 } from '@nestjs/common'
 import { HttpAdapterHost } from '@nestjs/core'
 import { ApprovalRequest, Permission, Prisma, Role } from '@prisma/client'
-import { randomBytes, randomUUID } from 'node:crypto'
+import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { PrismaService } from '../../../database/prisma.service.js'
+import { APPROVAL_KIND_LABELS } from '../../../common/constants/enum-labels.js'
 import { AuthenticatedUser } from '../../../security/types/auth.types.js'
 import {
   ApiRouteChangePayload,
   ApiDeletePayload,
   ApiCreatePayload,
-  ApiStatusPayload,
+  ApiTogglePayload,
   ApiUpdatePayload,
   PageRouteChangePayload,
+  PageStatusPayload,
   ApprovalActionDto,
   ApprovalQueryDto,
+  ApprovalTargetOptionsQuery,
   CreateApprovalDto,
   ElevatedRevokePayload,
   ElevatedScopePayload,
   MfaResetPayload,
   RoleGrantPayload,
+  RoleStatusPayload,
   RolePermissionsPayload,
   approvalDto,
   approvalPayload,
 } from '../dto/approval.dto.js'
 import { assertApi, canonicalPath, ok, RETIRED_CODES } from '../policies/policy.js'
+import { isBusinessDataResource } from '../policies/data-resource-policy.js'
 import {
-  assertOperationSecurityProof,
+  allowedRoleTypesForPermission,
+  isManagementApiPath,
+  isManagementResource,
+  isCatalogManagementCode,
+} from '../../../security/policies/permission-catalog.js'
+import {
   RISK_PROOF_TTL_MS,
   riskLevelForOperation,
 } from '../../../security/policies/risk-policy.js'
 
 export const APPROVAL_MAX_TTL_MS = 24 * 60 * 60 * 1000
-export const APPROVAL_REAUTH_MS = RISK_PROOF_TTL_MS
-export type ApprovalActor = AuthenticatedUser & {
-  mfaVerifiedAt?: Date | null
-  reauthenticatedAt?: Date | null
+export const APPROVAL_TTL_MS: Record<string, number> = {
+  ROLE_GRANT: 4 * 60 * 60 * 1000,
+  ROLE_STATUS: 24 * 60 * 60 * 1000,
+  ROLE_PERMISSIONS: 4 * 60 * 60 * 1000,
+  ELEVATED_SCOPE: 4 * 60 * 60 * 1000,
+  MFA_RESET: 60 * 60 * 1000,
+  ROLE_REVOKE: APPROVAL_MAX_TTL_MS,
+  ROLE_PERMISSION_REVOKE: APPROVAL_MAX_TTL_MS,
+  ELEVATED_REVOKE: APPROVAL_MAX_TTL_MS,
+  API_ROUTE_CHANGE: APPROVAL_MAX_TTL_MS,
+  PAGE_ENABLE: APPROVAL_MAX_TTL_MS,
+  PAGE_DISABLE: APPROVAL_MAX_TTL_MS,
 }
+export const APPROVAL_REAUTH_MS = RISK_PROOF_TTL_MS
+export { APPROVAL_KIND_LABELS }
+export type ApprovalActor = AuthenticatedUser
 export type ApprovalContext = {
   traceId?: string
   ip?: string
@@ -56,6 +77,12 @@ type ActorProfile = {
   displayName: string
   roles: Array<{ role: ActorRoleProfile }>
 }
+const AUDIT_READ_CODES = new Set([
+  'system.audit.read',
+  'system.audit.detail',
+  'system.audit.export',
+  'system.audit.review',
+])
 const json = (value: unknown): Prisma.InputJsonValue =>
   JSON.parse(JSON.stringify(value, (_, v) => (typeof v === 'bigint' ? v.toString() : v)))
 const live = (now: Date) => ({
@@ -73,12 +100,16 @@ const apiMutationPermission = (kind?: string) =>
     {
       API_CREATE: 'system.api.create',
       API_UPDATE: 'system.api.update',
-      API_STATUS: 'system.api.disable',
+      API_ENABLE: 'system.api.enable',
+      API_DISABLE: 'system.api.disable',
       API_DELETE: 'system.api.delete',
+      PAGE_ENABLE: 'system.page.enable',
+      PAGE_DISABLE: 'system.page.disable',
       PAGE_ROUTE_CHANGE: 'system.page.update',
     } as Record<string, string>
   )[kind || ''])
 const REQUEST_NO_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+const TARGET_REF_TTL_MS = 5 * 60 * 1000
 const requestNo = (now = new Date()) => {
   const date = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' })
     .format(now)
@@ -89,6 +120,8 @@ const requestNo = (now = new Date()) => {
     .join('')
   return `${date}-${random}`
 }
+const targetToken = () => randomBytes(32).toString('base64url')
+const targetTokenHash = (token: string) => createHash('sha256').update(token).digest('hex')
 const TARGET_FOREIGN_KEY = {
   USER: 'targetUserId',
   DEPARTMENT: 'targetDepartmentId',
@@ -102,7 +135,7 @@ export class ApprovalService {
 
   private authorize(
     actor: ApprovalActor,
-    action: 'create' | 'read' | 'detail' | Step,
+    action: 'create' | 'read' | 'detail' | 'cancel' | Step,
     kind?: string
   ) {
     const types = new Set(
@@ -113,12 +146,14 @@ export class ApprovalService {
     const reading = action === 'read' || action === 'detail'
     const requiredType = action === 'review' ? 'AUDIT' : reading ? undefined : 'SECURITY'
     const requiredCode =
-      action === 'create' || action === 'execute'
+      action === 'create' || action === 'execute' || action === 'cancel'
         ? kind
           ? kind === 'MFA_RESET'
             ? 'system.user.mfa-reset'
             : apiMutationPermission(kind)
             ? apiMutationPermission(kind)
+            : kind === 'ROLE_STATUS'
+            ? 'system.role.disable'
             : isRevocation(kind)
             ? 'system.role.revoke'
             : 'system.role.grant'
@@ -137,18 +172,18 @@ export class ApprovalService {
     ) {
       throw new ForbiddenException('审批操作需要独立管理员职责和显式权限')
     }
-    if (!reading) assertOperationSecurityProof(actor, 'system.approval.mutation')
   }
 
-  private expiry(expiresAt: Date, createdAt = new Date(), requireFuture = true) {
+  private expiry(expiresAt: Date, createdAt = new Date(), requireFuture = true, kind?: string) {
     const ttl = expiresAt.getTime() - createdAt.getTime()
+    const maxTtl = (kind && APPROVAL_TTL_MS[kind]) || APPROVAL_MAX_TTL_MS
     if (
       !Number.isFinite(ttl) ||
       ttl <= 0 ||
-      ttl > APPROVAL_MAX_TTL_MS ||
+      ttl > maxTtl ||
       (requireFuture && expiresAt.getTime() <= Date.now())
     ) {
-      throw new BadRequestException('审批或授权已过期，有效期必须明确且不超过二十四小时')
+      throw new BadRequestException(`审批或授权已过期，有效期必须明确且不超过${maxTtl / 3600000}小时`)
     }
   }
 
@@ -165,15 +200,162 @@ export class ApprovalService {
     }
   }
 
-  async create(input: CreateApprovalDto, actor: ApprovalActor, context: ApprovalContext = {}) {
+  private async assertIndependentSecurityApprover(tx: Tx, applicantId: string) {
+    const approver = await tx.user.findFirst({
+      where: {
+        userId: { not: applicantId },
+        status: 'ACTIVE',
+        mfaEnabled: true,
+        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+        roles: {
+          some: {
+            revokedAt: null,
+            OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+            role: {
+              status: 'ACTIVE',
+              roleType: 'SECURITY',
+              AND: [
+                {
+                  permissions: {
+                    some: {
+                      revokedAt: null,
+                      OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+                      permission: { status: 'ACTIVE', code: 'system.approval.approve' },
+                    },
+                  },
+                },
+                {
+                  permissions: {
+                    some: {
+                      revokedAt: null,
+                      OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+                      permission: { status: 'ACTIVE', code: 'system.role.review' },
+                    },
+                  },
+                },
+              ],
+            },
+          },
+        },
+      },
+      select: { userId: true },
+    })
+    if (!approver) {
+      throw new ConflictException('当前没有可用的独立安全管理员，无法提交审批')
+    }
+  }
+
+  async targetOptions(input: ApprovalTargetOptionsQuery, actor: ApprovalActor) {
+    const dto = approvalDto(ApprovalTargetOptionsQuery, input)
+    if (
+      actor.status !== 'ACTIVE' ||
+      actor.roles.length !== 1 ||
+      actor.roles[0].roleType !== 'SECURITY' ||
+      !actor.permissions.includes('system.approval.create') ||
+      !actor.permissions.includes('system.approval.target-options')
+    ) {
+      throw new ForbiddenException('无权查询受控审批目标')
+    }
+    const userKinds = ['ROLE_GRANT', 'ROLE_REVOKE', 'MFA_RESET']
+    const roleKinds = [
+      'ROLE_GRANT',
+      'ROLE_STATUS',
+      'ROLE_REVOKE',
+      'ROLE_PERMISSIONS',
+      'ROLE_PERMISSION_REVOKE',
+      'ELEVATED_SCOPE',
+    ]
+    const allowed = dto.targetType === 'USER' ? userKinds : roleKinds
+    if (!allowed.includes(dto.kind)) throw new BadRequestException('申请类型与目标类型不匹配')
+    const keyword = dto.keyword?.trim() || ''
+    const expiresAt = new Date(Date.now() + TARGET_REF_TTL_MS)
+    return this.transaction(async (tx) => {
+      const items =
+        dto.targetType === 'USER'
+          ? await Promise.all(
+              (
+                await tx.user.findMany({
+                  where: {
+                    status: 'ACTIVE',
+                    ...(keyword
+                      ? {
+                          OR: [
+                            { username: { contains: keyword } },
+                            { displayName: { contains: keyword } },
+                          ],
+                        }
+                      : {}),
+                  },
+                  orderBy: [{ displayName: 'asc' }, { username: 'asc' }],
+                  take: 20,
+                  select: { userId: true, username: true, displayName: true },
+                })
+              ).map(async (row) => {
+                const token = targetToken()
+                await tx.approvalTargetRef.create({
+                  data: {
+                    tokenHash: targetTokenHash(token),
+                    actorUserId: actor.userId,
+                    kind: dto.kind,
+                    targetType: dto.targetType,
+                    targetId: row.userId,
+                    expiresAt,
+                  },
+                })
+                return { targetRef: token, displayName: row.displayName, username: row.username }
+              })
+            )
+          : await Promise.all(
+              (
+                await tx.role.findMany({
+                  where: {
+                    status: 'ACTIVE',
+                    ...(keyword
+                      ? { OR: [{ code: { contains: keyword } }, { name: { contains: keyword } }] }
+                      : {}),
+                  },
+                  orderBy: [{ name: 'asc' }, { code: 'asc' }],
+                  take: 20,
+                  select: { roleId: true, code: true, name: true, roleType: true },
+                })
+              ).map(async (row) => {
+                const token = targetToken()
+                await tx.approvalTargetRef.create({
+                  data: {
+                    tokenHash: targetTokenHash(token),
+                    actorUserId: actor.userId,
+                    kind: dto.kind,
+                    targetType: dto.targetType,
+                    targetId: row.roleId,
+                    expiresAt,
+                  },
+                })
+                return { targetRef: token, name: row.name, code: row.code, roleType: row.roleType }
+              })
+            )
+      return ok({ items, expiresAt })
+    })
+  }
+
+  async create(
+    input: CreateApprovalDto,
+    actor: ApprovalActor,
+    context: ApprovalContext = {},
+    external = false
+  ) {
     this.authorize(actor, 'create', input.kind)
     const dto = approvalDto(CreateApprovalDto, input)
     if (!dto.reason.trim()) throw new BadRequestException('必须填写申请原因')
-    const payload = approvalPayload(dto.kind, dto.payload)
     const createdAt = new Date()
     const expiresAt = new Date(dto.expiresAt)
-    this.expiry(expiresAt, createdAt)
+    this.expiry(expiresAt, createdAt, true, dto.kind)
     return this.transaction(async (tx) => {
+      await this.assertIndependentSecurityApprover(tx, actor.userId)
+      if (external) this.assertExternalTargetRefs(dto.kind, dto.payload)
+      const payload = approvalPayload(
+        dto.kind,
+        await this.resolveTargetRefs(tx, dto.kind, dto.payload, actor.userId)
+      )
       await this.validateTarget(tx, dto.kind, payload, [actor.userId])
       const item = await tx.approvalRequest.create({
         data: {
@@ -190,6 +372,65 @@ export class ApprovalService {
       await this.audit(tx, actor, context, 'create', item.id, null, item)
       return ok(item)
     })
+  }
+
+  private assertExternalTargetRefs(kind: string, payload: Record<string, unknown>) {
+    const required =
+      kind === 'MFA_RESET'
+        ? ['userRef']
+        : ['ROLE_GRANT', 'ROLE_REVOKE'].includes(kind)
+        ? ['userRef', 'roleRef']
+        : ['ROLE_STATUS', 'ROLE_PERMISSIONS', 'ROLE_PERMISSION_REVOKE', 'ELEVATED_SCOPE'].includes(kind)
+        ? ['roleRef']
+        : []
+    if (required.some((field) => typeof payload[field] !== 'string' || !payload[field]))
+      throw new BadRequestException('审批目标必须通过受控目标选择获取')
+    if (Object.keys(payload).some((field) => ['userId', 'roleId'].includes(field)))
+      throw new BadRequestException('不允许直接提交用户或角色 ID')
+  }
+
+  private async resolveTargetRefs(
+    tx: Tx,
+    kind: string,
+    payload: Record<string, unknown>,
+    actorUserId: string
+  ) {
+    const resolved = { ...payload }
+    const refs = [
+      { ref: 'userRef', id: 'userId', type: 'USER' },
+      { ref: 'roleRef', id: 'roleId', type: 'ROLE' },
+    ] as const
+    const pending: Array<{
+      entry: (typeof refs)[number]
+      value: string
+      target: { id: string; targetId: string }
+    }> = []
+    for (const entry of refs) {
+      const value = resolved[entry.ref]
+      if (typeof value !== 'string' || !value) continue
+      const target = await tx.approvalTargetRef.findUnique({ where: { tokenHash: targetTokenHash(value) } })
+      if (
+        !target ||
+        target.actorUserId !== actorUserId ||
+        target.kind !== kind ||
+        target.targetType !== entry.type ||
+        target.usedAt ||
+        target.expiresAt <= new Date()
+      ) {
+        throw new BadRequestException('审批目标引用无效、已过期或已使用')
+      }
+      pending.push({ entry, value, target })
+    }
+    for (const item of pending) {
+      const claimed = await tx.approvalTargetRef.updateMany({
+        where: { id: item.target.id, usedAt: null, expiresAt: { gt: new Date() } },
+        data: { usedAt: new Date() },
+      })
+      if (claimed.count !== 1) throw new ConflictException('审批目标引用已被使用，请重新选择')
+      resolved[item.entry.id] = item.target.targetId
+      delete resolved[item.entry.ref]
+    }
+    return resolved
   }
 
   async list(query: ApprovalQueryDto, actor: ApprovalActor) {
@@ -265,6 +506,7 @@ export class ApprovalService {
         id: item.id,
         requestNo: item.requestNo,
         kind: item.kind,
+        kindLabel: APPROVAL_KIND_LABELS[item.kind] || item.kind,
         status: item.status,
         reason: item.reason,
         expiresAt: item.expiresAt,
@@ -274,6 +516,7 @@ export class ApprovalService {
         approver: actor(item.approverId, item.approverDisplayName),
         executor: actor(item.executorId, item.executorDisplayName),
         reviewer: actor(item.reviewerId, item.reviewerDisplayName),
+        canceller: actor(item.cancellerId, item.cancellerDisplayName),
       }
       return detail
         ? {
@@ -285,6 +528,8 @@ export class ApprovalService {
             approvalNote: item.approvalNote,
             executionNote: item.executionNote,
             reviewNote: item.reviewNote,
+            cancelledAt: item.cancelledAt,
+            cancellationNote: item.cancellationNote,
           }
         : base
     })
@@ -307,7 +552,7 @@ export class ApprovalService {
       const expected = { approve: 'REQUESTED', execute: 'APPROVED', review: 'EXECUTED' } as const
       const next = { approve: 'APPROVED', execute: 'EXECUTED', review: 'REVIEWED' } as const
       if (before.status !== expected[step]) throw new ConflictException('审批状态不允许此操作')
-      this.expiry(before.expiresAt, before.createdAt, step !== 'review')
+      this.expiry(before.expiresAt, before.createdAt, step !== 'review', before.kind)
       if (step === 'approve' && sameActor(before.applicantId, actor.userId))
         throw new ForbiddenException('申请人不得审批自己的申请')
       if (
@@ -382,13 +627,46 @@ export class ApprovalService {
     })
   }
 
+  async cancel(
+    id: string,
+    input: ApprovalActionDto,
+    actor: ApprovalActor,
+    context: ApprovalContext = {}
+  ) {
+    this.authorize(actor, 'cancel')
+    const dto = approvalDto(ApprovalActionDto, input)
+    if (!dto.note.trim()) throw new BadRequestException('必须填写撤回原因')
+    return this.transaction(async (tx) => {
+      const before = await tx.approvalRequest.findUnique({ where: { id } })
+      if (!before) throw new NotFoundException('审批单不存在')
+      if (!sameActor(before.applicantId, actor.userId))
+        throw new ForbiddenException('只有申请人可以撤回审批申请')
+      if (before.status !== 'REQUESTED') throw new ConflictException('只有待审批申请可以撤回')
+      const now = new Date()
+      const claimed = await tx.approvalRequest.updateMany({
+        where: { id, applicantId: actor.userId, status: 'REQUESTED' },
+        data: {
+          status: 'CANCELLED',
+          cancellerId: actor.userId,
+          cancellerDisplayName: actor.displayName,
+          cancelledAt: now,
+          cancellationNote: dto.note.trim(),
+        },
+      })
+      if (claimed.count !== 1) throw new ConflictException('审批已被其他操作处理')
+      const after = await tx.approvalRequest.findUniqueOrThrow({ where: { id } })
+      await this.audit(tx, actor, context, 'cancel', id, { approval: before }, { approval: after })
+      return ok(after)
+    })
+  }
+
   private async role(tx: Tx, roleId: string) {
     const role = await tx.role.findUnique({ where: { roleId } })
     if (!role || role.status !== 'ACTIVE') throw new BadRequestException('目标角色不存在或已停用')
     return role
   }
 
-  private permissionPolicy(role: Role, permission: Permission) {
+  private permissionPolicy(role: Pick<Role, 'roleType'>, permission: Permission & { roleTypes?: readonly { roleType: string }[] }) {
     if (
       permission.status !== 'ACTIVE' ||
       permission.code.includes('*') ||
@@ -397,55 +675,24 @@ export class ApprovalService {
       permission.path?.includes('*')
     )
       throw new ForbiddenException('禁止授予失效、通配或已停止使用的权限')
-    const administrative =
-      /^system\.(role|user|page|button|api|permission|approval|audit|session|config|runtime)\./.test(
-        permission.code
-      ) ||
-      /^\/api\/v1\/(permission|roles|users|audit|auth|system)(\/|$)/.test(permission.path || '')
+    const code = permission.code
     if (
       role.roleType === 'BUSINESS' &&
-      (permission.requiredRoleType !== 'BUSINESS' || administrative)
-    ) {
-      throw new ForbiddenException('业务角色不得获得管理权限')
-    }
-    if (permission.requiredRoleType !== 'BUSINESS' && permission.requiredRoleType !== role.roleType)
-      throw new ForbiddenException('权限职责与角色类型冲突')
-    // Deny escalation even if a legacy permission was incorrectly classified BUSINESS.
-    const code = permission.code
-    const sharedRead = ['system.approval.read', 'system.approval.detail'].includes(code)
-    if (sharedRead && !['SECURITY', 'AUDIT'].includes(role.roleType))
-      throw new ForbiddenException('审批查询仅限安全或审计管理员')
-    if (
-      /^system\.audit\./.test(code) &&
-      ![
-        'system.audit.read',
-        'system.audit.detail',
-        'system.audit.export',
-        'system.audit.review',
-      ].includes(code)
+      (isManagementResource(permission.resource) || isCatalogManagementCode(code) || isManagementApiPath(permission.path || ''))
     )
+      throw new ForbiddenException('业务角色不能授予管理权限')
+    const sharedApprovalRead = ['system.approval.read', 'system.approval.detail'].includes(code)
+    if (role.roleType !== 'BUSINESS' && !sharedApprovalRead && isManagementApiPath(permission.path || '')) {
+      const root = permission.path ? permission.path.split('/').filter(Boolean).slice(0, 3).join('/') : ''
+      const auditPath = root === 'api/v1/audit' || root === 'api/v1/audit-logs'
+      const securityPath = root === 'api/v1/roles' || root === 'api/v1/users' || root === 'api/v1/permission'
+      if ((auditPath && role.roleType !== 'AUDIT') || (securityPath && role.roleType === 'AUDIT'))
+        throw new ForbiddenException('路径管理职责冲突')
+    }
+    if (!allowedRoleTypesForPermission(permission).includes(role.roleType))
+      throw new ForbiddenException('职责冲突：权限与角色类型不匹配')
+    if (permission.resource === 'system.audit' && !AUDIT_READ_CODES.has(code))
       throw new ForbiddenException('禁止授予审计修改、删除或策略关闭权限')
-    const domain = /^system\.audit\./.test(code)
-      ? 'AUDIT'
-      : /^system\.(role|user|page|button|api|permission|approval)\./.test(code)
-      ? 'SECURITY'
-      : /^system\.(session|config|runtime)\./.test(code)
-      ? 'SYSTEM'
-      : undefined
-    const inferred = sharedRead ? undefined : code === 'system.approval.review' ? 'AUDIT' : domain
-    if (inferred && inferred !== role.roleType) throw new ForbiddenException('管理权限职责冲突')
-    const path = permission.path || ''
-    const sharedPath =
-      /^\/api\/v1\/permission\/approvals(?:\/:id)?$/.test(path) && permission.method === 'GET'
-    const pathRole = sharedPath
-      ? undefined
-      : /^\/api\/v1\/permission\/approvals\/[^/]+\/review$/.test(path) ||
-        /^\/api\/v1\/audit(?:\/|$)/.test(path)
-      ? 'AUDIT'
-      : /^\/api\/v1\/(permission|roles|users)(?:\/|$)/.test(path)
-      ? 'SECURITY'
-      : undefined
-    if (pathRole && pathRole !== role.roleType) throw new ForbiddenException('接口路径管理职责冲突')
     if (permission.type === 'API')
       assertApi({ code, method: permission.method || '', path: permission.path || '' })
   }
@@ -465,8 +712,11 @@ export class ApprovalService {
         'API_ROUTE_CHANGE',
         'API_CREATE',
         'API_UPDATE',
-        'API_STATUS',
+        'API_ENABLE',
+        'API_DISABLE',
         'API_DELETE',
+        'PAGE_ENABLE',
+        'PAGE_DISABLE',
         'PAGE_ROUTE_CHANGE',
       ].includes(kind)
     )
@@ -525,6 +775,24 @@ export class ApprovalService {
   ) {
     await this.assertNotBeneficiary(tx, kind, payload, actors)
     const now = new Date()
+    if (kind === 'ROLE_STATUS') {
+      const input = payload as RoleStatusPayload
+      const role = await tx.role.findUnique({ where: { roleId: input.roleId } })
+      if (!role) throw new NotFoundException('目标角色不存在')
+      if (role.status === input.status) throw new ConflictException('角色已经是目标状态')
+      if (input.status !== 'DISABLED') throw new BadRequestException('角色启用必须直接操作')
+      if (
+        await tx.userRole.findFirst({
+          where: { roleId: role.id, ...live(now), user: { userId: { in: actors } } },
+          select: { userId: true },
+        })
+      ) {
+        throw new ForbiddenException('禁止申请、审批、执行或复核本人有效角色的停用')
+      }
+      const users = await tx.userRole.count({ where: { roleId: role.id, ...live(now) } })
+      if (!users) throw new ConflictException('角色没有绑定用户，可直接停用')
+      return
+    }
     if (isRevocation(kind)) {
       // Disabled accounts/roles, expired grants and forbidden legacy permissions must remain revocable.
       if (kind === 'ELEVATED_REVOKE') {
@@ -573,7 +841,10 @@ export class ApprovalService {
       const input = payload as ApiRouteChangePayload
       const path = assertApi(input)
       if (path !== input.path) throw new BadRequestException('请使用规范化路由模板')
-      const api = await tx.permission.findUnique({ where: { id: input.apiId } })
+      const api = await tx.permission.findUnique({
+        where: { id: input.apiId },
+        include: { roleTypes: { select: { roleType: true } } },
+      })
       if (!api || api.type !== 'API' || api.status !== 'ACTIVE')
         throw new BadRequestException('目标接口不存在或已停用')
       // Fastify registered routes are the source of truth, never arbitrary client paths.
@@ -592,7 +863,12 @@ export class ApprovalService {
         })
       )
         throw new ConflictException('权限码或路由已存在')
-      this.permissionPolicy({ roleType: api.requiredRoleType } as Role, { ...api, ...input, path })
+      const allowedRoleTypes = allowedRoleTypesForPermission(api)
+      if (!allowedRoleTypes.length) throw new BadRequestException('接口未配置职责策略')
+      this.permissionPolicy(
+        { roleType: allowedRoleTypes[0] as Role['roleType'] },
+        { ...api, ...input, path, roleTypes: api.roleTypes }
+      )
       return
     }
     if (kind === 'API_UPDATE') {
@@ -606,10 +882,7 @@ export class ApprovalService {
     if (kind === 'API_CREATE') {
       const input = payload as ApiCreatePayload
       const path = assertApi(input)
-      if (
-        /^(system\.|page\.system\.)/.test(input.code) ||
-        /^\/api\/v1\/(permission|roles|users|audit-logs|auth)(\/|$)/.test(path)
-      )
+      if (isManagementResource(input.resource) || isCatalogManagementCode(input.code) || isManagementApiPath(input.path))
         throw new BadRequestException('受保护的管理接口由服务端目录维护')
       if (
         await tx.permission.findFirst({
@@ -619,11 +892,13 @@ export class ApprovalService {
         throw new ConflictException('权限码或路由已存在')
       return
     }
-    if (kind === 'API_STATUS') {
-      const input = payload as ApiStatusPayload
+    if (kind === 'API_ENABLE' || kind === 'API_DISABLE') {
+      const input = payload as ApiTogglePayload
       const api = await tx.permission.findUnique({ where: { id: input.apiId } })
       if (!api || api.type !== 'API' || RETIRED_CODES.includes(api.code))
         throw new BadRequestException('目标接口不存在')
+      const targetStatus = kind === 'API_ENABLE' ? 'ACTIVE' : 'DISABLED'
+      if (api.status === targetStatus) throw new ConflictException('接口已经是目标状态')
       return
     }
     if (kind === 'API_DELETE') {
@@ -638,6 +913,17 @@ export class ApprovalService {
       ])
       if (counts.some(Boolean))
         throw new ConflictException('接口仍被页面、按钮或角色引用，请先处理引用关系')
+      return
+    }
+    if (kind === 'PAGE_ENABLE' || kind === 'PAGE_DISABLE') {
+      const input = payload as PageStatusPayload
+      const page = await tx.systemFunction.findUnique({
+        where: { id: input.pageId },
+        select: { id: true, nodeType: true, status: true },
+      })
+      if (!page || page.nodeType === 'DIRECTORY') throw new BadRequestException('目标页面不存在或不能单独启停')
+      const targetStatus = kind === 'PAGE_ENABLE' ? 'ACTIVE' : 'DISABLED'
+      if (page.status === targetStatus) throw new ConflictException('页面已经是目标状态')
       return
     }
     if (kind === 'PAGE_ROUTE_CHANGE') {
@@ -655,7 +941,7 @@ export class ApprovalService {
     const role = await this.role(tx, (payload as RoleGrantPayload).roleId)
     const existing = await tx.rolePermission.findMany({
       where: { roleId: role.id, ...live(now) },
-      include: { permission: true },
+      include: { permission: { include: { roleTypes: { select: { roleType: true } } } } },
     })
     for (const binding of existing) this.permissionPolicy(role, binding.permission)
     if (kind === 'ROLE_GRANT') {
@@ -684,6 +970,7 @@ export class ApprovalService {
       const input = payload as RolePermissionsPayload
       const permissions = await tx.permission.findMany({
         where: { id: { in: input.permissionIds } },
+        include: { roleTypes: { select: { roleType: true } } },
       })
       if (permissions.length !== input.permissionIds.length)
         throw new BadRequestException('存在无效权限 UUID')
@@ -691,8 +978,9 @@ export class ApprovalService {
     } else if (kind === 'ELEVATED_SCOPE') {
       const input = payload as ElevatedScopePayload
       if (
-        !(await tx.permission.findFirst({
-          where: { resource: input.resource, status: 'ACTIVE' },
+        !isBusinessDataResource(input.resource) ||
+        !(await tx.dataResource.findFirst({
+          where: { code: input.resource, status: 'ACTIVE' },
           select: { id: true },
         }))
       )
@@ -740,6 +1028,16 @@ export class ApprovalService {
     now: Date
   ) {
     if (isRevocation(request.kind)) return this.revoke(tx, request, payload, actor, now)
+    if (request.kind === 'ROLE_STATUS') {
+      const input = payload as RoleStatusPayload
+      const role = await tx.role.findUniqueOrThrow({ where: { roleId: input.roleId } })
+      if (role.status === input.status) throw new ConflictException('角色状态已变化，请重新读取')
+      const after = await tx.role.update({
+        where: { id: role.id },
+        data: { status: input.status },
+      })
+      return { before: role, after }
+    }
     if (request.kind === 'MFA_RESET') {
       const input = payload as MfaResetPayload
       const user = await tx.user.findUniqueOrThrow({
@@ -855,18 +1153,24 @@ export class ApprovalService {
       const input = payload as ApiCreatePayload
       const path = assertApi(input)
       const after = await tx.permission.create({
-        data: { ...input, path, type: 'API', requiredRoleType: 'BUSINESS' },
+        data: {
+          ...input,
+          path,
+          type: 'API',
+          roleTypes: { create: { roleType: 'BUSINESS' } },
+        },
       })
       return { before: null, after }
     }
-    if (request.kind === 'API_STATUS') {
-      const input = payload as ApiStatusPayload
+    if (request.kind === 'API_ENABLE' || request.kind === 'API_DISABLE') {
+      const input = payload as ApiTogglePayload
       const before = await tx.permission.findUniqueOrThrow({ where: { id: input.apiId } })
+      const targetStatus = request.kind === 'API_ENABLE' ? 'ACTIVE' : 'DISABLED'
       const after = await tx.permission.update({
         where: { id: input.apiId },
-        data: { status: input.status },
+        data: { status: targetStatus },
       })
-      if (input.status === 'DISABLED')
+      if (targetStatus === 'DISABLED')
         await this.revokePermissionGrants(tx, input.apiId, actor.userId, request.reason, now)
       return { before, after }
     }
@@ -876,12 +1180,29 @@ export class ApprovalService {
       await tx.permission.delete({ where: { id: input.apiId } })
       return { before, after: null }
     }
+    if (request.kind === 'PAGE_ENABLE' || request.kind === 'PAGE_DISABLE') {
+      const input = payload as PageStatusPayload
+      const before = await tx.systemFunction.findUniqueOrThrow({
+        where: { id: input.pageId },
+      })
+      const targetStatus = request.kind === 'PAGE_ENABLE' ? 'ACTIVE' : 'DISABLED'
+      const after = await tx.systemFunction.update({
+        where: { id: input.pageId },
+        data: { status: targetStatus },
+      })
+      if (targetStatus === 'DISABLED' && before.permissionId)
+        await this.revokePermissionGrants(tx, before.permissionId, actor.userId, request.reason, now)
+      return { before, after }
+    }
     if (request.kind === 'PAGE_ROUTE_CHANGE') {
       const input = payload as PageRouteChangePayload
       const before = await tx.systemFunction.findUniqueOrThrow({ where: { id: input.pageId } })
       const after = await tx.systemFunction.update({
         where: { id: input.pageId },
-        data: { route: input.route },
+        data: {
+          route: input.route,
+          ...(input.component !== undefined ? { component: input.component } : {}),
+        },
       })
       return { before, after }
     }

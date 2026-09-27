@@ -21,14 +21,16 @@ describe('role/user authorization HTTP contracts', () => {
     [RoleController, 'permissionOptions', ['system.role.options']],
     [RoleController, 'create', ['system.role.create']],
     [RoleController, 'update', ['system.role.update']],
-    [RoleController, 'grants', ['system.role.grant', 'system.role.revoke']],
-    [RoleController, 'status', ['system.role.disable']],
+    [RoleController, 'grants', ['system.role.grant']],
+    [RoleController, 'enable', ['system.role.enable']],
+    [RoleController, 'disable', ['system.role.disable']],
     [RoleController, 'remove', ['system.role.delete']],
     [UserController, 'page', ['system.user.read']],
     [UserController, 'create', ['system.user.create']],
     [UserController, 'update', ['system.user.update']],
-    [UserController, 'roles', ['system.user.grant', 'system.role.revoke']],
-    [UserController, 'status', ['system.user.disable']],
+    [UserController, 'roles', ['system.user.grant']],
+    [UserController, 'enable', ['system.user.enable']],
+    [UserController, 'disable', ['system.user.disable']],
     [UserController, 'unlock', ['system.user.unlock']],
     [UserController, 'resetPassword', ['system.user.reset-password']],
   ])('uses granular capabilities on %s.%s', (controller: any, method: any, codes) => {
@@ -36,8 +38,8 @@ describe('role/user authorization HTTP contracts', () => {
   })
 
   it.each([
-    [CreateRoleDto, { code: 'operator', name: 'Operator', permissionIds: [uuid] }],
-    [UpdateRoleDto, { code: 'operator', name: 'Operator', roleType: 'SECURITY' }],
+    [CreateRoleDto, { code: 'operator', name: 'Operator' }],
+    [UpdateRoleDto, { code: 'operator', name: 'Operator' }],
     [CreateUserDto, { username: 'test', password: 'Strong-password-123!', displayName: 'Test', roleIds: [uuid] }],
     [UpdateUserDto, { displayName: 'Test', roleIds: [] }],
     [UpdateUserDto, { status: 'ACTIVE' }],
@@ -56,8 +58,8 @@ describe('role/user authorization HTTP contracts', () => {
   })
 
   it.each([
-    [RoleController, ['update', 'grants', 'status', 'remove']],
-    [UserController, ['update', 'roles', 'status', 'unlock', 'resetPassword']],
+    [RoleController, ['update', 'grants', 'enable', 'disable', 'remove']],
+    [UserController, ['update', 'roles', 'enable', 'disable', 'unlock', 'resetPassword']],
   ])('validates every UUID route parameter for %s', async (controller: any, methods: any) => {
     for (const method of methods) {
       const args = Reflect.getMetadata(ROUTE_ARGS_METADATA, controller, method)
@@ -82,6 +84,29 @@ describe('role/user authorization HTTP contracts', () => {
     expect(service.grants).toHaveBeenCalledWith(
       uuid,
       body,
+      expect.objectContaining({ internalId: 42n, traceId: 'trace', path: request.url })
+    )
+  })
+
+  it.each([
+    [RoleController, 'enable', 'enable'],
+    [RoleController, 'disable', 'disable'],
+    [UserController, 'enable', 'enable'],
+    [UserController, 'disable', 'disable'],
+  ])('routes %s.%s with a fixed action and reason only', (Controller: any, method: any, serviceMethod: any) => {
+    const service = { [serviceMethod]: vi.fn() }
+    const request = {
+      user: { internalId: 42n },
+      traceId: 'trace',
+      ip: '127.0.0.1',
+      method: 'PATCH',
+      url: `/api/v1/${Controller === RoleController ? 'roles' : 'users'}/${uuid}/${method}`,
+      headers: {},
+    }
+    new Controller(service)[method](uuid, { reason: 'Rotate access' }, request)
+    expect(service[serviceMethod]).toHaveBeenCalledWith(
+      uuid,
+      'Rotate access',
       expect.objectContaining({ internalId: 42n, traceId: 'trace', path: request.url })
     )
   })

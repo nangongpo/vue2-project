@@ -5,6 +5,7 @@ import { PrismaService } from '../../../database/prisma.service.js'
 import { effectiveGrant, type ScopeActor } from '../../../security/services/data-scope.service.js'
 import { ok } from '../policies/policy.js'
 import { riskLevelForOperation } from '../../../security/policies/risk-policy.js'
+import { isBusinessDataResource } from '../policies/data-resource-policy.js'
 
 export type ScopeManagementContext = {
   actor: ScopeActor
@@ -27,10 +28,10 @@ export class DataScopeManagementService {
   private async authorize(
     db: Prisma.TransactionClient,
     context: ScopeManagementContext,
-    permission: 'system.data.read' | 'system.data.update' | 'system.data.revoke',
+    permission: 'system.data-scope.read' | 'system.data-scope.update' | 'system.data-scope.revoke',
     now: Date
   ) {
-    if (!context.actor?.internalId || !context.sessionToken) throw new ForbiddenException('需要安全管理员和最近的 MFA 验证')
+    if (!context.actor?.internalId || !context.sessionToken) throw new ForbiddenException('需要安全管理员权限')
     const session = await db.session.findFirst({
       where: {
         id: createHash('sha256').update(context.sessionToken).digest('hex'),
@@ -38,8 +39,6 @@ export class DataScopeManagementService {
         kind: 'AUTHENTICATED',
         revokedAt: null,
         expiresAt: { gt: now },
-        mfaVerifiedAt: { gte: new Date(now.getTime() - 5 * 60_000), lte: now },
-        reauthenticatedAt: { gte: new Date(now.getTime() - 5 * 60_000), lte: now },
         user: {
           status: 'ACTIVE',
           mfaEnabled: true,
@@ -57,7 +56,7 @@ export class DataScopeManagementService {
                       code: permission,
                       status: 'ACTIVE',
                       type: 'API',
-                      requiredRoleType: 'SECURITY',
+                      roleTypes: { some: { roleType: 'SECURITY' } },
                     },
                   },
                 },
@@ -68,13 +67,13 @@ export class DataScopeManagementService {
       },
       select: { id: true },
     })
-    if (!session) throw new ForbiddenException('需要安全管理员权限和五分钟内的 MFA 验证')
+    if (!session) throw new ForbiddenException('需要安全管理员权限')
   }
 
   async list(context: ScopeManagementContext, roleId: string) {
     return this.prisma.$transaction(
       async (tx) => {
-        await this.authorize(tx, context, 'system.data.read', new Date())
+        await this.authorize(tx, context, 'system.data-scope.read', new Date())
         const role = await tx.role.findUnique({
           where: { roleId },
           select: {
@@ -88,12 +87,20 @@ export class DataScopeManagementService {
                 revokedAt: true,
                 createdAt: true,
                 updatedAt: true,
+                resourceDefinition: { select: { name: true } },
               },
             },
           },
         })
         if (!role) throw new NotFoundException('角色不存在')
-        return ok(role)
+        return ok({
+          ...role,
+          dataScopes: role.dataScopes.map((scope) => ({
+            ...scope,
+            resourceName: scope.resourceDefinition.name,
+            resourceDefinition: undefined,
+          })),
+        })
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
     )
@@ -101,14 +108,19 @@ export class DataScopeManagementService {
 
   async grant(context: ScopeManagementContext, roleId: string, input: StandardScopeInput) {
     if (!Object.values(StandardDataScopeType).includes(input.scopeType)) throw new BadRequestException('CUSTOM/ALL 必须经过独立审批流程')
-    if (!/^[a-z][a-z0-9_.:-]{0,127}$/.test(input.resource) || !input.reason?.trim() || input.reason.length > 255)
+    if (!isBusinessDataResource(input.resource) || !input.reason?.trim() || input.reason.length > 255)
       throw new BadRequestException('资源和授权原因无效')
     const now = new Date()
     const expiresAt = input.expiresAt ? new Date(input.expiresAt) : null
     if (expiresAt && (!Number.isFinite(expiresAt.getTime()) || expiresAt <= now)) throw new BadRequestException('过期时间必须在未来')
     return this.prisma.$transaction(
       async (tx) => {
-        await this.authorize(tx, context, 'system.data.update', now)
+        await this.authorize(tx, context, 'system.data-scope.update', now)
+        const resource = await tx.dataResource.findFirst({
+          where: { code: input.resource, status: 'ACTIVE' },
+          select: { code: true },
+        })
+        if (!resource) throw new BadRequestException('数据对象不存在或已停用')
         const role = await this.editableRole(tx, context, roleId)
         const scope = await tx.roleDataScope.create({
           data: {
@@ -141,7 +153,7 @@ export class DataScopeManagementService {
     const now = new Date()
     return this.prisma.$transaction(
       async (tx) => {
-        await this.authorize(tx, context, 'system.data.revoke', now)
+        await this.authorize(tx, context, 'system.data-scope.revoke', now)
         const role = await this.editableRole(tx, context, roleId)
         const scope = await tx.roleDataScope.findFirst({
           where: { id: scopeId, roleId: role.id, revokedAt: null },
@@ -166,6 +178,7 @@ export class DataScopeManagementService {
   private async editableRole(db: Prisma.TransactionClient, context: ScopeManagementContext, roleId: string) {
     const role = await db.role.findUnique({ where: { roleId } })
     if (!role || role.status !== 'ACTIVE') throw new NotFoundException('启用角色不存在')
+    if (role.roleType !== 'BUSINESS') throw new ForbiddenException('非业务角色的数据范围必须通过受控审批流程变更')
     // Expired assignments may be renewed: deny any unrevoked own assignment.
     if (
       await db.userRole.findFirst({

@@ -20,6 +20,8 @@ erDiagram
     ROLE ||--o{ USER_ROLE : grants
     ROLE ||--o{ ROLE_PERMISSION : assigned
     PERMISSION ||--o{ ROLE_PERMISSION : grants
+    DATA_RESOURCE ||--o{ ROLE_DATA_SCOPE : defines
+    DATA_RESOURCE ||--o{ ELEVATED_SCOPE : defines
     PERMISSION ||--o| PAGE : page_subtype
     PERMISSION ||--o| BUTTON : button_subtype
     PAGE o|--o{ PAGE : parent
@@ -63,7 +65,7 @@ erDiagram
       uuid id PK
       string code UK
       enum type "PAGE BUTTON API MANAGEMENT"
-      enum requiredRoleType
+      relation sys_permission_role_type(permissionId, roleType)
       string method "API 真实方法"
       string path "与 method 组成唯一键"
       string resource
@@ -94,10 +96,25 @@ erDiagram
       string revokeReason
       uuid approvalRef
     }
+    ROLE_DATA_SCOPE {
+      uuid id PK
+      bigint roleId FK
+      string resource FK "DataResource.code"
+      enum scopeType "标准范围"
+      datetime expiresAt
+      datetime revokedAt
+    }
+    DATA_RESOURCE {
+      uuid id PK
+      string code UK "稳定业务资源编码"
+      string name "中文名称，可修改"
+      string description
+      enum status "ACTIVE DISABLED"
+    }
     APPROVAL {
       uuid id PK
       enum kind
-      enum status "REQUESTED APPROVED EXECUTED REVIEWED"
+      enum status "REQUESTED APPROVED EXECUTED REVIEWED CANCELLED"
       json payload "按 kind 严格校验的不可变申请"
       string reason
       datetime expiresAt
@@ -109,7 +126,7 @@ erDiagram
     ELEVATED_SCOPE {
       uuid id PK
       bigint roleId FK
-      string resource
+      string resource FK "DataResource.code"
       enum scopeType "CUSTOM ALL"
       uuid approvalRef
       string reason
@@ -129,7 +146,220 @@ erDiagram
     }
 ```
 
-实线表示数据库外键；虚线为保留历史身份的公开 UUID 引用，由事务内服务验证。图中 PAGE、BUTTON、PAGE_API 分别对应 `sys_function`、`sys_function_button`、`sys_function_api`。ELEVATED_SCOPE、SCOPE_TARGET 对应 `sys_role_elevated_data_scope`、`sys_role_elevated_data_scope_target`。同一个授权对象可以被撤销、续期，但每次变更前后完整快照必须保存在不可更新的审计记录中。
+实线表示数据库外键；虚线为保留历史身份的公开 UUID 引用，由事务内服务验证。图中 PAGE、BUTTON、PAGE_API 分别对应 `sys_function`、`sys_function_button`、`sys_function_api`。DATA_RESOURCE 对应 `sys_data_resource`，ROLE_DATA_SCOPE、ELEVATED_SCOPE 的 `resource` 均以数据库外键引用 `DATA_RESOURCE.code`。字段权限资源不引用 DATA_RESOURCE，避免管理资源和数据范围资源混用。SCOPE_TARGET 对应 `sys_role_elevated_data_scope_target`。同一个授权对象可以被撤销、续期，但每次变更前后完整快照必须保存在不可更新的审计记录中。
+
+## 权限码分类与生成规则
+
+完整、可执行的权限码命名规则见 [PERMISSION_CODE_STANDARD.md](PERMISSION_CODE_STANDARD.md)。本节作为权限体系设计中的摘要；新增权限码和迁移权限码时，以独立规范文档为准。
+
+权限码是服务端稳定的安全标识，不是页面显示名称，也不是前端路由别名。所有内置权限码由服务端目录或字段生成器产生；客户端只能引用已登记的权限码，不能自行拼接、模糊匹配或根据前缀推导权限。
+
+### 1. 通用语法
+
+```text
+权限码 = 分类前缀 + "." + 资源段 + "." + 动作段
+```
+
+统一约束：
+
+- 使用小写 ASCII 字符、数字、点号和短横线；不使用下划线和 camelCase 资源名。
+- 点号表示权限层级；同一层内的多词资源或动作使用 kebab-case，例如 `operation-policy`、`reset-password`。
+- 资源名使用稳定的业务资源单数形式，例如 `user`、`role`、`ops-ticket`；不要直接使用数据库表名、Controller 名或 URL 复数形式。
+- 字段名保留模型原字段名的大小写，以便与响应字段一一对应，例如 `displayName`、`createdAt`；字段名不得使用 `_count` 等查询层临时别名。
+- 权限码长度不超过 128 个字符；每个权限码全局唯一。API 权限还必须保证 `(method, path)` 全局唯一。
+- 权限码一经写入生产库不得复用。改名必须走迁移：旧码撤销/停用、新码建立、角色授权和页面/按钮绑定在同一受控流程中迁移，并记录前后快照。
+
+### 2. 页面权限
+
+```text
+page.<domain>.<resource>
+```
+
+示例：
+
+```text
+page.system.user
+page.system.permission
+page.system.ops-ticket
+```
+
+页面权限只表示页面和路由访问，不表示按钮、API 或数据字段授权。页面权限不能自动产生按钮权限或 API 权限。
+
+### 3. API 权限
+
+```text
+system.<resource>.<action>
+system.<resource>.<sub-resource>.<action>
+```
+
+API 权限的最后一段必须是明确动作，并且与真实 HTTP 方法和路由模板绑定：
+
+| 动作类别 | 标准动作 | 典型方法 | 语义 |
+| --- | --- | --- | --- |
+| 查询 | `read`、`detail`、`options` | GET | 列表、详情、选择器数据 |
+| 创建 | `create` | POST | 创建资源 |
+| 修改 | `update` | PATCH/PUT | 修改资源内容 |
+| 启用 | `enable` | PATCH | 页面启用；业务页面为 L2，系统内置页面提交 L3 受控审批 |
+| 停用 | `disable` | PATCH | 页面停用；业务页面为 L2，系统内置页面提交 L3 受控审批，并撤销页面角色授权 |
+| 删除 | `delete` | DELETE | 受引用保护的物理删除 |
+| 绑定 | `bind` | PATCH | 建立页面/API 或按钮/API 绑定 |
+| 授权 | `grant`、`revoke` | PATCH/POST | 授权和撤销授权 |
+| 流程 | `submit`、`approve`、`execute`、`review`、`cancel` | POST | 受控流程状态迁移 |
+| 输出/校验 | `export`、`verify` | GET/POST | 导出或完整性校验 |
+
+推荐示例：
+
+```text
+system.user.read
+system.user.reset-password
+system.page.api.read
+system.page.api.options
+system.page.api.bind
+system.button.api.bind
+system.field.read
+system.field.update
+system.field.status
+system.data-scope.read
+system.data-scope.update
+system.data-scope.revoke
+system.operation-policy.create
+```
+
+以下动作不得作为新的通用权限动作：`manage`、`disable`、`apis`、`executions`。它们应分别替换为具体动作或子资源动作，例如 `status`、`api.read`、`execution.create`。
+
+### 4. 按钮权限
+
+按钮权限是页面内可见操作的独立授权对象，推荐格式为：
+
+```text
+button.<domain>.<resource>.<action>
+```
+
+当前 seed 中由 API 权限生成的按钮权限保留 `button.system.<resource>.<action>` 形式，例如：
+
+```text
+button.system.page.create
+button.system.user.reset-password
+```
+
+按钮权限只决定操作入口是否可用；真正的写入、导出、审批等 API 必须同时满足角色显式 API 授权和按钮/API 明确绑定。不能因为按钮存在或按钮权限有效而自动获得 API 权限。
+
+### 5. 数据字段权限
+
+业务数据字段使用资源、字段和读写动作组成权限码：
+
+```text
+<resource>.field.<field>.<read|write>
+```
+
+示例：
+
+```text
+system.user.field.username.read
+system.user.field.username.write
+system.role.field.roleType.read
+system.api.field.path.read
+```
+
+规则：
+
+- `field` 是固定分隔段，不得替换成 `data-field` 或其他别名。
+- 只有字段定义声明 `writable: true` 时才生成 `write` 权限。
+- `read` 和 `write` 是字段权限的唯一动作；字段风险等级存储在字段定义上，不编码进权限码。
+- `system.permission.field.id.read` 表示 `Permission` 数据模型的 `id` 字段读取权限，不表示字段管理接口。
+- 字段管理 API 使用独立资源 `system.field.*`，不得继续使用 `system.permission.field.*`，以免和数据字段权限混淆。
+- 按钮定义自身的字段仍使用 `system.button.field.<field>.<read|write>`，它属于配置对象字段权限，不是业务数据字段权限。
+
+### 6. 数据范围资源字典
+
+`sys_data_resource` 只登记可以配置角色数据范围的业务数据对象，例如 `order`、`customer`、`invoice`。它不是通用资源表，也不承载接口权限、页面权限、字段权限或审计资源。
+
+严格分层：
+
+- `system.ops-ticket` 只用于应急工单接口权限、字段权限和审计，不能写入数据范围资源字典。
+- `system.user`、`system.role`、`system.api` 等管理对象只属于管理权限/字段权限域，不能因为存在字段定义就自动成为数据范围资源。
+- 业务模块登记资源时必须提供稳定编码和中文名称；角色数据范围只能选择字典中状态为 `ACTIVE` 的资源。
+- 数据范围资源编码必须是业务命名空间，禁止使用 `system.*`、`page.*` 等管理命名空间；管理资源即使存在于权限或字段目录，也不能用于普通或受控数据范围。
+- 资源编码是内部稳定标识，中文名称只用于展示。编码一经使用不得复用或改名；停用资源禁止新增授权，但保留历史授权和审计记录。
+- 资源字典 API 只允许修改中文名称、描述和状态，不提供资源编码修改接口；数据范围表通过数据库外键引用 `DataResource.code`，禁止孤立编码。
+- 业务查询必须使用同一资源编码调用数据范围服务，由服务端把当前用户的有效范围加入查询条件；仅在字典中登记资源不会自动产生数据过滤。
+
+### 7. 生成来源与禁止事项
+
+| 分类 | 生成来源 | 是否允许客户端创建 |
+| --- | --- | --- |
+| PAGE | seed 页面目录 | 否，服务端目录维护 |
+| API | `permission-catalog.ts` 或受控业务 API 注册 | 仅允许受保护的管理流程 |
+| BUTTON | 页面按钮创建流程，绑定独立按钮权限 | 只能通过按钮管理接口 |
+| DATA FIELD | Prisma 字段生成器和受控覆盖项 | 不能由客户端任意声明 |
+| BUTTON FIELD | `button-field-policy.ts` | 否，代码目录维护 |
+| DATA SCOPE RESOURCE | 业务模块资源登记接口 | 只能由受保护的资源管理流程登记 |
+
+禁止使用以下方式扩大权限：
+
+- 使用 `*`、前缀匹配、资源名匹配或“超级管理员”旁路。
+- 用页面权限推导按钮/API 权限。
+- 用字段名称、路由或 HTTP 方法临时拼出权限码。
+- 将写入、导出、审批接口加入页面基础 API。
+- 将历史 `system.permission.manage` 或其他旧码重新启用。
+
+### 7. 现有权限码迁移计划
+
+以下是目标命名，不在本节更新时直接修改生产授权数据：
+
+| 现有权限码 | 目标权限码 | 原因 |
+| --- | --- | --- |
+| `system.permission.field.read` | `system.field.read` | 区分字段管理 API 与 `system.permission.field.<field>.*` |
+| `system.permission.field.update` | `system.field.update` | 同上 |
+| `system.permission.field.disable` | `system.field.status` | 当前接口实际支持启用和停用 |
+| `system.data.read` | `system.data-scope.read` | 明确是数据范围而非数据字段 |
+| `system.data.update` | `system.data-scope.update` | 同上 |
+| `system.data.revoke` | `system.data-scope.revoke` | 同上 |
+| `system.page.bind-api` | `system.page.api.bind` | 统一资源与动作顺序 |
+| `system.button.bind-api` | `system.button.api.bind` | 统一资源与动作顺序 |
+| `system.page.apis` | `system.page.api.read` | `apis` 不是明确动作 |
+| `system.page.api-options` | `system.page.api.options` | 与页面 API 子资源保持一致 |
+| `system.operation-policy.manage` | `system.operation-policy.create` | 当前接口实际创建策略 |
+| `system.ops-ticket.executions` | `system.ops-ticket.execution.create` | 当前接口实际新增执行记录 |
+
+迁移必须先做代码目录、seed、后端装饰器、前端指令和测试的全量替换，再在数据库中迁移角色授权、页面/按钮绑定和审计引用。旧码不得与新码同时长期有效，也不得通过兼容前缀自动放行。
+
+## 权限角色策略模型
+
+权限的“默认职责类型”和“实际允许角色类型”分开维护，避免用权限码特判共享权限。
+
+### 1. 服务端权限目录声明
+
+权限目录中的每个权限必须声明一种角色策略：
+
+- `SINGLE_ROLE`：只能由一个角色类型使用，例如应急工单执行权限只能由 SECURITY 使用；
+- `ROLE_ALLOWLIST`：允许多个明确角色类型使用，例如应急工单查询和详情允许 SECURITY、SYSTEM、AUDIT 使用。
+
+目录声明是服务端唯一的初始来源，不接受前端提交的角色类型或角色白名单。权限表不再保存旧的单角色职责字段；`sys_permission_role_type` 是运行时唯一的职责允许列表。
+
+### 2. 数据库归一化关联
+
+`sys_permission_role_type` 保存权限与允许角色类型的多对多关系：
+
+```text
+sys_permission
+       │
+       └── sys_permission_role_type(permissionId, roleType)
+```
+
+权限目录初始化和动态新增页面、按钮、接口、字段权限时，必须同步写入该关联。权限目录变更需要通过迁移、初始化或受控管理流程更新关联，并记录审计。
+
+### 3. 运行时判定
+
+运行时按以下顺序拒绝优先判断：
+
+1. 权限、角色和授权关系必须处于有效状态；
+2. 如果存在 `sys_permission_role_type` 关联，以数据库关联中的允许角色类型为准；
+3. 缺少关联时拒绝授权，必须先由迁移、初始化或受控管理流程补齐；
+4. 不允许根据权限码前缀、页面名称、路由或前端传参推断角色范围；
+5. 页面、按钮、API、字段和数据范围仍分别授权，角色类型允许不等于自动获得其他资源权限。
+
+共享只读权限和操作权限必须拆开声明。以应急工单为例：查询、详情是 `ROLE_ALLOWLIST`，创建、提交、审批、执行是 SECURITY/SYSTEM 操作权限，审计复核是 AUDIT 单角色权限。
 
 ## 权限判定
 
@@ -137,7 +367,7 @@ erDiagram
 
 1. 从服务端会话加载用户状态、账户期限、会话吊销、绝对/闲置期限。
 2. 加载启用角色和未撤销、未过期的角色/权限授权。每次请求重新计算，权限数据库不可用则拒绝；不依赖可过期的允许缓存。
-3. 校验角色职责和资源的 `requiredRoleType`，拒绝互斥管理员职责。共享审批查询只有服务端固定的显式例外，服务还独立限制 SECURITY/AUDIT。
+3. 校验角色职责是否命中 `sys_permission_role_type`，拒绝互斥管理员职责。共享审批查询和其他多职责权限只能通过服务端显式职责关联开放。
 4. 校验页面祖先均有效且已明确授权；按钮还需要所属页面有效且已授权。
 5. API 需要独立显式授权。若存在页面或按钮绑定，至少有一条有效且已授权的访问路径。绑定本身不生成 API 或按钮授权。
 6. 将请求方法和 Fastify 已匹配的路由模板与授权 API 精确比较，忽略原始 URL 中查询参数；不使用客户端提交的路径作为判定依据。
@@ -159,15 +389,24 @@ erDiagram
 
 审批链：申请 → 独立安全管理员审批 → 安全管理员执行 → 独立审计管理员复核。申请人不能审批；复核人与前三阶段参与者不同；所有阶段不得为自己授予、回收、重置 MFA 或复核权限。MFA_RESET 用于管理员认证器丢失等恢复场景，要求显式 `system.user.mfa-reset` 能力，执行时清空目标用户 MFA 密钥/计数并吊销其现有会话，目标用户需重新登录并绑定认证器。申请有效期最长 24 小时。到期后禁止执行，允许事后复核。状态认领、实际变更与审计处于 Serializable 事务，重复执行返回冲突。
 
+### L2/L3 安全认证响应契约
+
+需要 MFA 和重新认证时，后端统一返回 HTTP `403`、业务码 `100013`，并在 `data` 中返回 `riskLevel`、`operationCode` 和 `requiredFactors`。L2 与 L3 使用同一固定业务码；L2 认证通过后继续原操作，L3 认证通过后进入或继续受控审批流程。前端只依据业务码 `100013` 弹出安全认证窗口，不得根据中文错误文案或其他响应字段判断。
+
+### 审批申请撤回
+
+申请人在审批状态为 `REQUESTED` 时，可以通过 `POST /api/v1/permission/approvals/:id/cancel` 撤回自己的申请，必须填写撤回原因。撤回不会删除审批记录，而是将状态变更为 `CANCELLED`，并保存撤回人、撤回时间和撤回原因。已审批、待执行、已执行或已复核的申请不可撤回；已生效授权只能通过新的反向审批申请撤销。
+
 ## 前后端接入
 
 | 页面 | 对应接口 | 控制 |
 | --- | --- | --- |
 | `/system/permission` | `/permission/functions`、`/permission/buttons` | 页面树、根/子页面、编辑、启停、只读 API、按钮操作 API |
-| `/system/permission/api` | `/permission/apis`、`/permission/api-options` | 分页筛选、创建、编辑、启停、引用关系、无引用删除 |
-| `/system/role` | `/roles`、`/roles/:id/grants` | 页面/按钮/API 独立选取、原因、有效期、变更影响 |
-| 角色的数据范围弹窗 | `/permission/roles/:roleId/data-scopes` | 普通范围新增/撤销，CUSTOM/ALL 进入审批 |
-| `/system/permission/approval` | `/permission/approvals` | 四阶段审批、受控授予/回收、MFA 重置、详情与操作者 |
+| `/system/api` | `/permission/apis`、`/permission/api-options` | 分页筛选、创建、编辑、启停、引用关系、无引用删除 |
+| `/system/role` | `/roles`、`/roles/:id/grants`（GET 查询授权，PATCH 变更授权） | 列表只返回展示标签和服务端操作能力；授权明细仅通过受保护的 GET 接口按需读取 |
+| 数据范围资源字典 | `/permission/data-resources` | 受保护登记、改名、启停；只服务角色数据范围 |
+| 角色的数据范围弹窗 | `/permission/data-resources`、`/permission/roles/:roleId/data-scopes` | 选择启用资源；普通范围新增/撤销，CUSTOM/ALL 进入审批 |
+| `/system/approval` | `/permission/approvals` | 四阶段审批、受控授予/回收、MFA 重置、详情与操作者 |
 | `/system/session` | `/auth/mfa/*`、`/auth/reauth` | 认证器绑定、重新认证、本人会话管理 |
 | `/system/audit` | `/audit-logs` | 审计检索及变更前后值，不提供普通更新/删除 |
 
