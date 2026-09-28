@@ -3,8 +3,14 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "imports": {
+    "#app/*": {
+      "development": "./src/*",
+      "default": "./dist/*"
+    }
+  },
   "scripts": {
-    "dev": "nest start --watch",
+    "dev": "node --conditions=development node_modules/@nestjs/cli/bin/nest.js start --watch",
     "build": "nest build",
     "start": "node dist/main.js",
     "postinstall": "prisma generate",
@@ -12,9 +18,9 @@
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "db:reset": "prisma migrate reset --force",
-    "db:seed": "tsx src/database/seed.ts",
+    "db:seed": "node --conditions=development --import tsx src/database/seed.ts",
     "permission:verify": "pnpm build && node scripts/verify-permission-migration.js",
-    "permission:fields": "tsx src/scripts/generate-data-fields.ts",
+    "permission:fields": "node --conditions=development --import tsx src/scripts/generate-data-fields.ts",
     "test": "vitest run",
     "coverage": "vitest run --coverage"
   },

@@ -1,22 +1,23 @@
-import { CallHandler, ExecutionContext, Injectable, NestInterceptor } from '@nestjs/common'
+import { CallHandler, ExecutionContext, ForbiddenException, Injectable, NestInterceptor } from '@nestjs/common'
 import { Reflector } from '@nestjs/core'
 import { Observable, map } from 'rxjs'
-import { isApiResponse } from '../http/api-response.js'
-import { FIELD_SECURITY_RESOURCE } from '../decorators/field-security.decorator.js'
-import { hasRecentSecurityProof, maxRiskLevel, securityStepUpException } from '../../security/policies/risk-policy.js'
+import { isApiResponse } from '#app/common/http/api-response.js'
+import { FIELD_SECURITY_RESOURCE } from '#app/common/decorators/field-security.decorator.js'
+import { hasRecentSecurityProof, maxRiskLevel, resolveRiskDecision, securityStepUpException, type RiskLevel } from '#app/security/policies/risk-policy.js'
 import {
   assertButtonWritableFields,
   projectButton,
   projectButtons,
-} from '../../security/policies/button-field-policy.js'
+} from '#app/security/policies/button-field-policy.js'
+type RequestMethod = 'GET' | 'POST' | 'PATCH'
 
 type FieldSecurityRequest = {
-  method?: string
+  method?: RequestMethod
   url?: string
   body?: Record<string, unknown>
   user?: { permissions?: string[]; mfaVerifiedAt?: Date | null; reauthenticatedAt?: Date | null }
-  fieldRiskLevel?: string
-  riskLevel?: string
+  fieldRiskLevel?: RiskLevel
+  riskLevel?: RiskLevel
   operationCode?: string
 }
 
@@ -48,8 +49,11 @@ export class FieldSecurityInterceptor implements NestInterceptor {
         request.method === 'POST' ? maxRiskLevel('L3', result.riskLevel) : result.riskLevel
       request.fieldRiskLevel = riskLevel
       request.riskLevel = riskLevel
-      if ((riskLevel === 'L2' || riskLevel === 'L3') && !hasRecentSecurityProof(request.user || {}, riskLevel))
-        throw securityStepUpException(request.user || {}, riskLevel, request.operationCode || `field-security.${resource}`)
+      if ((riskLevel === 'L2' || riskLevel === 'L3') && !hasRecentSecurityProof(request.user || {}, riskLevel)) {
+        const operationCode = request.operationCode
+        if (!operationCode) throw new ForbiddenException('字段安全操作未声明 operationCode')
+        throw securityStepUpException(request.user || {}, resolveRiskDecision(operationCode, { fieldRiskLevels: [riskLevel] }))
+      }
     }
 
     return next.handle().pipe(

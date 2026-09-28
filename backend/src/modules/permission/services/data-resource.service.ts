@@ -1,9 +1,11 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
-import { PermissionStatus, Prisma } from '@prisma/client'
+import { Prisma } from '@prisma/client'
+import { PermissionStatus, type RiskLevel } from '#app/common/types/prisma-enums.js'
 import { randomUUID } from 'node:crypto'
-import { PrismaService } from '../../../database/prisma.service.js'
-import { ok } from '../policies/policy.js'
-import { isBusinessDataResource } from '../policies/data-resource-policy.js'
+import { PrismaService } from '#app/database/prisma.service.js'
+import { ok } from '#app/modules/permission/policies/policy.js'
+import { isBusinessDataResource } from '#app/modules/permission/policies/data-resource-policy.js'
+import { ENABLEMENT_STATUS_LABELS } from '#app/common/constants/enum-labels.js'
 
 type ResourceMutationContext = {
   user: { internalId: bigint; userId: string }
@@ -11,7 +13,7 @@ type ResourceMutationContext = {
   method: string
   url: string
   ip?: string
-  riskLevel?: 'L0' | 'L1' | 'L2' | 'L3'
+  riskLevel?: RiskLevel
 }
 
 function validateCode(code: string) {
@@ -26,16 +28,28 @@ function validateName(name: string) {
   return value
 }
 
+function resourceView<T extends { status: PermissionStatus }>(resource: T) {
+  const { status, ...view } = resource
+  return {
+    ...view,
+    statusLabel: ENABLEMENT_STATUS_LABELS[status],
+    isActive: status === PermissionStatus.ACTIVE,
+  }
+}
+
 @Injectable()
 export class DataResourceService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async list(status?: PermissionStatus) {
+  async list(resource?: string, status?: PermissionStatus) {
     const resources = await this.prisma.dataResource.findMany({
-      where: status ? { status } : undefined,
+      where: {
+        ...(resource ? { code: resource } : {}),
+        ...(status ? { status } : {}),
+      },
       orderBy: [{ status: 'asc' }, { code: 'asc' }],
     })
-    return ok(resources.filter((resource) => isBusinessDataResource(resource.code)))
+    return ok(resources.filter((resource) => isBusinessDataResource(resource.code)).map(resourceView))
   }
 
   async create(input: { code: string; name: string; description?: string }, req: ResourceMutationContext) {
@@ -47,7 +61,7 @@ export class DataResourceService {
           data: { code, name, description: input.description?.trim() || null },
         })
         await this.audit(tx, req, 'create', code, null, resource)
-        return ok(resource)
+        return ok(resourceView(resource))
       })
     } catch (error) {
       if ((error as { code?: string }).code === 'P2002') throw new ConflictException('资源编码已存在')
@@ -65,18 +79,30 @@ export class DataResourceService {
         data: { name, description: input.description?.trim() || null },
       })
       await this.audit(tx, req, 'update', before.code, before, resource)
-      return ok(resource)
+      return ok(resourceView(resource))
     })
   }
 
-  async status(id: string, status: PermissionStatus, req: ResourceMutationContext) {
-    if (!Object.values(PermissionStatus).includes(status)) throw new BadRequestException('资源状态无效')
+  async enable(id: string, req: ResourceMutationContext) {
+    return this.changeStatus(id, PermissionStatus.ACTIVE, 'enable', req)
+  }
+
+  async disable(id: string, req: ResourceMutationContext) {
+    return this.changeStatus(id, PermissionStatus.DISABLED, 'disable', req)
+  }
+
+  private async changeStatus(
+    id: string,
+    status: PermissionStatus,
+    action: 'enable' | 'disable',
+    req: ResourceMutationContext
+  ) {
     return this.prisma.$transaction(async (tx) => {
       const before = await tx.dataResource.findUnique({ where: { id } })
       if (!before) throw new NotFoundException('资源不存在')
       const resource = await tx.dataResource.update({ where: { id }, data: { status } })
-      await this.audit(tx, req, 'status', before.code, before, resource)
-      return ok(resource)
+      await this.audit(tx, req, action, before.code, before, resource)
+      return ok(resourceView(resource))
     })
   }
 

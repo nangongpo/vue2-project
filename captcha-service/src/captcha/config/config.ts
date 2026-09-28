@@ -1,4 +1,4 @@
-import { SceneConfig, ServiceBinding } from '../services/captcha.engine.js'
+import { SceneConfig, ServiceBinding } from '#app/captcha/services/captcha.engine.js'
 const defaultScene: SceneConfig = {
   allowedCaptchaTypes: ['SLIDER'],
   defaultCaptchaType: 'SLIDER',

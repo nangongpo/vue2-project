@@ -2,9 +2,9 @@ import { CanActivate, ExecutionContext, HttpException, HttpStatus, Injectable } 
 import { Reflector } from '@nestjs/core'
 import { createHash, randomUUID } from 'node:crypto'
 import { FastifyRequest } from 'fastify'
-import { API_CODE } from '../../common/constants/api-code.js'
-import { RedisService } from '../../cache/services/redis.service.js'
-import { IDEMPOTENCY_OPTIONS, IdempotencyOptions } from '../decorators/idempotency.decorator.js'
+import { API_CODE } from '#app/common/constants/api-code.js'
+import { RedisService } from '#app/cache/services/redis.service.js'
+import { IDEMPOTENCY_OPTIONS, IdempotencyOptions } from '#app/security/decorators/idempotency.decorator.js'
 
 type LockRequest = FastifyRequest & { idempotencyLock?: { key: string; value: string } }
 

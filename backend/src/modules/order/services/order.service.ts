@@ -1,12 +1,13 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
-import { OrderStatus, Prisma } from '@prisma/client'
+import { Prisma } from '@prisma/client'
+import { OrderStatus } from '#app/common/types/prisma-enums.js'
 import { randomUUID } from 'node:crypto'
-import { PrismaService } from '../../../database/prisma.service.js'
-import { API_CODE } from '../../../common/constants/api-code.js'
-import { ORDER_STATUS_LABELS } from '../../../common/constants/enum-labels.js'
-import { audit, requireActor, serializable, type Actor } from '../../role/domain/authorization.js'
-import { assertEditable, assertOrderTransition } from '../domain/order.policy.js'
-import type { CreateOrderDto, UpdateOrderDto } from '../dto/order.dto.js'
+import { PrismaService } from '#app/database/prisma.service.js'
+import { API_CODE } from '#app/common/constants/api-code.js'
+import { ORDER_STATUS_LABELS } from '#app/common/constants/enum-labels.js'
+import { audit, requireActor, serializable, type Actor } from '#app/modules/role/domain/authorization.js'
+import { assertEditable, assertOrderTransition } from '#app/modules/order/domain/order.policy.js'
+import type { CreateOrderDto, UpdateOrderDto } from '#app/modules/order/dto/order.dto.js'
 
 type OrderContext = {
   userId: string
@@ -110,7 +111,7 @@ export class OrderService {
     try {
       const created = await this.prisma.$transaction(async (tx): Promise<Prisma.OrderGetPayload<{}>> => {
         const context = await this.context(actor, tx)
-        const order = await tx.order.create({
+        const created = await tx.order.create({
           data: {
             orderNo,
             tenantId: context.tenantId,

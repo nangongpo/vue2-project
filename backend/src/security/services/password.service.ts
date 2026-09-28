@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common'
 import { randomBytes, scrypt as scryptCallback, timingSafeEqual } from 'node:crypto'
-import { assertPasswordStrength } from './password-policy.service.js'
+import { assertPasswordStrength } from '#app/security/services/password-policy.service.js'
 const SCRYPT_COST = 131072
 const SCRYPT_MAXMEM = 256 * 1024 * 1024
 
@@ -24,9 +24,8 @@ export class PasswordService {
 
   async verify(password: string, encoded: string) {
     if (typeof password !== 'string' || password.length > 256 || typeof encoded !== 'string' || encoded.length > 255) return false
-    // Only accept the parameters and canonical lengths emitted by this service.
-    // Costs are allowlisted for legacy compatibility; output length and memory are fixed.
-    if (!/^scrypt\$(?:16384|131072)\$8\$1\$[A-Za-z0-9_-]{22}\$[A-Za-z0-9_-]{86}$/.test(encoded)) return false
+    // Only accept the canonical format emitted by this service.
+    if (!/^scrypt\$131072\$8\$1\$[A-Za-z0-9_-]{22}\$[A-Za-z0-9_-]{86}$/.test(encoded)) return false
     const [algorithm, n, r, p, saltValue, hashValue] = encoded.split('$')
     if (algorithm !== 'scrypt' || !n || !r || !p || !saltValue || !hashValue) return false
     const salt = Buffer.from(saltValue, 'base64url')

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { DataScopeService } from '../services/data-scope.service.js'
+import { DataScopeService } from '#app/security/services/data-scope.service.js'
 
 function fixture(scopes: string[] = ['SELF']) {
   const user: any = {
@@ -13,6 +13,7 @@ function fixture(scopes: string[] = ['SELF']) {
     roles: [{ role: { dataScopes: scopes.map((scopeType) => ({ scopeType })), elevatedDataScopes: [] } }],
   }
   const db: any = {
+    dataResource: { findUnique: vi.fn(async () => ({ status: 'ACTIVE' })) },
     user: { findUnique: vi.fn(async () => user), findFirst: vi.fn(async () => null) },
     department: {
       findFirst: vi.fn(async () => ({ id: 'dept-a' })),
@@ -32,6 +33,11 @@ describe('data scope enforcement', () => {
     expect(await f.service.where({ internalId: 1n }, 'order')).toEqual({
       AND: [{ tenantId: 'tenant-a' }, { ownerId: 'user-a' }],
     })
+  })
+  it('rejects a disabled data resource before applying existing role scopes', async () => {
+    const f = fixture()
+    f.db.dataResource.findUnique.mockResolvedValue({ status: 'DISABLED' })
+    await expect(f.service.where({ internalId: 1n }, 'order')).rejects.toThrow()
   })
   it('intersects conflicting scopes instead of broadening them', async () => {
     const f = fixture(['SELF', 'TENANT', 'DEPARTMENT_SELF'])

@@ -7,14 +7,14 @@ import {
   SESSION_COOKIE,
   preAuthCookieOptions,
   sessionCookieOptions,
-} from '../services/auth.service.js'
-import { AuthGuard } from '../guards/auth.guard.js'
-import { API_CODE } from '../../common/constants/api-code.js'
-import { AuditAction } from '../../audit/decorators/audit.decorator.js'
-import { Idempotent } from '../decorators/idempotency.decorator.js'
-import { assertSameOrigin } from '../policies/csrf.js'
-import { SecurityOperation } from '../decorators/operation.decorator.js'
-import { USER_STATUS_LABELS } from '../../common/constants/enum-labels.js'
+} from '#app/security/services/auth.service.js'
+import { AuthGuard } from '#app/security/guards/auth.guard.js'
+import { API_CODE } from '#app/common/constants/api-code.js'
+import { AuditAction } from '#app/audit/decorators/audit.decorator.js'
+import { Idempotent } from '#app/security/decorators/idempotency.decorator.js'
+import { assertSameOrigin } from '#app/security/policies/csrf.js'
+import { SecurityOperation } from '#app/security/decorators/operation.decorator.js'
+import { USER_STATUS_LABELS } from '#app/common/constants/enum-labels.js'
 
 class LoginDto {
   /** 登录账号。 */
@@ -159,10 +159,10 @@ export class AuthController {
   me(@Req() request: FastifyRequest) {
     const user = (
       request as FastifyRequest & {
-        user: Record<string, unknown> & { internalId?: string; isSuperAdmin?: boolean }
+        user: Record<string, unknown> & { internalId?: string }
       }
     ).user
-    const sensitiveFields = new Set(['internalId', 'isSuperAdmin', 'apiPermissions', 'mfaSecret', 'mfaLastStep', 'passwordHash'])
+    const sensitiveFields = new Set(['internalId', 'apiPermissions', 'mfaSecret', 'mfaLastStep', 'passwordHash'])
     const safeUser = Object.fromEntries(Object.entries(user).filter(([key]) => !sensitiveFields.has(key)))
     const { status, ...publicUser } = safeUser
     const normalizedStatus = typeof status === 'string' ? status : 'DISABLED'

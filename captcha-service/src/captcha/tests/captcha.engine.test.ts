@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { CaptchaEngine, ServiceBinding } from '../services/captcha.engine.js'
+import { CaptchaEngine, ServiceBinding } from '#app/captcha/services/captcha.engine.js'
 class MemoryRedis {
   values = new Map<string, string>()
   async increment() {

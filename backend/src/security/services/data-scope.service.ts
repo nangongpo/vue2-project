@@ -1,7 +1,7 @@
 import { ForbiddenException, Injectable } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
-import { PrismaService } from '../../database/prisma.service.js'
-import type { AuthenticatedUser } from '../types/auth.types.js'
+import { PrismaService } from '#app/database/prisma.service.js'
+import type { AuthenticatedUser } from '#app/security/types/auth.types.js'
 
 export type ScopeActor = Pick<AuthenticatedUser, 'internalId'>
 export type DataScopeWhere = {
@@ -28,6 +28,11 @@ export class DataScopeService {
   async where(actor: ScopeActor, resource: string, db: Prisma.TransactionClient = this.prisma): Promise<DataScopeWhere> {
     if (!actor?.internalId || !/^[a-z][a-z0-9_.:-]{0,127}$/.test(resource)) return deny()
     const now = new Date()
+    const resourceDefinition = await db.dataResource.findUnique({
+      where: { code: resource },
+      select: { status: true },
+    })
+    if (!resourceDefinition || resourceDefinition.status !== 'ACTIVE') return deny()
     const user = await db.user.findUnique({
       where: { id: actor.internalId },
       include: {

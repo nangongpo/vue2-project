@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { effectivePermissions } from '../services/effective-permissions.js'
+import { effectivePermissions } from '#app/security/services/effective-permissions.js'
 
 type Grant = Parameters<typeof effectivePermissions>[0][number]
 const grant = (id: string, type: string, extra: Partial<Grant> = {}): Grant => ({

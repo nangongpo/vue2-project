@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { of } from 'rxjs'
-import { TraceIdInterceptor } from '../interceptors/trace-id.interceptor.js'
+import { TraceIdInterceptor } from '#app/common/interceptors/trace-id.interceptor.js'
 
 describe('TraceIdInterceptor', () => {
   it('always creates a server-owned trace id', () => {

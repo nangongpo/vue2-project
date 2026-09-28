@@ -1,17 +1,4 @@
-import { type RiskLevel } from './risk-policy.js'
-
-export type DataFieldDefinition = {
-  resource: string
-  field: string
-  name: string
-  dataType: string
-  relationResource?: string
-  relationModel?: string
-  relationField?: string
-  riskLevel: RiskLevel
-  writable?: boolean
-  status?: 'ACTIVE' | 'DISABLED'
-}
+import type { DataFieldDefinition } from '#app/security/policies/field-policy-types.js'
 
 /** 数据字段目录。字段必须先登记，响应裁剪才允许输出。 */
 export const DATA_FIELD_DEFINITIONS: readonly DataFieldDefinition[] = [
@@ -144,13 +131,6 @@ export const DATA_FIELD_DEFINITIONS: readonly DataFieldDefinition[] = [
     resource: 'system.role',
     field: 'roleTypeLabel',
     name: '角色类别名称',
-    dataType: 'string',
-    riskLevel: 'L1',
-  },
-  {
-    resource: 'system.role',
-    field: 'statusLabel',
-    name: '角色状态名称',
     dataType: 'string',
     riskLevel: 'L1',
   },

@@ -30,10 +30,13 @@ export const deleteRole = (id) => sendRequest({ url: `/roles/${id}`, method: 'de
 export const getAuditLogs = (params = {}) => axiosGet('/audit-logs', params)
 export const getAuditLogDetail = (id) => axiosGet(`/audit-logs/${id}`)
 export const exportAuditLogs = (params) => axiosGet('/audit-logs/export', params)
-export const getPermissionFunctions = () => axiosGet('/permission/functions')
-export const getPermissionPageApiOptions = () => axiosGet('/permission/functions/api-options')
+export const getPageTree = () => axiosGet('/permission/pages/tree')
+export const getPageBaseApis = (id) => axiosGet(`/permission/pages/${id}/base-apis`)
+export const getPageButtons = (id) => axiosGet(`/permission/pages/${id}/buttons`)
+export const getPageBaseApiOptions = () => axiosGet('/permission/pages/base-apis/options')
 export const getPermissionApis = (params = {}) => axiosGet('/permission/apis', params)
-export const getPermissionApiOptions = () => axiosGet('/permission/api-options')
+export const getOperationApiOptions = () => axiosGet('/permission/api-options')
+export const getOperationActionOptions = () => axiosGet('/permission/buttons/action-options')
 export const createPermissionApi = (data) => axiosPost('/permission/apis', data)
 export const updatePermissionApi = (id, data) =>
   sendRequest({ url: `/permission/apis/${id}`, method: 'patch', params: data })
@@ -44,41 +47,50 @@ export const disablePermissionApi = (id) =>
 export const getPermissionApiReferences = (id) => axiosGet(`/permission/apis/${id}/references`)
 export const deletePermissionApi = (id) =>
   sendRequest({ url: `/permission/apis/${id}`, method: 'delete' })
-export const createPermissionFunction = (data) => axiosPost('/permission/functions', data)
+export const createPermissionFunction = (data) => axiosPost('/permission/pages', data)
 export const createPermissionDirectory = (data) => axiosPost('/permission/directories', data)
 export const deletePermissionDirectory = (id) =>
   sendRequest({ url: `/permission/directories/${id}`, method: 'delete' })
 export const deletePermissionFunction = (id) =>
-  sendRequest({ url: `/permission/functions/${id}`, method: 'delete' })
+  sendRequest({ url: `/permission/pages/${id}`, method: 'delete' })
 export const updatePermissionFunction = (id, data) =>
-  sendRequest({ url: `/permission/functions/${id}`, method: 'patch', params: data })
+  sendRequest({ url: `/permission/pages/${id}`, method: 'patch', params: data })
 export const updatePermissionDirectory = (id, data) =>
   sendRequest({ url: `/permission/directories/${id}`, method: 'patch', params: data })
 export const enablePermissionFunction = (id) =>
-  sendRequest({ url: `/permission/functions/${id}/enable`, method: 'patch' })
+  sendRequest({ url: `/permission/pages/${id}/enable`, method: 'patch' })
 export const disablePermissionFunction = (id) =>
-  sendRequest({ url: `/permission/functions/${id}/disable`, method: 'patch' })
+  sendRequest({ url: `/permission/pages/${id}/disable`, method: 'patch' })
 export const mapFunctionApis = (id, apiIds) =>
-  sendRequest({ url: `/permission/functions/${id}/apis`, method: 'patch', params: { apiIds } })
+  sendRequest({ url: `/permission/pages/${id}/base-apis`, method: 'patch', params: { apiIds } })
 export const createPermissionButton = (data) => axiosPost('/permission/buttons', data)
 export const updatePermissionButton = (id, data) =>
   sendRequest({ url: `/permission/buttons/${id}`, method: 'patch', params: data })
-export const setPermissionButtonStatus = (id, status) =>
-  sendRequest({ url: `/permission/buttons/${id}/status`, method: 'patch', params: { status } })
+export const enablePermissionButton = (id) =>
+  sendRequest({ url: `/permission/buttons/${id}/enable`, method: 'patch' })
+export const disablePermissionButton = (id) =>
+  sendRequest({ url: `/permission/buttons/${id}/disable`, method: 'patch' })
 export const mapButtonApis = (id, apiIds) =>
   sendRequest({ url: `/permission/buttons/${id}/apis`, method: 'patch', params: { apiIds } })
 export const getPermissionDataFields = (resource) =>
   axiosGet('/permission/fields', resource ? { resource } : {})
-export const getDataResources = (status) =>
-  axiosGet('/permission/data-resources', status ? { status } : {})
+export const getDataResources = (resource, status) =>
+  axiosGet('/permission/data-resources', {
+    ...(resource ? { resource } : {}),
+    ...(status ? { status } : {}),
+  })
 export const createDataResource = (data) => axiosPost('/permission/data-resources', data)
 export const updateDataResource = (id, data) =>
   sendRequest({ url: `/permission/data-resources/${id}`, method: 'patch', params: data })
-export const setDataResourceStatus = (id, status) =>
-  sendRequest({ url: `/permission/data-resources/${id}/status`, method: 'patch', params: { status } })
+export const enableDataResource = (id) =>
+  sendRequest({ url: `/permission/data-resources/${id}/enable`, method: 'patch' })
+export const disableDataResource = (id) =>
+  sendRequest({ url: `/permission/data-resources/${id}/disable`, method: 'patch' })
 export const createPermissionDataField = (data) => axiosPost('/permission/fields', data)
-export const setPermissionDataFieldStatus = (id, status) =>
-  sendRequest({ url: `/permission/fields/${id}/status`, method: 'patch', params: { status } })
+export const enablePermissionDataField = (id) =>
+  sendRequest({ url: `/permission/fields/${id}/enable`, method: 'patch' })
+export const disablePermissionDataField = (id) =>
+  sendRequest({ url: `/permission/fields/${id}/disable`, method: 'patch' })
 export const updatePermissionDataField = (id, data) =>
   sendRequest({ url: `/permission/fields/${id}`, method: 'patch', params: data })
 

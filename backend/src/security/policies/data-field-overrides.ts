@@ -1,11 +1,11 @@
-import type { DataFieldOverride } from './data-field-generator.js'
+import type { DataFieldOverride } from '#app/security/policies/field-policy-types.js'
 
 /**
  * 自动生成字段的人工覆盖项。
  *
  * 普通字段不需要配置；只有中文名称、风险等级或可写性与默认规则不同时才添加。
  */
-export const DATA_FIELD_OVERRIDES: Record<string, DataFieldOverride> = {
+export const DATA_FIELD_OVERRIDES: Readonly<Record<string, DataFieldOverride>> = {
   'system.user.roles': {
     relationResource: 'system.role',
     relationModel: 'Role',
@@ -16,8 +16,8 @@ export const DATA_FIELD_OVERRIDES: Record<string, DataFieldOverride> = {
   // 'system.department.status': { name: '部门状态', riskLevel: 'L3' },
 }
 
-/** Prisma 模型到权限资源的映射。未配置的模型使用 system + kebab-case 兜底。 */
-export const MODEL_RESOURCE_MAP: Record<string, string> = {
+/** Prisma 模型到权限资源的显式映射。未登记模型禁止生成字段权限。 */
+export const MODEL_RESOURCE_MAP: Readonly<Record<string, string>> = {
   User: 'system.user',
   Role: 'system.role',
   Permission: 'system.permission',

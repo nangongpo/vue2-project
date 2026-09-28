@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { API_CODE, API_MESSAGE, API_TITLE } from '../constants/api-code.js'
-import { codeForStatus } from '../filters/api-exception.filter.js'
+import { API_CODE, API_MESSAGE, API_TITLE } from '#app/common/constants/api-code.js'
+import { codeForStatus } from '#app/common/filters/api-exception.filter.js'
 import { HttpStatus } from '@nestjs/common'
 
 describe('API code contract', () => {

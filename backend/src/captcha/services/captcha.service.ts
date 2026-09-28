@@ -1,7 +1,7 @@
 import { createHash, createHmac, randomUUID } from 'node:crypto'
 import { HttpException, Injectable, ServiceUnavailableException } from '@nestjs/common'
-import { API_CODE } from '../../common/constants/api-code.js'
-import { RedisService } from '../../cache/services/redis.service.js'
+import { API_CODE } from '#app/common/constants/api-code.js'
+import { RedisService } from '#app/cache/services/redis.service.js'
 export type CaptchaPoint = { x: number; y: number; t: number }
 type Attempt = {
   username: string

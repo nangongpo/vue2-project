@@ -1,10 +1,10 @@
 import { BadRequestException, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common'
-import { AuditResult, Prisma, RiskLevel } from '@prisma/client'
+import { Prisma } from '@prisma/client'
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto'
-import { PrismaService } from '../../database/prisma.service.js'
-import { API_CODE } from '../../common/constants/api-code.js'
-import { normalizePagination, paginationData } from '../../common/pagination.js'
-import type { RiskLevel as PolicyRiskLevel } from '../../security/policies/risk-policy.js'
+import { PrismaService } from '#app/database/prisma.service.js'
+import { API_CODE } from '#app/common/constants/api-code.js'
+import { normalizePagination, paginationData } from '#app/common/pagination.js'
+import type { AuditExportQuery, AuditPageQuery, AuditRecordInput } from '#app/audit/types.js'
 
 const canonicalize = (value: unknown): unknown => {
   if (typeof value === 'bigint') return value.toString()
@@ -40,21 +40,7 @@ const equalDigest = (left: string | null, right: string) => {
 export class AuditService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async record(input: {
-    traceId: string
-    actorId?: bigint
-    action: string
-    operationCode?: string
-    riskLevel?: PolicyRiskLevel
-    resource: string
-    method: string
-    path: string
-    result: 'SUCCESS' | 'FAILURE'
-    statusCode: number
-    ip?: string
-    userAgent?: string
-    detail?: Record<string, unknown>
-  }) {
+  async record(input: AuditRecordInput) {
     const id = randomUUID()
     const createdAt = new Date()
     const record = {
@@ -83,17 +69,7 @@ export class AuditService {
     })
   }
 
-  async page(query: {
-    keyword?: string
-    result?: AuditResult
-    riskLevel?: RiskLevel
-    operationCode?: string
-    actorId?: string
-    from?: Date
-    to?: Date
-    page?: number
-    pageSize?: number
-  }) {
+  async page(query: AuditPageQuery) {
     const pagination = normalizePagination(query)
     const { page, pageSize } = pagination
     const actor = query.actorId
@@ -190,7 +166,7 @@ export class AuditService {
     }
   }
 
-  async export(query: { from: string; to: string; keyword?: string; result?: AuditResult; riskLevel?: RiskLevel; operationCode?: string }) {
+  async export(query: AuditExportQuery) {
     const from = new Date(query.from),
       to = new Date(query.to)
     if (!Number.isFinite(+from) || !Number.isFinite(+to) || from > to || +to - +from > 31 * 86400000)

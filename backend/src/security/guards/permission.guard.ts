@@ -1,12 +1,12 @@
 import { CanActivate, ExecutionContext, ForbiddenException, Injectable } from '@nestjs/common'
 import { Reflector } from '@nestjs/core'
-import { AuthService, SESSION_COOKIE } from '../services/auth.service.js'
-import { AuthenticatedUser } from '../types/auth.types.js'
-import { REQUIRED_PERMISSIONS } from '../decorators/permission.decorator.js'
-import { canonicalPath } from '../../modules/permission/policies/policy.js'
-import { hasRecentSecurityProof, highestRiskLevel, securityStepUpException } from '../policies/risk-policy.js'
-import { SECURITY_OPERATION } from '../decorators/operation.decorator.js'
-import { OperationPolicyService } from '../services/operation-policy.service.js'
+import { AuthService, SESSION_COOKIE } from '#app/security/services/auth.service.js'
+import { AuthenticatedUser } from '#app/security/types/auth.types.js'
+import { REQUIRED_PERMISSIONS } from '#app/security/decorators/permission.decorator.js'
+import { canonicalPath } from '#app/modules/permission/policies/policy.js'
+import { hasRecentSecurityProof, resolveRiskDecision, securityStepUpException } from '#app/security/policies/risk-policy.js'
+import { SECURITY_OPERATION } from '#app/security/decorators/operation.decorator.js'
+import { OperationPolicyService } from '#app/security/services/operation-policy.service.js'
 
 @Injectable()
 export class PermissionGuard implements CanActivate {
@@ -57,12 +57,13 @@ export class PermissionGuard implements CanActivate {
     const permissions = request.user?.permissions || []
     if (!required.length) {
       if (!operationCode || !exempt.has(key)) throw new ForbiddenException('接口未声明授权策略')
-      const riskLevel = this.operationPolicies
-        ? (await this.operationPolicies.resolve(operationCode)).riskLevel
-        : highestRiskLevel([])
+      const decision = this.operationPolicies
+        ? await this.operationPolicies.resolve(operationCode)
+        : resolveRiskDecision(operationCode)
       request.operationCode = operationCode
-      request.riskLevel = riskLevel
-      if (!hasRecentSecurityProof(request.user, riskLevel)) throw securityStepUpException(request.user, riskLevel, operationCode)
+      request.riskDecision = decision
+      request.riskLevel = decision.riskLevel
+      if (!hasRecentSecurityProof(request.user, decision.riskLevel)) throw securityStepUpException(request.user, decision)
       return true
     }
     if (!required.every((permission) => permissions.includes(permission)))
@@ -78,16 +79,17 @@ export class PermissionGuard implements CanActivate {
     if (!matches.length) throw new ForbiddenException('请求方法或路由不匹配授权接口')
     if (request.user.mfaRequired && (!request.user.mfaEnabled || !request.user.mfaVerifiedAt))
       throw new ForbiddenException('管理员操作必须先完成多因素认证')
-    const riskLevel = operationCode && this.operationPolicies
-      ? (await this.operationPolicies.resolve(operationCode, required)).riskLevel
-      : highestRiskLevel(required)
+    const decision = operationCode && this.operationPolicies
+      ? await this.operationPolicies.resolve(operationCode, required)
+      : resolveRiskDecision(required[0])
     if (operationCode) request.operationCode = operationCode
-    request.riskLevel = riskLevel
+    request.riskDecision = decision
+    request.riskLevel = decision.riskLevel
     // Page metadata changes are classified by the target page in the permission
-    // service (BUSINESS=L2, built-in/admin=L3). Do not apply the static
-    // system.page.update fallback here or business pages could never use L2.
-    if (!required.includes('system.page.update') && !hasRecentSecurityProof(request.user, riskLevel))
-      throw securityStepUpException(request.user, riskLevel, operationCode)
+    // service (BUSINESS=L2, built-in/admin=L3). Keep that explicit target context
+    // instead of replacing it with a fixed system.page.update baseline.
+    if (!required.includes('system.page.update') && !hasRecentSecurityProof(request.user, decision.riskLevel))
+      throw securityStepUpException(request.user, decision)
     return true
   }
 }

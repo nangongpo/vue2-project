@@ -29,15 +29,15 @@ import {
   Min,
   MinLength,
 } from 'class-validator'
-import { AuthGuard } from '../../../security/guards/auth.guard.js'
-import { RequirePermissions } from '../../../security/decorators/permission.decorator.js'
-import { FieldSecurity } from '../../../common/decorators/field-security.decorator.js'
-import { DataFieldSecurity } from '../../../common/decorators/data-field-security.decorator.js'
-import { PermissionService, MutationContext } from '../services/permission.service.js'
-import { ApprovalService } from '../services/approval.service.js'
-import type { ApprovalActor } from '../services/approval.service.js'
-import { canonicalPagePath, canonicalPath } from '../policies/policy.js'
-import { PaginationQueryDto } from '../../../common/dto/pagination.dto.js'
+import { AuthGuard } from '#app/security/guards/auth.guard.js'
+import { RequirePermissions } from '#app/security/decorators/permission.decorator.js'
+import { FieldSecurity } from '#app/common/decorators/field-security.decorator.js'
+import { DataFieldSecurity } from '#app/common/decorators/data-field-security.decorator.js'
+import { PermissionService, MutationContext } from '#app/modules/permission/services/permission.service.js'
+import { ApprovalService } from '#app/modules/permission/services/approval.service.js'
+import type { ApprovalActor } from '#app/modules/permission/services/approval.service.js'
+import { canonicalPagePath } from '#app/modules/permission/policies/policy.js'
+import { PaginationQueryDto } from '#app/common/dto/pagination.dto.js'
 
 class ApiQuery extends PaginationQueryDto {
   @IsOptional() @IsString() @MaxLength(128) keyword?: string
@@ -98,14 +98,12 @@ class CreateDirectoryDto {
   @IsOptional() @IsString() @MaxLength(128) icon?: string
 }
 class ButtonMetadata {
-  @IsOptional() @IsString() @MinLength(1) @MaxLength(128) name?: string
   @IsOptional() @IsString() @MinLength(1) @MaxLength(128) label?: string
   @IsOptional() @IsInt() @Min(0) @Max(100000) sort?: number
 }
 class CreateButtonDto {
   @IsUUID() functionId!: string
-  @IsString() @Matches(/^[a-z][a-z0-9_.:-]{1,127}$/) code!: string
-  @IsString() @MinLength(1) @MaxLength(128) name!: string
+  @IsString() @Matches(/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/) actionKey!: string
   @IsString() @MinLength(1) @MaxLength(128) label!: string
   @IsOptional() @IsInt() @Min(0) @Max(100000) sort?: number
   @IsOptional()
@@ -118,10 +116,6 @@ class CreateButtonDto {
 class MapApisDto {
   @IsArray() @ArrayMaxSize(100) @ArrayUnique() @IsUUID('4', { each: true }) apiIds!: string[]
 }
-class StatusDto {
-  @IsIn(['ACTIVE', 'DISABLED']) status!: 'ACTIVE' | 'DISABLED'
-}
-
 @Controller('permission')
 @UseGuards(AuthGuard)
 export class PermissionController {
@@ -129,29 +123,29 @@ export class PermissionController {
     @Inject(PermissionService) private readonly service: PermissionService,
     @Inject(ApprovalService) private readonly approvals: ApprovalService
   ) {}
-  @Get('functions')
+  @Get('pages/tree')
   @RequirePermissions('system.page.read')
   @FieldSecurity('button')
-  listFunctions() {
-    return this.service.listFunctions()
+  listPageTree() {
+    return this.service.listPageTree()
   }
-  @Get('functions/api-options')
+  @Get('pages/base-apis/options')
   @RequirePermissions('system.page.api.options')
-  pageApiOptions() {
+  pageBaseApiOptions() {
     return this.service.pageApiOptions()
   }
-  @Get('functions/:functionId/buttons')
+  @Get('pages/:pageId/buttons')
   @RequirePermissions('system.button.read')
   @FieldSecurity('button')
-  listButtons(@Param('functionId', ParseUUIDPipe) functionId: string) {
-    return this.service.listButtons(functionId)
+  listPageButtons(@Param('pageId', ParseUUIDPipe) pageId: string) {
+    return this.service.listPageButtons(pageId)
   }
-  @Get('functions/:id/apis')
+  @Get('pages/:pageId/base-apis')
   @RequirePermissions('system.page.api.read')
-  listFunctionApis(@Param('id', ParseUUIDPipe) id: string) {
-    return this.service.listFunctionApis(id)
+  listPageBaseApis(@Param('pageId', ParseUUIDPipe) pageId: string) {
+    return this.service.listPageBaseApis(pageId)
   }
-  @Post('functions')
+  @Post('pages')
   @RequirePermissions('system.page.create')
   createFunction(@Body() body: CreateFunctionDto, @Req() req: MutationContext) {
     return this.service.createFunction(body, req)
@@ -175,7 +169,7 @@ export class PermissionController {
   ) {
     return this.service.updateDirectory(id, body, req)
   }
-  @Patch('functions/:id')
+  @Patch('pages/:id')
   @RequirePermissions('system.page.update')
   async updateFunction(
     @Param('id', ParseUUIDPipe) id: string,
@@ -204,18 +198,18 @@ export class PermissionController {
     }
     return this.service.updateFunction(id, body, req)
   }
-  @Delete('functions/:id')
+  @Delete('pages/:id')
   @RequirePermissions('system.page.delete')
   deleteFunction(@Param('id', ParseUUIDPipe) id: string, @Req() req: MutationContext) {
     return this.service.deleteFunction(id, req)
   }
-  @Patch('functions/:id/enable')
+  @Patch('pages/:id/enable')
   @RequirePermissions('system.page.enable')
   async enableFunction(@Param('id', ParseUUIDPipe) id: string, @Req() req: MutationContext) {
     return this.toggleFunctionStatus(id, 'ACTIVE', req)
   }
 
-  @Patch('functions/:id/disable')
+  @Patch('pages/:id/disable')
   @RequirePermissions('system.page.disable')
   async disableFunction(@Param('id', ParseUUIDPipe) id: string, @Req() req: MutationContext) {
     return this.toggleFunctionStatus(id, 'DISABLED', req)
@@ -243,7 +237,7 @@ export class PermissionController {
     return this.service.setStatus('page', id, status, req)
   }
 
-  @Patch('functions/:id/apis')
+  @Patch('pages/:id/base-apis')
   @RequirePermissions('system.page.api.bind')
   mapFunctionApis(
     @Param('id', ParseUUIDPipe) id: string,
@@ -263,6 +257,11 @@ export class PermissionController {
   @DataFieldSecurity('system.api')
   apiOptions() {
     return this.service.apiOptions()
+  }
+  @Get('buttons/action-options')
+  @RequirePermissions('system.button.options')
+  operationActionOptions() {
+    return this.service.operationActionOptions()
   }
   @Post('apis')
   @HttpCode(202)
@@ -364,15 +363,18 @@ export class PermissionController {
   ) {
     return this.service.updateButton(id, body, req)
   }
-  @Patch('buttons/:id/status')
-  @RequirePermissions('system.button.status')
+  @Patch('buttons/:id/enable')
+  @RequirePermissions('system.button.enable')
   @FieldSecurity('button')
-  buttonStatus(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body() body: StatusDto,
-    @Req() req: MutationContext
-  ) {
-    return this.service.setStatus('button', id, body.status, req)
+  enableButton(@Param('id', ParseUUIDPipe) id: string, @Req() req: MutationContext) {
+    return this.service.setStatus('button', id, 'ACTIVE', req)
+  }
+
+  @Patch('buttons/:id/disable')
+  @RequirePermissions('system.button.disable')
+  @FieldSecurity('button')
+  disableButton(@Param('id', ParseUUIDPipe) id: string, @Req() req: MutationContext) {
+    return this.service.setStatus('button', id, 'DISABLED', req)
   }
   @Patch('buttons/:id/apis')
   @RequirePermissions('system.button.api.bind')

@@ -1,16 +1,13 @@
 import { Body, Controller, Get, Inject, Param, ParseUUIDPipe, Patch, Post, Query, Req, UseGuards } from '@nestjs/common'
-import { FieldRiskLevel, PermissionStatus } from '@prisma/client'
+import { FieldRiskLevel, PermissionStatus } from '#app/common/types/prisma-enums.js'
 import { IsBoolean, IsEnum, IsIn, IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator'
-import { AuthGuard } from '../../../security/guards/auth.guard.js'
-import { RequirePermissions } from '../../../security/decorators/permission.decorator.js'
-import { DataFieldService } from '../services/data-field.service.js'
-import type { MutationContext } from '../services/permission.service.js'
+import { AuthGuard } from '#app/security/guards/auth.guard.js'
+import { RequirePermissions } from '#app/security/decorators/permission.decorator.js'
+import { DataFieldService } from '#app/modules/permission/services/data-field.service.js'
+import type { MutationContext } from '#app/modules/permission/services/permission.service.js'
 
 class DataFieldQuery {
   @IsOptional() @IsString() @Matches(/^[a-z][a-z0-9_.:-]{0,127}$/) resource?: string
-}
-class DataFieldStatusDto {
-  @IsEnum(PermissionStatus) status!: PermissionStatus
 }
 class DataFieldUpdateDto {
   @IsString() @MinLength(1) @MaxLength(128) name!: string
@@ -51,13 +48,15 @@ export class DataFieldController {
     return this.service.update(id, body, request)
   }
 
-  @Patch(':id/status')
-  @RequirePermissions('system.field.status')
-  status(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body() body: DataFieldStatusDto,
-    @Req() request: MutationContext
-  ) {
-    return this.service.status(id, body.status, request)
+  @Patch(':id/enable')
+  @RequirePermissions('system.field.enable')
+  enable(@Param('id', ParseUUIDPipe) id: string, @Req() request: MutationContext) {
+    return this.service.status(id, PermissionStatus.ACTIVE, request)
+  }
+
+  @Patch(':id/disable')
+  @RequirePermissions('system.field.disable')
+  disable(@Param('id', ParseUUIDPipe) id: string, @Req() request: MutationContext) {
+    return this.service.status(id, PermissionStatus.DISABLED, request)
   }
 }

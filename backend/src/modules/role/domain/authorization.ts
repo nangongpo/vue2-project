@@ -2,8 +2,8 @@ import { BadRequestException, ForbiddenException, UnauthorizedException } from '
 import { Prisma } from '@prisma/client'
 import { randomUUID } from 'node:crypto'
 import { isUUID } from 'class-validator'
-import { riskLevelForOperation } from '../../../security/policies/risk-policy.js'
-import { isCatalogManagementCode, isManagementApiPath, isManagementResource } from '../../../security/policies/permission-catalog.js'
+import { resolveRiskDecision } from '#app/security/policies/risk-policy.js'
+import { isCatalogManagementCode, isManagementApiPath, isManagementResource } from '#app/security/policies/permission-catalog/index.js'
 
 export type Actor = {
   internalId: bigint
@@ -72,13 +72,12 @@ export function ordinaryPermission(permission: PermissionPolicy) {
   return (
     permission.status === 'ACTIVE' &&
     permission.roleTypes?.some((item) => item.roleType === 'BUSINESS') &&
-    !permission.code.includes('*') &&
-    !permission.resource.includes('*') &&
+    permission.code !== '*' &&
+    permission.resource !== '*' &&
     (!isManagementResource(permission.resource) || ['system.approval.read', 'system.approval.detail'].includes(permission.code)) &&
     (!isCatalogManagementCode(permission.code) || ['system.approval.read', 'system.approval.detail'].includes(permission.code)) &&
     (!isManagementApiPath(permission.path || '') || ['system.approval.read', 'system.approval.detail'].includes(permission.code)) &&
     permission.code !== 'system.permission.manage' &&
-    !permission.code.split('.').some((part) => ['superadmin', 'super-admin', 'impersonate', 'all', 'custom'].includes(part.toLowerCase())) &&
     !permission.path?.includes('*') &&
     ['PAGE', 'BUTTON', 'API'].includes(permission.type) &&
     (permission.type !== 'API' ||
@@ -114,7 +113,7 @@ export async function audit(
       actorId: actor.internalId,
       traceId: actor.traceId || randomUUID(),
       action,
-      riskLevel: riskLevelForOperation(action),
+      riskLevel: resolveRiskDecision(action).riskLevel,
       resource,
       method:
         actor.method ||

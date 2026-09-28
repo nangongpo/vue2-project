@@ -8,9 +8,9 @@ import {
 import { HttpAdapterHost } from '@nestjs/core'
 import { ApprovalRequest, Permission, Prisma, Role } from '@prisma/client'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
-import { PrismaService } from '../../../database/prisma.service.js'
-import { APPROVAL_KIND_LABELS } from '../../../common/constants/enum-labels.js'
-import { AuthenticatedUser } from '../../../security/types/auth.types.js'
+import { PrismaService } from '#app/database/prisma.service.js'
+import { APPROVAL_KIND_LABELS } from '#app/common/constants/enum-labels.js'
+import { AuthenticatedUser } from '#app/security/types/auth.types.js'
 import {
   ApiRouteChangePayload,
   ApiDeletePayload,
@@ -31,19 +31,19 @@ import {
   RolePermissionsPayload,
   approvalDto,
   approvalPayload,
-} from '../dto/approval.dto.js'
-import { assertApi, canonicalPath, ok, RETIRED_CODES } from '../policies/policy.js'
-import { isBusinessDataResource } from '../policies/data-resource-policy.js'
+} from '#app/modules/permission/dto/approval.dto.js'
+import { assertApi, canonicalPath, ok, RETIRED_CODES } from '#app/modules/permission/policies/policy.js'
+import { isBusinessDataResource } from '#app/modules/permission/policies/data-resource-policy.js'
 import {
   allowedRoleTypesForPermission,
   isManagementApiPath,
   isManagementResource,
   isCatalogManagementCode,
-} from '../../../security/policies/permission-catalog.js'
+} from '#app/security/policies/permission-catalog/index.js'
 import {
   RISK_PROOF_TTL_MS,
-  riskLevelForOperation,
-} from '../../../security/policies/risk-policy.js'
+  resolveRiskDecision,
+} from '#app/security/policies/risk-policy.js'
 
 export const APPROVAL_MAX_TTL_MS = 24 * 60 * 60 * 1000
 export const APPROVAL_TTL_MS: Record<string, number> = {
@@ -669,7 +669,7 @@ export class ApprovalService {
   private permissionPolicy(role: Pick<Role, 'roleType'>, permission: Permission & { roleTypes?: readonly { roleType: string }[] }) {
     if (
       permission.status !== 'ACTIVE' ||
-      permission.code.includes('*') ||
+      permission.code === '*' ||
       permission.code === 'system.permission.manage' ||
       permission.method === 'ALL' ||
       permission.path?.includes('*')
@@ -1311,7 +1311,7 @@ export class ApprovalService {
         traceId: context.traceId || randomUUID(),
         actorId: actor.internalId,
         action: `system.approval.${action}`,
-        riskLevel: riskLevelForOperation(`system.approval.${action}`),
+        riskLevel: resolveRiskDecision(`system.approval.${action}`).riskLevel,
         resource: 'approval',
         method: context.method || 'POST',
         path: context.path || '/api/v1/permission/approvals',

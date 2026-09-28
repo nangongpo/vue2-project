@@ -6,7 +6,7 @@ import { ValidationPipe } from '@nestjs/common'
 import { NestFactory } from '@nestjs/core'
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify'
 import Joi from 'joi'
-import { AppModule } from './app.module.js'
+import { AppModule } from '#app/app.module.js'
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger'
 
 // 兼容 Node 20/22：Node 20 没有 node:process.loadEnvFile，部署环境已有变量时不覆盖。

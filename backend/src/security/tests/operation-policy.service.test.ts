@@ -1,16 +1,13 @@
 import { describe, expect, it, vi } from 'vitest'
 import { ForbiddenException, ServiceUnavailableException } from '@nestjs/common'
-import { OperationPolicyService } from '../services/operation-policy.service.js'
+import { OperationPolicyService } from '#app/security/services/operation-policy.service.js'
 
 function makeService(findFirst: unknown = null) {
   const prisma = {
-    operationPolicy: {
-      findFirst: vi.fn().mockResolvedValue(findFirst),
-      findMany: vi.fn().mockResolvedValue([]),
-      create: vi.fn().mockResolvedValue({ id: 'policy-id' }),
-      findUnique: vi.fn(),
-      update: vi.fn(),
-    },
+      operationPolicy: {
+        findFirst: vi.fn().mockResolvedValue(findFirst),
+        findMany: vi.fn().mockResolvedValue([]),
+      },
   } as any
   return { service: new OperationPolicyService(prisma), prisma }
 }
@@ -31,8 +28,8 @@ describe('OperationPolicyService', () => {
 
   it('resolves data-scope operations from the code-owned security baseline', async () => {
     const { service } = makeService()
-    await expect(service.resolve('data-scope.read', ['system.data-scope.read'])).resolves.toMatchObject({
-      operationCode: 'data-scope.read',
+    await expect(service.resolve('system.data-scope.read', ['system.data-scope.read'])).resolves.toMatchObject({
+      operationCode: 'system.data-scope.read',
       riskLevel: 'L2',
       requireMfa: true,
       requireReauth: true,
@@ -60,42 +57,17 @@ describe('OperationPolicyService', () => {
     await expect(service.resolve('system.role.grant')).rejects.toBeInstanceOf(ServiceUnavailableException)
   })
 
-  it('rejects a policy that tries to lower a built-in risk baseline', async () => {
-    const { service } = makeService()
-    await expect(service.create({
-      operationCode: 'system.role.grant',
-      name: '授予角色权限',
-      resource: 'system.role',
-      action: 'grant',
-      riskLevel: 'L2',
-    })).rejects.toBeInstanceOf(ForbiddenException)
-  })
-
-  it('defaults L3 business controls to MFA, reauth, approval and audit', async () => {
-    const { service, prisma } = makeService()
-    await service.create({
-      operationCode: 'order.refund',
-      name: '订单退款',
-      resource: 'order',
-      action: 'refund',
-      riskLevel: 'L3',
-    })
-    expect(prisma.operationPolicy.create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({
-        requireMfa: true,
-        requireReauth: true,
-        requireApproval: true,
-        requireDualControl: false,
-        auditRequired: true,
-      }),
-    }))
-  })
-
-  it('merges code baselines and database policies into one catalog', async () => {
+  it('exposes only read-only operation policy catalog entries', async () => {
     const { service } = makeService()
     const result = await service.catalog()
     expect(result).toEqual(expect.arrayContaining([
       expect.objectContaining({ operationCode: 'system.role.grant', source: 'CODE_BASELINE' }),
+      expect.objectContaining({ operationCode: 'system.operation-policy.read', source: 'CODE_BASELINE' }),
+    ]))
+    expect(result.map((item) => item.operationCode)).not.toEqual(expect.arrayContaining([
+      'system.operation-policy.create',
+      'system.operation-policy.activate',
+      'system.operation-policy.status',
     ]))
   })
 })

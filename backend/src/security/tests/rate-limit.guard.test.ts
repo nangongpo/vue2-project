@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { HttpException } from '@nestjs/common'
-import { RateLimitGuard } from '../guards/rate-limit.guard.js'
+import { RateLimitGuard } from '#app/security/guards/rate-limit.guard.js'
 
 function context(path: string, ip = '127.0.0.1') {
   const request = { ip, method: 'POST', url: path, routeOptions: { url: path } }
@@ -30,5 +30,14 @@ describe('RateLimitGuard', () => {
     const guard = new RateLimitGuard(redis)
 
     await expect(guard.canActivate(context('/api/v1/users'))).rejects.toMatchObject(new HttpException('请求过于频繁，请稍后重试', 429))
+  })
+
+  it('fails closed when the rate-limit store is unavailable', async () => {
+    const redis = { increment: vi.fn(async () => null) } as any
+    const guard = new RateLimitGuard(redis)
+
+    await expect(guard.canActivate(context('/api/v1/users'))).rejects.toMatchObject(
+      new HttpException('请求限频服务暂不可用，请稍后重试', 503)
+    )
   })
 })

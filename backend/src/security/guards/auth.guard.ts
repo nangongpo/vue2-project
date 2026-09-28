@@ -1,6 +1,6 @@
 import { CanActivate, ExecutionContext, ForbiddenException, Inject, Injectable } from '@nestjs/common'
-import { AuthService, PREAUTH_COOKIE, SESSION_COOKIE } from '../services/auth.service.js'
-import { assertSameOrigin } from '../policies/csrf.js'
+import { AuthService, PREAUTH_COOKIE, SESSION_COOKIE } from '#app/security/services/auth.service.js'
+import { assertSameOrigin } from '#app/security/policies/csrf.js'
 
 @Injectable()
 export class AuthGuard implements CanActivate {

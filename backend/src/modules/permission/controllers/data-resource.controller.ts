@@ -1,12 +1,13 @@
 import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query, Req, UseGuards } from '@nestjs/common'
 import { IsEnum, IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator'
-import { PermissionStatus } from '@prisma/client'
-import { AuthGuard } from '../../../security/guards/auth.guard.js'
-import { RequirePermissions } from '../../../security/decorators/permission.decorator.js'
-import { DataResourceService } from '../services/data-resource.service.js'
-import type { MutationContext } from '../services/permission.service.js'
+import { PermissionStatus } from '#app/common/types/prisma-enums.js'
+import { AuthGuard } from '#app/security/guards/auth.guard.js'
+import { RequirePermissions } from '#app/security/decorators/permission.decorator.js'
+import { DataResourceService } from '#app/modules/permission/services/data-resource.service.js'
+import type { MutationContext } from '#app/modules/permission/services/permission.service.js'
 
 class ResourceQuery {
+  @IsOptional() @IsString() @Matches(/^[a-z][a-z0-9_.:-]{0,127}$/) resource?: string
   @IsOptional() @IsEnum(PermissionStatus) status?: PermissionStatus
 }
 class CreateResourceDto {
@@ -18,10 +19,6 @@ class UpdateResourceDto {
   @IsString() @MinLength(1) @MaxLength(128) name!: string
   @IsOptional() @IsString() @MaxLength(255) description?: string
 }
-class ResourceStatusDto {
-  @IsEnum(PermissionStatus) status!: PermissionStatus
-}
-
 @Controller('permission/data-resources')
 @UseGuards(AuthGuard)
 export class DataResourceController {
@@ -30,7 +27,7 @@ export class DataResourceController {
   @Get()
   @RequirePermissions('system.data-resource.read')
   list(@Query() query: ResourceQuery) {
-    return this.service.list(query.status)
+    return this.service.list(query.resource, query.status)
   }
 
   @Post()
@@ -45,9 +42,15 @@ export class DataResourceController {
     return this.service.update(id, body, req)
   }
 
-  @Patch(':id/status')
-  @RequirePermissions('system.data-resource.status')
-  status(@Param('id', ParseUUIDPipe) id: string, @Body() body: ResourceStatusDto, @Req() req: MutationContext) {
-    return this.service.status(id, body.status, req)
+  @Patch(':id/enable')
+  @RequirePermissions('system.data-resource.enable')
+  enable(@Param('id', ParseUUIDPipe) id: string, @Req() req: MutationContext) {
+    return this.service.enable(id, req)
+  }
+
+  @Patch(':id/disable')
+  @RequirePermissions('system.data-resource.disable')
+  disable(@Param('id', ParseUUIDPipe) id: string, @Req() req: MutationContext) {
+    return this.service.disable(id, req)
   }
 }

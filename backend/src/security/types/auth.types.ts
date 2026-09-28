@@ -29,6 +29,4 @@ export type AuthenticatedUser = {
   tenantId?: string | null
   departmentId?: string | null
   organizationId?: string | null
-  /** 仅供后端授权守卫使用，控制器响应中必须移除。 */
-  isSuperAdmin: boolean
 }

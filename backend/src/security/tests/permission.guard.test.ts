@@ -3,10 +3,10 @@ import { describe, expect, it, vi } from 'vitest'
 import { ForbiddenException } from '@nestjs/common'
 import type { ExecutionContext } from '@nestjs/common'
 import { Reflector } from '@nestjs/core'
-import { PermissionGuard } from '../guards/permission.guard.js'
-import { REQUIRED_PERMISSIONS } from '../decorators/permission.decorator.js'
-import { SESSION_COOKIE } from '../services/auth.service.js'
-import { SECURITY_OPERATION } from '../decorators/operation.decorator.js'
+import { PermissionGuard } from '#app/security/guards/permission.guard.js'
+import { REQUIRED_PERMISSIONS } from '#app/security/decorators/permission.decorator.js'
+import { SESSION_COOKIE } from '#app/security/services/auth.service.js'
+import { SECURITY_OPERATION } from '#app/security/decorators/operation.decorator.js'
 
 const code = 'system.role.grant'
 const path = '/api/v1/roles/:id/grants'
@@ -77,7 +77,7 @@ describe('PermissionGuard', () => {
 
   it('allows the page API option query without high-risk proof', async () => {
     const optionCode = 'system.page.api.options'
-    const optionPath = '/api/v1/permission/functions/api-options'
+    const optionPath = '/api/v1/permission/pages/base-apis/options'
     const { guard, context } = fixture([optionCode], {
       method: 'GET',
       routeOptions: { url: optionPath },
@@ -127,15 +127,13 @@ describe('PermissionGuard', () => {
     {
       permissions: ['*'],
       apiPermissions: [{ code: '*', method: 'PATCH', path }],
-      isSuperAdmin: true,
     },
-    { permissions: [], apiPermissions: [], isSuperAdmin: true },
+    { permissions: [], apiPermissions: [] },
     {
       permissions: [code],
       apiPermissions: [{ code: '*', method: 'PATCH', path }],
-      isSuperAdmin: true,
     },
-  ])('does not allow wildcard or super-admin bypass: %j', async (user) => {
+  ])('does not allow wildcard or incomplete authorization: %j', async (user) => {
     const { guard, context } = fixture([code], { user })
     await expect(guard.canActivate(context)).rejects.toBeInstanceOf(ForbiddenException)
   })

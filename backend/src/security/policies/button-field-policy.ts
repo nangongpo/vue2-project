@@ -1,15 +1,8 @@
 import { ForbiddenException } from '@nestjs/common'
-import { maxRiskLevel, type RiskLevel } from './risk-policy.js'
+import { maxRiskLevel, type RiskLevel } from '#app/security/policies/risk-policy.js'
+import type { ButtonFieldPolicy } from '#app/security/policies/field-policy-types.js'
 
-export type FieldPolicy = {
-  field: string
-  readCode: string
-  writeCode: string
-  riskLevel: RiskLevel
-  label: string
-}
-
-export const BUTTON_FIELD_POLICIES: readonly FieldPolicy[] = [
+export const BUTTON_FIELD_POLICIES: readonly ButtonFieldPolicy[] = [
   {
     field: 'label',
     readCode: 'system.button.field.label.read',
@@ -54,6 +47,9 @@ export const BUTTON_FIELD_POLICIES: readonly FieldPolicy[] = [
   },
 ]
 
+const BUTTON_FIELD_BY_NAME = new Map(BUTTON_FIELD_POLICIES.map((policy) => [policy.field, policy]))
+const BUTTON_FIELD_NAMES = new Set(BUTTON_FIELD_POLICIES.map((policy) => policy.field))
+
 export const BUTTON_FIELD_PERMISSIONS = BUTTON_FIELD_POLICIES.flatMap((policy) => [
   { code: policy.readCode, name: `${policy.label}查看`, action: `field.${policy.field}.read` },
   { code: policy.writeCode, name: `${policy.label}修改`, action: `field.${policy.field}.write` },
@@ -88,11 +84,12 @@ export function buttonWritableFields(permissionCodes: readonly string[]) {
 }
 
 export function buttonFieldRisk(fields: readonly string[]): RiskLevel {
-  return maxRiskLevel(
-    ...fields.map(
-      (field) => BUTTON_FIELD_POLICIES.find((policy) => policy.field === field)?.riskLevel || 'L3'
-    )
-  )
+  const risks = fields.map((field) => {
+    const policy = BUTTON_FIELD_BY_NAME.get(field)
+    if (!policy) throw new ForbiddenException(`按钮字段未登记：${field}`)
+    return policy.riskLevel
+  })
+  return maxRiskLevel(...risks)
 }
 
 export function assertButtonWritableFields(
@@ -100,9 +97,8 @@ export function assertButtonWritableFields(
   permissionCodes: readonly string[]
 ) {
   const writable = buttonWritableFields(permissionCodes)
-  const allowedInput = new Set(BUTTON_FIELD_POLICIES.map((policy) => policy.field))
   const fields = Object.keys(input)
-  const unknown = fields.filter((field) => !allowedInput.has(field))
+  const unknown = fields.filter((field) => !BUTTON_FIELD_NAMES.has(field))
   if (unknown.length) throw new ForbiddenException(`按钮字段不允许修改：${unknown.join('、')}`)
   const denied = fields.filter((field) => !writable.has(field))
   if (denied.length) throw new ForbiddenException(`没有按钮字段修改权限：${denied.join('、')}`)
@@ -118,16 +114,18 @@ export function projectButton<T extends Record<string, unknown>>(
   for (const field of readable) {
     if (Object.prototype.hasOwnProperty.call(button, field)) projected[field] = button[field]
   }
-  projected.fieldCapabilities = Object.fromEntries(
-    BUTTON_FIELD_POLICIES.map((policy) => [
-      policy.field,
-      {
-        read: readable.has(policy.field),
-        write: buttonWritableFields(permissionCodes).has(policy.field),
-        riskLevel: policy.riskLevel,
-      },
-    ])
-  )
+  // `status` is stored as an internal enum and is projected by the API layer
+  // into the public presentation fields below. Keep those fields when the
+  // caller is allowed to read the status field.
+  if (readable.has('status')) {
+    if (Object.prototype.hasOwnProperty.call(button, 'statusLabel')) projected.statusLabel = button.statusLabel
+    if (Object.prototype.hasOwnProperty.call(button, 'isActive')) projected.isActive = button.isActive
+  }
+  const writable = buttonWritableFields(permissionCodes)
+  projected.fieldCapabilities = Object.fromEntries(BUTTON_FIELD_POLICIES.map((policy) => [
+    policy.field,
+    { read: readable.has(policy.field), write: writable.has(policy.field), riskLevel: policy.riskLevel },
+  ]))
   return projected as T
 }
 

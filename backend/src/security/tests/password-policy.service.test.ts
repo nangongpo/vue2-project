@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { assertPasswordStrength, PasswordPolicyService, PASSWORD_MIN_AGE_MS } from '../services/password-policy.service.js'
-import { PasswordService } from '../services/password.service.js'
+import { assertPasswordStrength, PasswordPolicyService, PASSWORD_MIN_AGE_MS } from '#app/security/services/password-policy.service.js'
+import { PasswordService } from '#app/security/services/password.service.js'
 
 afterEach(() => vi.useRealTimers())
 

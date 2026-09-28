@@ -1,11 +1,12 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
-import { Prisma, StandardDataScopeType } from '@prisma/client'
+import { Prisma } from '@prisma/client'
+import { StandardDataScopeType } from '#app/common/types/prisma-enums.js'
 import { createHash, randomUUID } from 'node:crypto'
-import { PrismaService } from '../../../database/prisma.service.js'
-import { effectiveGrant, type ScopeActor } from '../../../security/services/data-scope.service.js'
-import { ok } from '../policies/policy.js'
-import { riskLevelForOperation } from '../../../security/policies/risk-policy.js'
-import { isBusinessDataResource } from '../policies/data-resource-policy.js'
+import { PrismaService } from '#app/database/prisma.service.js'
+import { effectiveGrant, type ScopeActor } from '#app/security/services/data-scope.service.js'
+import { ok } from '#app/modules/permission/policies/policy.js'
+import { resolveRiskDecision } from '#app/security/policies/risk-policy.js'
+import { isBusinessDataResource } from '#app/modules/permission/policies/data-resource-policy.js'
 
 export type ScopeManagementContext = {
   actor: ScopeActor
@@ -202,8 +203,8 @@ export class DataScopeManagementService {
       data: {
         traceId: context.traceId || randomUUID(),
         actorId: context.actor.internalId,
-        action: `data-scope.${action}`,
-        riskLevel: riskLevelForOperation(`data-scope.${action}`),
+        action: `system.data-scope.${action}`,
+        riskLevel: resolveRiskDecision(`system.data-scope.${action}`).riskLevel,
         resource: 'data-scope',
         method: action === 'grant' ? 'POST' : 'PATCH',
         path: `/api/v1/permission/roles/${roleId}/data-scopes`,

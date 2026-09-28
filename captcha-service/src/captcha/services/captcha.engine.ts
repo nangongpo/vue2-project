@@ -1,5 +1,5 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
-import { RedisService } from './redis.service.js'
+import { RedisService } from '#app/captcha/services/redis.service.js'
 
 export type CaptchaType = 'SLIDER'
 export type CaptchaPoint = { x: number; y: number; t: number }

@@ -1,4 +1,5 @@
-import type { RiskLevel } from './risk-policy.js'
+import type { RiskLevel } from '#app/security/policies/risk-policy.js'
+import { API_BY_CODE } from '#app/security/policies/permission-catalog/index.js'
 
 export type OperationDefinition = {
   operationCode: string
@@ -18,102 +19,6 @@ export type OperationDefinition = {
  * controls or raise the risk, but cannot lower these baselines.
  */
 export const BUILT_IN_OPERATION_CATALOG: readonly OperationDefinition[] = [
-  {
-    operationCode: 'order.read',
-    name: '查看订单',
-    resource: 'order',
-    action: 'read',
-    riskLevel: 'L0',
-    requireMfa: false,
-    requireReauth: false,
-    requireApproval: false,
-    requireDualControl: false,
-    auditRequired: true,
-  },
-  {
-    operationCode: 'order.create',
-    name: '创建订单',
-    resource: 'order',
-    action: 'create',
-    riskLevel: 'L2',
-    requireMfa: true,
-    requireReauth: true,
-    requireApproval: false,
-    requireDualControl: false,
-    auditRequired: true,
-  },
-  {
-    operationCode: 'order.update',
-    name: '编辑订单',
-    resource: 'order',
-    action: 'update',
-    riskLevel: 'L2',
-    requireMfa: true,
-    requireReauth: true,
-    requireApproval: false,
-    requireDualControl: false,
-    auditRequired: true,
-  },
-  {
-    operationCode: 'order.confirm',
-    name: '确认订单',
-    resource: 'order',
-    action: 'confirm',
-    riskLevel: 'L2',
-    requireMfa: true,
-    requireReauth: true,
-    requireApproval: false,
-    requireDualControl: false,
-    auditRequired: true,
-  },
-  {
-    operationCode: 'order.cancel',
-    name: '取消订单',
-    resource: 'order',
-    action: 'cancel',
-    riskLevel: 'L2',
-    requireMfa: true,
-    requireReauth: true,
-    requireApproval: false,
-    requireDualControl: false,
-    auditRequired: true,
-  },
-  {
-    operationCode: 'system.directory.create',
-    name: '新增页面目录',
-    resource: 'system.directory',
-    action: 'create',
-    riskLevel: 'L1',
-    requireMfa: false,
-    requireReauth: false,
-    requireApproval: false,
-    requireDualControl: false,
-    auditRequired: true,
-  },
-  {
-    operationCode: 'system.directory.update',
-    name: '编辑页面目录',
-    resource: 'system.directory',
-    action: 'update',
-    riskLevel: 'L1',
-    requireMfa: false,
-    requireReauth: false,
-    requireApproval: false,
-    requireDualControl: false,
-    auditRequired: true,
-  },
-  {
-    operationCode: 'system.directory.delete',
-    name: '删除页面目录',
-    resource: 'system.directory',
-    action: 'delete',
-    riskLevel: 'L1',
-    requireMfa: false,
-    requireReauth: false,
-    requireApproval: false,
-    requireDualControl: false,
-    auditRequired: true,
-  },
   {
     operationCode: 'auth.password.change',
     name: '修改密码',
@@ -151,42 +56,6 @@ export const BUILT_IN_OPERATION_CATALOG: readonly OperationDefinition[] = [
     auditRequired: true,
   },
   {
-    operationCode: 'data-scope.read',
-    name: '查看角色数据范围',
-    resource: 'data-scope',
-    action: 'read',
-    riskLevel: 'L2',
-    requireMfa: true,
-    requireReauth: true,
-    requireApproval: false,
-    requireDualControl: false,
-    auditRequired: true,
-  },
-  {
-    operationCode: 'data-scope.update',
-    name: '新增角色数据范围',
-    resource: 'data-scope',
-    action: 'update',
-    riskLevel: 'L2',
-    requireMfa: true,
-    requireReauth: true,
-    requireApproval: false,
-    requireDualControl: false,
-    auditRequired: true,
-  },
-  {
-    operationCode: 'data-scope.revoke',
-    name: '撤销角色数据范围',
-    resource: 'data-scope',
-    action: 'revoke',
-    riskLevel: 'L2',
-    requireMfa: true,
-    requireReauth: true,
-    requireApproval: false,
-    requireDualControl: false,
-    auditRequired: true,
-  },
-  {
     operationCode: 'system.page.route-change',
     name: '修改页面路径',
     resource: 'system.page',
@@ -198,33 +67,25 @@ export const BUILT_IN_OPERATION_CATALOG: readonly OperationDefinition[] = [
     requireDualControl: false,
     auditRequired: true,
   },
-  {
-    operationCode: 'system.api.delete',
-    name: '删除接口权限',
-    resource: 'system.api',
-    action: 'delete',
-    riskLevel: 'L3',
-    requireMfa: true,
-    requireReauth: true,
-    requireApproval: true,
-    requireDualControl: false,
-    auditRequired: true,
-  },
-  {
-    operationCode: 'system.role.grant',
-    name: '授予角色权限',
-    resource: 'system.role',
-    action: 'grant',
-    riskLevel: 'L3',
-    requireMfa: true,
-    requireReauth: true,
-    requireApproval: true,
-    requireDualControl: true,
-    auditRequired: true,
-  },
 ]
 
 const catalog = new Map(BUILT_IN_OPERATION_CATALOG.map((item) => [item.operationCode, item]))
+
+// API-backed operations have one structured target in the permission catalog.
+// Keep resource/action here for non-API security operations, but fail fast when
+// a duplicated API target drifts from the permission directory.
+for (const operation of BUILT_IN_OPERATION_CATALOG) {
+  const permission = API_BY_CODE.get(operation.operationCode)
+  if (!permission) continue
+  if ((operation.resource && operation.resource !== permission.resource) || (operation.action && operation.action !== permission.action))
+    throw new Error(`操作 ${operation.operationCode} 的 resource/action 与权限目录不一致`)
+}
+
+export function materializeOperation(operation: OperationDefinition): OperationDefinition & { resource: string; action: string } {
+  const permission = API_BY_CODE.get(operation.operationCode)
+  if (permission) return { ...operation, resource: permission.resource, action: permission.action }
+  return operation
+}
 
 export function getBuiltInOperation(operationCode: string) {
   return catalog.get(operationCode)

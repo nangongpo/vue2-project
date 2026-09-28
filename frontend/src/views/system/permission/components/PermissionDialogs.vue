@@ -62,14 +62,15 @@
         <el-form-item v-if="pageForm.nodeType === 'PAGE'" label="组件路径"
           ><el-input v-model.trim="pageForm.component" maxlength="255" placeholder="例如 system/health/index"
         /></el-form-item>
-        <el-form-item v-if="pageForm.nodeType === 'PAGE'" label="路由参数">
+        <el-form-item v-if="pageForm.nodeType === 'PAGE'" label="路由参数" prop="routePropsText">
           <el-input
             v-model="pageForm.routePropsText"
             type="textarea"
             :rows="4"
-            placeholder='例如：{"mode":"readonly"}'
+            placeholder='请输入 JSON 对象，例如：{"mode":"readonly"}'
+            @blur="formatRouteProps"
           />
-          <div class="form-help">固定参数会通过路由 props 传入页面，须填写 JSON 对象。</div>
+          <div class="form-help">失焦后会自动格式化；必须是合法的 JSON 对象，例如 {"mode":"readonly"}。</div>
         </el-form-item>
         <el-form-item label="排序"
           ><el-input-number v-model="pageForm.sort" :min="0" :max="9999" :precision="0"
@@ -87,90 +88,107 @@
       </span>
     </el-dialog>
 
-    <el-drawer
+    <el-dialog
       :title="editingButton ? '编辑按钮' : '新增按钮'"
       :visible.sync="buttonVisible"
-      direction="rtl"
-      size="380px">
-      <div class="button-drawer-body">
-        <el-form ref="buttonForm" :model="buttonForm" :rules="buttonRules" label-position="top">
-          <div class="drawer-section-title">基本信息</div>
-          <el-form-item label="按钮名称" prop="name"
-            ><el-input
-              v-model.trim="buttonForm.name"
-              maxlength="128"
-              placeholder="例如 user.create"
-          /></el-form-item>
-          <el-form-item label="显示文本" prop="label"
-            ><el-input v-model.trim="buttonForm.label" maxlength="128" placeholder="例如 新增用户"
-          /></el-form-item>
-          <el-form-item label="权限码" prop="code"
-            ><el-input v-model.trim="buttonForm.code" :disabled="!!editingButton" maxlength="128"
-          /></el-form-item>
-          <el-form-item label="状态">
-            <el-select v-model="buttonForm.status" class="full-width" disabled>
-              <el-option label="启用" value="ACTIVE" /><el-option label="停用" value="DISABLED" />
-            </el-select>
-          </el-form-item>
-          <div class="drawer-section-title api-section-title">
-            操作接口 <span class="section-line" />
+      width="460px"
+      :close-on-click-modal="false">
+      <el-form ref="buttonForm" :model="buttonForm" :rules="buttonRules" label-width="100px">
+        <el-form-item label="操作标识" prop="actionKey">
+          <el-select
+            v-if="!editingButton"
+            v-model="buttonForm.actionKey"
+            filterable
+            class="full-width"
+            :loading="operationActionOptionsLoading"
+            :disabled="!operationActionOptionsReady"
+            placeholder="请选择操作标识">
+            <el-option
+              v-for="item in operationActionOptions"
+              :key="item.value"
+              :label="item.value + ' · ' + item.label"
+              :value="item.value">
+              <span>{{ item.value }} · {{ item.label }}</span>
+              <small class="operation-action-description">{{ item.description }}</small>
+            </el-option>
+          </el-select>
+          <el-input v-else :value="buttonForm.actionKey" disabled />
+        </el-form-item>
+        <el-form-item label="显示文本" prop="label">
+          <el-input v-model.trim="buttonForm.label" maxlength="128" placeholder="例如 新增用户" />
+        </el-form-item>
+        <el-form-item label="权限码">
+          <el-input :value="buttonCodePreview" disabled placeholder="根据页面权限码和操作标识自动生成" />
+        </el-form-item>
+        <el-form-item v-if="editingButton" label="状态">
+          <el-select v-model="buttonForm.status" class="full-width" disabled>
+            <el-option label="启用" value="ACTIVE" />
+            <el-option label="停用" value="DISABLED" />
+          </el-select>
+        </el-form-item>
+        <el-form-item v-if="editingButton" label="排序">
+          <el-input-number v-model="buttonForm.sort" :min="0" :max="9999" :precision="0" />
+        </el-form-item>
+        <el-form-item v-if="editingButton" label="操作接口">
+          <div v-if="boundApis(editingButton).length" class="readonly-api-list">
+            <el-tag
+              v-for="api in boundApis(editingButton)"
+              :key="api.id"
+              size="small"
+              class="readonly-api-tag">
+              {{ api.method }} {{ api.path || api.code }}
+            </el-tag>
           </div>
-          <div v-if="boundApis(editingButton).length" class="drawer-api-list">
-            <div v-for="api in boundApis(editingButton)" :key="api.id" class="drawer-api-item">
-              <el-tag :type="methodTagType(api.method)" size="mini">{{ api.method }}</el-tag>
-              <div class="drawer-api-info">
-                <strong>{{ api.path || '路径未配置' }}</strong
-                ><span>{{ api.code || api.name }}</span>
-              </div>
-              <i class="el-icon-close drawer-remove" @click="openBinding(editingButton)" />
-            </div>
-          </div>
-          <div v-else class="empty-api">暂未绑定操作接口</div>
-          <el-button
-            v-permission="'system.button.api.bind'"
-            class="bind-api-button"
-            icon="el-icon-plus"
-            :disabled="!editingButton || !optionsReady"
-            @click="openBinding(editingButton)"
-            >绑定操作接口</el-button
-          >
-        </el-form>
-      </div>
-      <div class="drawer-footer">
+          <span v-else class="muted">未绑定操作接口</span>
+        </el-form-item>
+      </el-form>
+      <span slot="footer">
         <el-button @click="buttonVisible = false">取消</el-button>
         <el-button
           v-permission="editingButton ? 'system.button.update' : 'system.button.create'"
           type="primary"
           :loading="saving"
-          @click="validateAndSubmit('buttonForm', 'submit-button')"
-          >保存</el-button
-        >
-      </div>
-    </el-drawer>
+          @click="validateAndSubmit('buttonForm', 'submit-button')">
+          保存
+        </el-button>
+      </span>
+    </el-dialog>
 
     <el-dialog
       title="绑定操作接口"
       :visible.sync="bindingVisibleProxy"
-      width="680px"
+      width="460px"
       :close-on-click-modal="false">
-      <div class="binding-heading">
-        <strong>{{ bindingButton ? bindingButton.label || bindingButton.name : '' }}</strong
-        ><span class="muted">选择后将由该按钮触发对应接口</span>
-      </div>
-      <el-alert
-        v-if="optionsReady && unavailableButtonApis.length"
-        :title="'有 ' + unavailableButtonApis.length + ' 个历史绑定接口已停用，保存时将解除绑定。'"
-        type="warning"
-        :closable="false" />
-      <el-select
-        v-model="buttonApiIdsProxy"
-        multiple
-        filterable
-        class="full-width"
-        :disabled="!optionsReady"
-        placeholder="搜索并选择操作接口">
-        <el-option v-for="api in apis" :key="api.id" :label="apiLabel(api)" :value="api.id" />
-      </el-select>
+      <el-form label-width="100px" class="binding-button-info">
+        <el-form-item label="显示文本">
+          <el-input :value="bindingButton ? bindingButton.label : ''" disabled />
+        </el-form-item>
+        <el-form-item label="操作标识">
+          <el-input :value="bindingButton ? bindingButton.name : ''" disabled />
+        </el-form-item>
+        <el-form-item label="权限码">
+          <el-input :value="bindingButton ? bindingButton.code : ''" disabled />
+        </el-form-item>
+        <el-form-item label="状态">
+          <el-input :value="bindingButton ? bindingButton.statusLabel : ''" disabled />
+        </el-form-item>
+      </el-form>
+      <el-form label-width="100px">
+        <el-form-item label="绑定接口">
+          <el-select
+            v-model="buttonApiIdsProxy"
+            multiple
+            filterable
+            class="full-width"
+            popper-class="permission-binding-api-options"
+            :disabled="!optionsReady"
+            placeholder="搜索并选择操作接口">
+            <el-option v-for="api in apis" :key="api.id" :label="apiLabel(api)" :value="api.id">
+              <span class="permission-binding-api-option">{{ apiLabel(api) }}</span>
+            </el-option>
+          </el-select>
+        </el-form-item>
+      </el-form>
       <div slot="footer">
         <el-button @click="bindingVisibleProxy = false">取消</el-button>
         <el-button
@@ -288,6 +306,9 @@ export default {
     nodeCodePreview() {
       return this.context.nodeCodePreview
     },
+    buttonCodePreview() {
+      return this.context.buttonCodePreview
+    },
     directoryParentOptions() {
       return this.context.directoryParentOptions
     },
@@ -394,8 +415,20 @@ export default {
         this.context.buttonApiIds = value
       },
     },
+    operationActionOptions() {
+      return this.context.operationActionOptions
+    },
+    operationActionOptionsReady() {
+      return this.context.operationActionOptionsReady
+    },
+    operationActionOptionsLoading() {
+      return this.context.operationActionOptionsLoading
+    },
   },
   methods: {
+    formatRouteProps() {
+      this.context.formatRouteProps()
+    },
     submitDataResource() {
       this.context.submitDataResource(this.$refs.dataResourceForm)
     },
@@ -425,6 +458,23 @@ export default {
 }
 .button-drawer-body {
   padding: 0 24px 90px;
+}
+
+.readonly-api-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-top: 4px;
+}
+
+.readonly-api-tag {
+  max-width: 100%;
+}
+
+.operation-action-description {
+  float: right;
+  color: #909399;
+  margin-left: 12px;
 }
 .drawer-section-title {
   color: #202b3c;
@@ -508,6 +558,16 @@ export default {
 }
 .binding-heading + .el-alert {
   margin-bottom: 14px;
+}
+::v-deep .permission-binding-api-options .el-select-dropdown__item {
+  height: auto;
+  line-height: 20px;
+  white-space: normal;
+}
+.permission-binding-api-option {
+  display: block;
+  white-space: normal;
+  word-break: break-word;
 }
 .el-alert {
   margin-bottom: 16px;

@@ -1,7 +1,7 @@
 import { CallHandler, ExecutionContext, Injectable, NestInterceptor } from '@nestjs/common'
 import { FastifyReply } from 'fastify'
 import { map, Observable } from 'rxjs'
-import { isApiResponse, successResponse } from '../http/api-response.js'
+import { isApiResponse, successResponse } from '#app/common/http/api-response.js'
 
 @Injectable()
 export class ApiResponseInterceptor implements NestInterceptor {

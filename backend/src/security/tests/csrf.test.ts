@@ -1,5 +1,5 @@
 import { describe, expect, it, afterEach } from 'vitest'
-import { assertSameOrigin } from '../policies/csrf.js'
+import { assertSameOrigin } from '#app/security/policies/csrf.js'
 
 const originalAllowedOrigins = process.env.CSRF_ALLOWED_ORIGINS
 
@@ -29,8 +29,13 @@ describe('CSRF origin validation', () => {
     expect(() => assertSameOrigin(request('https://attacker.example.test'))).toThrow('跨站请求来源不受信任')
   })
 
-  it('keeps non-browser clients compatible when Origin is absent', () => {
+  it('rejects requests without an explicit Origin', () => {
     process.env.CSRF_ALLOWED_ORIGINS = 'https://app.example.test'
-    expect(() => assertSameOrigin(request())).not.toThrow()
+    expect(() => assertSameOrigin(request())).toThrow('缺少可信请求来源')
+  })
+
+  it('rejects requests when the trusted origin list is not configured', () => {
+    delete process.env.CSRF_ALLOWED_ORIGINS
+    expect(() => assertSameOrigin(request('https://app.example.test'))).toThrow('未配置可信请求来源')
   })
 })

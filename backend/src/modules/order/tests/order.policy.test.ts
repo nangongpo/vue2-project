@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { BadRequestException } from '@nestjs/common'
-import { assertEditable, assertOrderTransition } from '../domain/order.policy.js'
+import { assertEditable, assertOrderTransition } from '#app/modules/order/domain/order.policy.js'
 
 describe('order policy', () => {
   it('allows only the defined lifecycle transitions', () => {

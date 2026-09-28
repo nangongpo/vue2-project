@@ -4,15 +4,19 @@ import {
   createPermissionDirectory,
   deletePermissionDirectory,
   deletePermissionFunction,
-  getPermissionApiOptions,
-  getPermissionPageApiOptions,
+  getOperationApiOptions,
+  getOperationActionOptions,
+  getPageBaseApiOptions,
   getPermissionDataFields,
   getDataResources,
   createDataResource,
   updateDataResource,
-  setDataResourceStatus,
+  enableDataResource,
+  disableDataResource,
   createPermissionDataField,
-  getPermissionFunctions,
+  getPageTree,
+  getPageBaseApis,
+  getPageButtons,
   mapButtonApis,
   mapFunctionApis,
   updatePermissionFunction,
@@ -20,8 +24,10 @@ import {
   updatePermissionButton,
   enablePermissionFunction,
   disablePermissionFunction,
-  setPermissionButtonStatus,
-  setPermissionDataFieldStatus,
+  enablePermissionButton,
+  disablePermissionButton,
+  enablePermissionDataField,
+  disablePermissionDataField,
   updatePermissionDataField,
 } from '@/api/admin'
 import {
@@ -37,7 +43,7 @@ import {
   methodTagType,
 } from './utils'
 
-const emptyButton = () => ({ code: '', name: '', label: '', sort: 0, status: 'ACTIVE' })
+const emptyButton = () => ({ code: '', actionKey: '', label: '', sort: 0, status: 'ACTIVE' })
 const TAB_STORAGE_KEY = 'system-permission-active-tabs'
 const TAB_NAMES = new Set(['apis', 'buttons', 'fields', 'resources'])
 
@@ -68,6 +74,7 @@ export default {
       saving: false,
       loadError: '',
       functions: [],
+      functionDetails: {},
       apis: [],
       pageApisOptions: [],
       dataFields: [],
@@ -98,9 +105,15 @@ export default {
       pageOptionsLoading: false,
       buttonOptionsReady: false,
       buttonOptionsLoading: false,
+      operationActionOptions: [],
+      operationActionOptionsReady: false,
+      operationActionOptionsLoading: false,
+      pageBindingsLoading: false,
+      buttonListLoading: false,
       dataFieldsResource: '',
       dataResources: [],
       dataResourcesLoading: false,
+      dataResourcesResource: '',
       dataResourceKeyword: '',
       dataResourceDialogVisible: false,
       editingDataResource: null,
@@ -150,10 +163,30 @@ export default {
           },
           trigger: 'blur',
         }],
+        routePropsText: [{
+          validator: (rule, value, callback) => {
+            if (this.pageForm.nodeType === 'DIRECTORY' || !String(value || '').trim()) return callback()
+            try {
+              const parsed = JSON.parse(value)
+              if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object')
+                return callback(new Error('路由参数必须是合法的 JSON 对象'))
+            } catch {
+              return callback(new Error('路由参数必须是合法的 JSON 对象'))
+            }
+            callback()
+          },
+          trigger: 'blur',
+        }],
       },
       buttonRules: {
-        code: requiredText('权限码'),
-        name: requiredText('按钮名称'),
+        actionKey: [
+          ...requiredText('操作标识'),
+          {
+            pattern: /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/,
+            message: '请输入小写英文单词，可使用数字和连字符，例如 create 或 reset-password',
+            trigger: 'blur',
+          },
+        ],
         label: requiredText('显示文本'),
       },
       dataFieldRules: {
@@ -177,7 +210,11 @@ export default {
   },
   computed: {
     selectedFunction() {
-      return this.functions.find((item) => item.id === this.selectedId) || null
+      const page = this.functions.find((item) => item.id === this.selectedId)
+      return page ? { ...page, ...(this.functionDetails[page.id] || {}) } : null
+    },
+    isSystemBuiltinFunction() {
+      return this.selectedFunction?.isSystemBuiltin === true
     },
     isDirectory() {
       return (page) => !!page && page.nodeType === 'DIRECTORY'
@@ -188,7 +225,7 @@ export default {
     directoryParentOptions() {
       const excluded = descendantIds(this.functions, this.editingPage?.id)
       return this.functions.filter(
-        (item) => item.nodeType === 'DIRECTORY' && item.status === 'ACTIVE' && !excluded.has(item.id)
+        (item) => item.nodeType === 'DIRECTORY' && item.isActive && !excluded.has(item.id)
       )
     },
     pagePermissionPreview() {
@@ -199,6 +236,12 @@ export default {
       return this.pageForm.nodeType === 'DIRECTORY'
         ? this.buildNodeCode('DIRECTORY')
         : this.pagePermissionPreview
+    },
+    buttonCodePreview() {
+      if (this.editingButton) return this.buttonForm.code || ''
+      const pageCode = this.selectedFunction?.code?.replace(/^page\./, '') || ''
+      const actionKey = this.buttonForm.actionKey || ''
+      return pageCode && actionKey ? `button.${pageCode}.${actionKey}` : ''
     },
     pagePermissionPlaceholder() {
       return '根据上级页面和前端路由自动生成'
@@ -235,7 +278,8 @@ export default {
           searchableText(button.name, button.label, button.code, button.permission?.name).includes(
             keyword
           )
-        const matchStatus = !this.buttonStatus || button.status === this.buttonStatus
+        const matchStatus =
+          !this.buttonStatus || (button.isActive ? 'ACTIVE' : 'DISABLED') === this.buttonStatus
         const hasApis = boundApis(button).length > 0
         const matchBinding =
           !this.buttonBindingFilter || (this.buttonBindingFilter === 'BOUND' ? hasApis : !hasApis)
@@ -260,7 +304,8 @@ export default {
             field.readPermission?.code,
             field.writePermission?.code
           ).includes(keyword)
-        const matchStatus = !this.dataFieldStatus || field.status === this.dataFieldStatus
+        const matchStatus =
+          !this.dataFieldStatus || (field.isActive ? 'ACTIVE' : 'DISABLED') === this.dataFieldStatus
         const matchRisk = !this.dataFieldRisk || field.riskLevel === this.dataFieldRisk
         return matchKeyword && matchStatus && matchRisk
       })
@@ -318,13 +363,12 @@ export default {
       this.loading = true
       this.loadError = ''
       try {
-        this.functions = (await getPermissionFunctions()) || []
+        this.functions = (await getPageTree()) || []
         if (!this.functions.some((item) => item.id === this.selectedId))
           this.selectedId = this.functions[0]?.id || null
         this.restoreActiveTab()
-        await this.loadPageApiOptions()
-        await this.ensureTabData(this.activeTab)
         this.syncPageApis()
+        await this.ensureTabData(this.activeTab)
         this.$nextTick(() => this.$refs.pageTreePanel?.setCurrentKey(this.selectedId))
       } catch (error) {
         this.functions = []
@@ -334,12 +378,29 @@ export default {
         this.loading = false
       }
     },
-    async loadPageApiOptions() {
-      if (this.pageOptionsReady || this.pageOptionsLoading) return
+    async loadPageBindings() {
+      if (!this.selectedId || this.isDirectory(this.selectedFunction)) return
+      const apis = await getPageBaseApis(this.selectedId)
+      this.$set(this.functionDetails, this.selectedId, {
+        ...(this.functionDetails[this.selectedId] || {}),
+        apis,
+      })
+      this.syncPageApis()
+    },
+    async loadButtons() {
+      if (!this.selectedId || this.isDirectory(this.selectedFunction)) return
+      const buttons = await getPageButtons(this.selectedId)
+      this.$set(this.functionDetails, this.selectedId, {
+        ...(this.functionDetails[this.selectedId] || {}),
+        buttons,
+      })
+    },
+    async loadPageApiOptions(force = false) {
+      if ((!force && this.pageOptionsReady) || this.pageOptionsLoading) return
       if (!this.can('system.page.api.options')) return
       this.pageOptionsLoading = true
       try {
-        this.pageApisOptions = activeApis(await getPermissionPageApiOptions())
+        this.pageApisOptions = activeApis(await getPageBaseApiOptions())
         this.pageOptionsReady = true
       } catch {
         this.pageApisOptions = []
@@ -348,12 +409,21 @@ export default {
         this.pageOptionsLoading = false
       }
     },
-    async loadButtonApiOptions() {
-      if (this.buttonOptionsReady || this.buttonOptionsLoading) return
+    async refreshPageApis() {
+      if (this.pageBindingsLoading) return
+      this.pageBindingsLoading = true
+      try {
+        await this.loadPageApiData(true)
+      } finally {
+        this.pageBindingsLoading = false
+      }
+    },
+    async loadButtonApiOptions(force = false) {
+      if ((!force && this.buttonOptionsReady) || this.buttonOptionsLoading) return
       if (!this.can('system.api.options')) return
       this.buttonOptionsLoading = true
       try {
-        this.apis = activeApis(await getPermissionApiOptions())
+        this.apis = activeApis(await getOperationApiOptions())
         this.buttonOptionsReady = true
       } catch {
         this.apis = []
@@ -362,10 +432,41 @@ export default {
         this.buttonOptionsLoading = false
       }
     },
+    async loadOperationActionOptions(force = false) {
+      if ((!force && this.operationActionOptionsReady) || this.operationActionOptionsLoading) return
+      if (!this.can('system.button.options')) return
+      this.operationActionOptionsLoading = true
+      try {
+        this.operationActionOptions = await getOperationActionOptions()
+        this.operationActionOptionsReady = true
+      } catch {
+        this.operationActionOptions = []
+        this.loadError = this.loadError || '操作标识选项加载失败，请刷新重试。'
+      } finally {
+        this.operationActionOptionsLoading = false
+      }
+    },
+    async refreshButtonList() {
+      if (this.buttonListLoading) return
+      this.buttonListLoading = true
+      try {
+        await this.loadButtonData(true)
+      } finally {
+        this.buttonListLoading = false
+      }
+    },
     async ensureTabData(tab = this.activeTab) {
-      if (tab === 'buttons') return this.loadButtonApiOptions()
-      if (tab === 'fields') return this.loadDataFields()
-      if (tab === 'resources') return this.loadDataResources()
+      if (!this.selectedFunction || this.isDirectory(this.selectedFunction)) return
+      if (tab === 'apis') return this.loadPageApiData()
+      if (tab === 'buttons') return this.loadButtonData()
+      if (tab === 'fields') return this.loadFieldData()
+      if (tab === 'resources') return this.loadResourceData()
+    },
+    async loadPageApiData(force = false) {
+      return Promise.all([this.loadPageBindings(), this.loadPageApiOptions(force)])
+    },
+    async loadButtonData(force = false) {
+      return Promise.all([this.loadButtons(), this.loadButtonApiOptions(force)])
     },
     async selectFunction(item) {
       if (this.saving) return
@@ -379,6 +480,8 @@ export default {
       this.dataFieldRisk = ''
       this.dataFields = []
       this.dataFieldsResource = ''
+      this.dataResources = []
+      this.dataResourcesResource = ''
       this.syncPageApis()
       await this.ensureTabData(this.activeTab)
       this.buttonDrawerVisible = false
@@ -387,7 +490,9 @@ export default {
       if (!TAB_NAMES.has(name)) return false
       if (name === 'buttons') return this.can('system.button.read')
       if (name === 'fields') return this.can('system.field.read')
-      if (name === 'resources') return this.can('system.data-resource.read')
+      if (name === 'resources') {
+        return !this.isSystemBuiltinFunction && this.can('system.data-resource.read')
+      }
       return true
     },
     restoreActiveTab() {
@@ -417,17 +522,28 @@ export default {
         this.dataFieldsLoading = false
       }
     },
+    async loadFieldData(force = false) {
+      return this.loadDataFields(force)
+    },
     async loadDataResources(force = false) {
-      if (!this.can('system.data-resource.read')) return
-      if (!force && this.dataResources.length) return
+      if (!this.can('system.data-resource.read') || !this.selectedResource) {
+        this.dataResources = []
+        this.dataResourcesResource = ''
+        return
+      }
+      if (!force && this.dataResourcesResource === this.selectedResource && this.dataResources.length) return
       this.dataResourcesLoading = true
       try {
-        this.dataResources = await getDataResources()
+        this.dataResources = await getDataResources(this.selectedResource)
+        this.dataResourcesResource = this.selectedResource
       } catch {
         this.dataResources = []
       } finally {
         this.dataResourcesLoading = false
       }
+    },
+    async loadResourceData(force = false) {
+      return this.loadDataResources(force)
     },
     openDataResource(resource = null) {
       if (!(resource ? this.can('system.data-resource.update') : this.can('system.data-resource.create'))) return
@@ -449,7 +565,7 @@ export default {
         else await updateDataResource(this.editingDataResource.id, { name: this.dataResourceForm.name, description: this.dataResourceForm.description })
         this.dataResourceDialogVisible = false
         this.$message.success(creating ? '数据资源已登记' : '数据资源已保存')
-        await this.loadDataResources(true)
+        await this.loadResourceData(true)
       } catch {
         /* API layer reports the error. */
       } finally {
@@ -457,15 +573,18 @@ export default {
       }
     },
     async changeDataResourceStatus(resource) {
-      if (this.saving || !this.can('system.data-resource.status')) return
-      const nextStatus = resource.status === 'ACTIVE' ? 'DISABLED' : 'ACTIVE'
+      const permission = resource.isActive
+        ? 'system.data-resource.disable'
+        : 'system.data-resource.enable'
+      if (this.saving || !this.can(permission)) return
+      const nextStatus = resource.isActive ? 'DISABLED' : 'ACTIVE'
       const action = nextStatus === 'ACTIVE' ? '启用' : '停用'
       if (!(await this.$confirm(`${action}数据资源“${resource.name}”后，角色数据范围将${action === '启用' ? '可以' : '不能'}新增授权，确认继续？`, '数据资源状态变更', { type: 'warning' }).then(() => true).catch(() => false))) return
       this.saving = true
       try {
-        await setDataResourceStatus(resource.id, nextStatus)
+        await (nextStatus === 'ACTIVE' ? enableDataResource : disableDataResource)(resource.id)
         this.$message.success(`数据资源已${action}`)
-        await this.loadDataResources(true)
+        await this.loadResourceData(true)
       } catch {
         /* API layer reports the error. */
       } finally {
@@ -473,8 +592,9 @@ export default {
       }
     },
     async changeDataFieldStatus(field) {
-      if (this.saving || !this.can('system.field.status')) return
-      const nextStatus = field.status === 'ACTIVE' ? 'DISABLED' : 'ACTIVE'
+      const permission = field.isActive ? 'system.field.disable' : 'system.field.enable'
+      if (this.saving || !this.can(permission)) return
+      const nextStatus = field.isActive ? 'DISABLED' : 'ACTIVE'
       const action = nextStatus === 'ACTIVE' ? '启用' : '停用'
       if (
         !(await this.$confirm(
@@ -488,9 +608,9 @@ export default {
         return
       this.saving = true
       try {
-        await setPermissionDataFieldStatus(field.id, nextStatus)
+        await (nextStatus === 'ACTIVE' ? enablePermissionDataField : disablePermissionDataField)(field.id)
         this.$message.success(`字段已${action}`)
-        await this.loadDataFields(true)
+        await this.loadFieldData(true)
       } catch {
         /* API layer reports the error. */
       } finally {
@@ -520,7 +640,7 @@ export default {
         else await updatePermissionDataField(this.editingDataField.id, this.dataFieldForm)
         this.dataFieldDialogVisible = false
         this.$message.success(creating ? '数据字段已新增' : '数据字段已保存')
-        await this.loadDataFields(true)
+        await this.loadFieldData(true)
       } catch {
         /* API layer reports the error. */
       } finally {
@@ -536,6 +656,20 @@ export default {
     },
     apiLabel(api) {
       return `${api.name || api.code} (${api.method} ${api.path})`
+    },
+    formatRouteProps() {
+      const value = String(this.pageForm.routePropsText || '').trim()
+      if (!value) {
+        this.pageForm.routePropsText = ''
+        return
+      }
+      try {
+        const parsed = JSON.parse(value)
+        if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') return
+        this.pageForm.routePropsText = JSON.stringify(parsed, null, 2)
+      } catch {
+        // Keep invalid input visible so the form validator can explain the problem.
+      }
     },
     openPage(parentId, page = null) {
       this.editingPage = page
@@ -659,15 +793,16 @@ export default {
       }
     },
     openButton(button = null) {
+      if (!button) this.loadOperationActionOptions()
       this.editingButton = button
       this.buttonFunctionId = this.selectedId
       this.buttonForm = button
-        ? {
+          ? {
             code: button.code,
-            name: button.name,
+            actionKey: button.name,
             label: button.label,
             sort: button.sort || 0,
-            status: button.status || 'ACTIVE',
+            status: button.isActive === false ? 'DISABLED' : 'ACTIVE',
           }
         : emptyButton()
       this.buttonDrawerVisible = true
@@ -680,15 +815,14 @@ export default {
         return
       this.saving = true
       try {
-        const { name, label, sort } = this.buttonForm
+        const { actionKey, label, sort } = this.buttonForm
         if (this.editingButton)
-          await updatePermissionButton(this.editingButton.id, { name, label, sort })
+          await updatePermissionButton(this.editingButton.id, { label, sort })
         else
           await createPermissionButton({
-            name,
+            actionKey,
             label,
             sort,
-            code: this.buttonForm.code,
             functionId: this.buttonFunctionId,
             apiIds: [],
           })
@@ -760,13 +894,15 @@ export default {
       }
     },
     async changeStatus(kind, item) {
-      const status = item.status === 'ACTIVE' ? 'DISABLED' : 'ACTIVE'
+      const status = item.isActive ? 'DISABLED' : 'ACTIVE'
       const permission =
         kind === 'page'
           ? status === 'ACTIVE'
             ? 'system.page.enable'
             : 'system.page.disable'
-          : 'system.button.status'
+          : status === 'ACTIVE'
+            ? 'system.button.enable'
+            : 'system.button.disable'
       if (this.saving || !this.can(permission)) return
       const impact =
         kind === 'page'
@@ -793,7 +929,7 @@ export default {
         if (kind === 'page') {
           result = await (status === 'ACTIVE' ? enablePermissionFunction : disablePermissionFunction)(item.id)
         } else {
-          result = await setPermissionButtonStatus(item.id, status)
+          result = await (status === 'ACTIVE' ? enablePermissionButton : disablePermissionButton)(item.id)
         }
         this.$message.success(
           result?.status === 'REQUESTED' ? '已提交受控审批，审批执行后生效' : '状态已更新'

@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common'
-import { CaptchaController } from './captcha/controllers/captcha.controller.js'
-import { CaptchaEngine } from './captcha/services/captcha.engine.js'
-import { RedisService } from './captcha/services/redis.service.js'
+import { CaptchaController } from '#app/captcha/controllers/captcha.controller.js'
+import { CaptchaEngine } from '#app/captcha/services/captcha.engine.js'
+import { RedisService } from '#app/captcha/services/redis.service.js'
 
 /** 独立验证码服务根模块：组合验证码接口、Redis 状态存储和拼图校验引擎。 */
 @Module({

@@ -1,15 +1,17 @@
-import { PageNodeType, PrismaClient, RoleType } from '@prisma/client'
+import { PrismaClient } from '@prisma/client'
+import { PageNodeType, RoleType } from '#app/common/types/prisma-enums.js'
 import { loadEnvFile } from 'node:process'
+import { apiButtonLabel } from '#app/common/constants/api-name-labels.js'
 import {
-  ADMIN_APIS,
+  allApiDefinitions,
   allowedRoleTypesForPermission,
   PAGE_PERMISSION_ROLE_POLICIES,
   roleAllowsPermission,
-} from '../security/policies/permission-catalog.js'
-import { PasswordService } from '../security/services/password.service.js'
-import { BUTTON_FIELD_PERMISSIONS } from '../security/policies/button-field-policy.js'
-import { DATA_FIELD_DEFINITIONS, DATA_FIELD_PERMISSIONS } from '../security/policies/static-field-definitions.js'
-import { PAGE_PERMISSION_API_CODES, PAGE_PERMISSION_DOMAINS } from './page-permission-bindings.js'
+} from '#app/security/policies/permission-catalog/index.js'
+import { PasswordService } from '#app/security/services/password.service.js'
+import { BUTTON_FIELD_PERMISSIONS } from '#app/security/policies/button-field-policy.js'
+import { DATA_FIELD_DEFINITIONS, DATA_FIELD_PERMISSIONS } from '#app/security/policies/static-field-definitions.js'
+import { PAGE_PERMISSION_BINDINGS } from '#app/database/page-permission-bindings.js'
 
 try {
   loadEnvFile()
@@ -121,70 +123,6 @@ const pages = [
   },
 ] as const
 
-const buttonLabels: Record<string, string> = {
-  'system.directory.create': '新增目录',
-  'system.directory.delete': '删除目录',
-  'system.page.create': '新增页面',
-  'system.page.update': '编辑页面',
-  'system.page.enable': '启用页面',
-  'system.page.disable': '停用页面',
-  'system.page.delete': '删除页面',
-  'system.page.api.bind': '配置页面接口',
-  'system.button.create': '新增按钮',
-  'system.button.update': '编辑按钮',
-  'system.button.status': '启停按钮',
-  'system.button.api.bind': '绑定操作接口',
-  'system.user.create': '新增用户',
-  'system.user.update': '编辑用户',
-  'system.user.enable': '启用用户',
-  'system.user.disable': '停用用户',
-  'system.user.reset-password': '重置密码',
-  'system.user.unlock': '解锁用户',
-  'system.user.grant': '分配角色',
-  'system.role.create': '新增角色',
-  'system.role.update': '编辑角色',
-  'system.role.enable': '启用角色',
-  'system.role.disable': '停用角色',
-  'system.role.grant': '配置角色权限',
-  'system.role.delete': '删除角色',
-  'system.api.create': '新增接口',
-  'system.api.update': '编辑接口',
-  'system.api.enable': '启用接口',
-  'system.api.disable': '停用接口',
-  'system.api.delete': '删除接口',
-  'system.field.update': '编辑字段权限',
-  'system.field.create': '新增字段权限',
-  'system.field.status': '启停字段权限',
-  'system.data-resource.create': '新增数据对象',
-  'system.data-resource.update': '编辑数据对象',
-  'system.data-resource.status': '启停数据对象',
-  'system.audit.export': '导出审计日志',
-  'system.audit.integrity': '校验日志完整性',
-  'system.approval.create': '新建审批申请',
-  'system.approval.approve': '审批通过',
-  'system.approval.execute': '执行审批',
-  'system.approval.review': '审计复核',
-  'system.approval.cancel': '撤回审批申请',
-  'system.data-scope.update': '调整数据范围',
-  'system.data-scope.revoke': '撤销数据范围',
-  'system.ops-ticket.create': '新建应急工单',
-  'system.ops-ticket.update': '编辑应急工单',
-  'system.ops-ticket.submit': '提交应急工单',
-  'system.ops-ticket.approve': '审批应急工单',
-  'system.ops-ticket.execute': '执行应急工单',
-  'system.ops-ticket.review': '复核应急工单',
-  'system.ops-ticket.cancel': '取消应急工单',
-  'system.ops-ticket.evidence.create': '补充工单证据',
-  'system.ops-ticket.execution.create': '新增执行记录',
-  'system.operation-policy.create': '创建操作策略',
-  'system.operation-policy.activate': '启用操作策略',
-  'system.operation-policy.status': '启停操作策略',
-}
-
-function buttonLabel(code: string) {
-  return buttonLabels[code] || code
-}
-
 // Bootstrap is deliberately explicit, does not reset existing passwords and never grants '*'.
 // Every high-risk role must have an initial account.
 const accounts = [
@@ -216,7 +154,9 @@ if (
   accounts.some((account) => !account.username || !account.password || account.password.length < 12) ||
   new Set(accounts.map((a) => a.username)).size !== accounts.length
 ) {
-  throw new Error('请为 SECURITY 配置至少两个独立账号，并为 SYSTEM、AUDIT 各配置一个独立账号；所有口令不少于 12 位且禁止复用账号')
+  throw new Error(
+    '请为 SECURITY 配置至少两个独立账号，并为 SYSTEM、AUDIT 各配置一个独立账号；所有口令不少于 12 位且禁止复用账号'
+  )
 }
 
 try {
@@ -231,8 +171,15 @@ try {
             in: [
               '*',
               'system.permission.manage',
+              'system.operation-policy.manage',
+              'system.operation-policy.create',
+              'system.operation-policy.activate',
+              'system.operation-policy.status',
               'system.api.status',
               'button.system.api.status',
+              'system.button.status',
+              'system.field.status',
+              'system.data-resource.status',
               'system.user.status',
               'system.role.status',
             ],
@@ -240,11 +187,18 @@ try {
         },
         data: { status: 'DISABLED' },
       })
-      const permissions = []
+      const permissions: Array<{ id: string; code: string }> = []
       const pageNodes = new Map<string, { id: string }>()
-      for (const entry of ADMIN_APIS) {
+      for (const entry of allApiDefinitions()) {
         // Preserve operator-selected DISABLED state on repeat runs.
-        const { rolePolicy: _rolePolicy, ...permissionEntry } = entry
+        const permissionEntry = {
+          code: entry.code,
+          name: entry.name,
+          method: entry.method,
+          path: entry.path,
+          resource: entry.resource,
+          action: entry.action,
+        }
         permissions.push(
           await tx.permission.upsert({
             where: { code: entry.code },
@@ -313,16 +267,51 @@ try {
           },
         })
         pageNodes.set(page.code, node)
-        const pageDomains = PAGE_PERMISSION_DOMAINS[page.code] || []
-        const pageApiCodes = PAGE_PERMISSION_API_CODES[page.code] || []
-        for (const entry of ADMIN_APIS.filter(
-          (api) => pageDomains.includes(api.resource) || pageApiCodes.includes(api.code)
-        )) {
-          const apiPermission = permissions.find((p) => p.code === entry.code)!
-          if (
-            entry.method === 'GET' &&
-            ['read', 'detail', 'options', 'references', 'target-options', 'grants.read'].includes(entry.action)
-          ) {
+        const bindings = PAGE_PERMISSION_BINDINGS[page.code]
+        if (!bindings) throw new Error(`页面未声明权限绑定：${page.code}`)
+        const resolvedBindings = bindings.map((binding) => {
+          const entry = allApiDefinitions().find((api) => api.code === binding.apiCode)
+          if (!entry) throw new Error(`页面绑定的接口未登记：${page.code} -> ${binding.apiCode}`)
+          const apiPermission = permissions.find((p) => p.code === entry.code)
+          if (!apiPermission) throw new Error(`页面绑定的接口权限不存在：${entry.code}`)
+          return { binding, entry, apiPermission }
+        })
+        const pageApiIds = resolvedBindings
+          .filter(({ binding }) => binding.type === 'PAGE_API')
+          .map(({ apiPermission }) => apiPermission.id)
+        await tx.functionApi.deleteMany({
+          where: {
+            functionId: node.id,
+            ...(pageApiIds.length ? { apiId: { notIn: pageApiIds } } : {}),
+          },
+        })
+        const buttonCodes = new Set(
+          resolvedBindings
+            .filter(({ binding }) => binding.type === 'BUTTON_API')
+            .map(({ entry }) => `button.${entry.code}`)
+        )
+        const existingButtons = await tx.functionButton.findMany({
+          where: { functionId: node.id },
+          select: { id: true, code: true, permissionId: true },
+        })
+        for (const button of existingButtons.filter((item) => !buttonCodes.has(item.code))) {
+          await tx.buttonApi.deleteMany({ where: { buttonId: button.id } })
+          await tx.functionButton.update({
+            where: { id: button.id },
+            data: { status: 'DISABLED' },
+          })
+          if (button.permissionId) {
+            await tx.permission.update({
+              where: { id: button.permissionId },
+              data: { status: 'DISABLED' },
+            })
+          }
+        }
+        for (const { binding, entry, apiPermission } of resolvedBindings) {
+          if (binding.type === 'PAGE_API') {
+            if (entry.method !== 'GET') {
+              throw new Error(`页面基础接口必须是 GET：${page.code} -> ${entry.code}`)
+            }
             await tx.functionApi.upsert({
               where: { functionId_apiId: { functionId: node.id, apiId: apiPermission.id } },
               create: { functionId: node.id, apiId: apiPermission.id },
@@ -330,6 +319,8 @@ try {
             })
           } else {
             const code = `button.${entry.code}`
+            const actionKey = binding.actionKey
+            const label = apiButtonLabel(entry.code)
             const buttonPermission = await tx.permission.upsert({
               where: { code },
               create: {
@@ -347,11 +338,14 @@ try {
               create: {
                 functionId: node.id,
                 code,
-                name: entry.name,
-                label: buttonLabel(entry.code),
+                name: actionKey,
+                label,
                 permissionId: buttonPermission.id,
               },
-              update: { label: buttonLabel(entry.code) },
+              update: { name: actionKey, label },
+            })
+            await tx.buttonApi.deleteMany({
+              where: { buttonId: button.id, apiId: { not: apiPermission.id } },
             })
             await tx.buttonApi.upsert({
               where: { buttonId_apiId: { buttonId: button.id, apiId: apiPermission.id } },

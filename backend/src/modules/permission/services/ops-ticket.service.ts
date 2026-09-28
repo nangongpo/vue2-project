@@ -6,12 +6,13 @@ import {
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common'
-import { OpsTicketType, Prisma } from '@prisma/client'
+import { Prisma } from '@prisma/client'
+import { OpsTicketType } from '#app/common/types/prisma-enums.js'
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto'
-import { PrismaService } from '../../../database/prisma.service.js'
-import { normalizePagination, paginationData } from '../../../common/pagination.js'
-import { API_CODE } from '../../../common/constants/api-code.js'
-import type { Actor } from '../../role/domain/authorization.js'
+import { PrismaService } from '#app/database/prisma.service.js'
+import { normalizePagination, paginationData } from '#app/common/pagination.js'
+import { API_CODE } from '#app/common/constants/api-code.js'
+import type { Actor } from '#app/modules/role/domain/authorization.js'
 import type {
   CreateOpsTicketDto,
   OpsEvidenceDto,
@@ -19,8 +20,8 @@ import type {
   OpsNoteDto,
   OpsTicketQueryDto,
   PatchOpsTicketDto,
-} from '../dto/ops-ticket.dto.js'
-import { riskLevelForOperation } from '../../../security/policies/risk-policy.js'
+} from '#app/modules/permission/dto/ops-ticket.dto.js'
+import { resolveRiskDecision } from '#app/security/policies/risk-policy.js'
 
 const serializable = { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
 const securityTypes = new Set<OpsTicketType>(['MFA_RESET_EMERGENCY', 'PERMISSION_RECOVERY', 'ACCOUNT_RECOVERY'])
@@ -351,7 +352,7 @@ export class OpsTicketService {
         actorId: actor.internalId,
         traceId: actor.traceId || randomUUID(),
         action,
-        riskLevel: riskLevelForOperation(action),
+        riskLevel: resolveRiskDecision(action).riskLevel,
         resource: 'ops-ticket',
         method: actor.method || 'POST',
         path: actor.path || `/api/v1/ops-tickets/${targetId}`,

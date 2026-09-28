@@ -8,10 +8,10 @@ import {
   UnauthorizedException,
 } from '@nestjs/common'
 import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
-import { PrismaService } from '../../database/prisma.service.js'
-import { RedisService } from '../../cache/services/redis.service.js'
-import { PasswordService } from './password.service.js'
-import { API_CODE } from '../../common/constants/api-code.js'
+import { PrismaService } from '#app/database/prisma.service.js'
+import { RedisService } from '#app/cache/services/redis.service.js'
+import { PasswordService } from '#app/security/services/password.service.js'
+import { API_CODE } from '#app/common/constants/api-code.js'
 
 const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
 const PERIOD = 30

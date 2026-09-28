@@ -1,6 +1,12 @@
-const RESOURCE_CODE_PATTERN = /^[a-z][a-z0-9_.:-]{0,127}$/
+import { BUSINESS_RESOURCE_CODES } from '#app/security/policies/permission-catalog/business-apis.js'
 
-/** Data-scope resources are business objects, never management namespaces. */
+/**
+ * Data-scope resources are code-owned business objects.
+ *
+ * The database may store resource records, but it cannot expand this security
+ * boundary. A resource is accepted only when it is explicitly present in the
+ * business API catalog.
+ */
 export function isBusinessDataResource(code: string) {
-  return RESOURCE_CODE_PATTERN.test(code) && !code.startsWith('system.') && !code.startsWith('page.')
+  return BUSINESS_RESOURCE_CODES.has(code)
 }

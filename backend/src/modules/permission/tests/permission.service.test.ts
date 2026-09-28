@@ -1,14 +1,14 @@
 import { describe, expect, it, vi } from 'vitest'
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common'
-import { PageNodeType } from '@prisma/client'
-import { PermissionService } from '../services/permission.service.js'
-import type { MutationContext } from '../services/permission.service.js'
+import { PageNodeType } from '#app/common/types/prisma-enums.js'
+import { PermissionService } from '#app/modules/permission/services/permission.service.js'
+import type { MutationContext } from '#app/modules/permission/services/permission.service.js'
 
 const req: MutationContext = {
   user: { internalId: 7n, userId: 'actor-public-id', roles: ['SECURITY'] },
   traceId: 'test-trace',
   method: 'PATCH',
-  url: '/api/v1/permission/functions/page/apis?ignored=yes',
+  url: '/api/v1/permission/pages/page/base-apis?ignored=yes',
   ip: '127.0.0.1',
 }
 const api = {
@@ -160,8 +160,8 @@ describe('PermissionService security boundaries', () => {
       data: expect.objectContaining({
         actorId: 7n,
         traceId: 'test-trace',
-        path: '/api/v1/permission/functions/page/apis',
-        action: 'page.bind-api',
+        path: '/api/v1/permission/pages/page/base-apis',
+        action: 'system.page.api.bind',
         detail: expect.objectContaining({
           before: [{ functionId: 'page', apiId: 'old' }],
           after: { id: 'page', apiIds: ['read'] },
@@ -361,7 +361,7 @@ describe('PermissionService security boundaries', () => {
     expect(f.state().apis).toEqual([])
     expect(f.tx.auditLog.create).toHaveBeenLastCalledWith({
       data: expect.objectContaining({
-        action: 'api.delete',
+        action: 'system.api.delete',
         detail: expect.objectContaining({ before: api, after: null }),
       }),
     })

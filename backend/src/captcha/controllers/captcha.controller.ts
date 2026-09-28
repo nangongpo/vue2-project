@@ -20,8 +20,8 @@ import {
   ValidateNested,
 } from 'class-validator'
 import { FastifyRequest } from 'fastify'
-import { API_CODE } from '../../common/constants/api-code.js'
-import { CaptchaPoint, CaptchaService } from '../services/captcha.service.js'
+import { API_CODE } from '#app/common/constants/api-code.js'
+import { CaptchaPoint, CaptchaService } from '#app/captcha/services/captcha.service.js'
 
 class CreateCaptchaDto {
   @IsString()

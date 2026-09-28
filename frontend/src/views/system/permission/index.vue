@@ -25,8 +25,8 @@
             <div class="detail-header">
               <div class="title-wrap">
                 <h2>{{ selectedFunction.name }}</h2>
-                <el-tag v-if="!isDirectory(selectedFunction)" :type="selectedFunction.status === 'ACTIVE' ? 'success' : 'info'">
-                  {{ selectedFunction.status === 'ACTIVE' ? '启用' : '停用' }}
+                <el-tag v-if="!isDirectory(selectedFunction)" :type="selectedFunction.isActive ? 'success' : 'info'">
+                  {{ selectedFunction.statusLabel }}
                 </el-tag>
                 <el-tag v-else type="warning">目录</el-tag>
               </div>
@@ -36,7 +36,7 @@
                   v-permission="'system.page.create'"
                   type="primary"
                   icon="el-icon-plus"
-                  :disabled="selectedFunction.status !== 'ACTIVE'"
+                  :disabled="!selectedFunction.isActive"
                   @click="openPage(selectedFunction.id)">
                   新增子页
                 </el-button>

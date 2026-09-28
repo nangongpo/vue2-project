@@ -1,9 +1,9 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
-import { PermissionStatus, RoleType } from '@prisma/client'
+import { PermissionStatus, RoleType } from '#app/common/types/prisma-enums.js'
 import { randomBytes } from 'node:crypto'
-import { PrismaService } from '../../../database/prisma.service.js'
-import { API_CODE } from '../../../common/constants/api-code.js'
-import { ENABLEMENT_STATUS_LABELS, ROLE_TYPE_LABELS } from '../../../common/constants/enum-labels.js'
+import { PrismaService } from '#app/database/prisma.service.js'
+import { API_CODE } from '#app/common/constants/api-code.js'
+import { ENABLEMENT_STATUS_LABELS, ROLE_TYPE_LABELS } from '#app/common/constants/enum-labels.js'
 import {
   audit,
   grantInput,
@@ -14,8 +14,8 @@ import {
   requireActor,
   requireReason,
   serializable,
-} from '../domain/authorization.js'
-import type { Actor } from '../domain/authorization.js'
+} from '#app/modules/role/domain/authorization.js'
+import type { Actor } from '#app/modules/role/domain/authorization.js'
 
 function roleView(role: { status: 'ACTIVE' | 'DISABLED'; [key: string]: unknown }) {
   const { status, ...rest } = role

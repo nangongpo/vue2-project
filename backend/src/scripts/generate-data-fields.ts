@@ -2,7 +2,7 @@ import { PrismaClient } from '@prisma/client'
 import {
   modelFieldDefinitions,
   upsertGeneratedDataFields,
-} from '../security/policies/data-field-generator.js'
+} from '#app/security/policies/data-field-generator.js'
 
 const args = new Map<string, string>()
 for (let index = 2; index < process.argv.length; index += 1) {

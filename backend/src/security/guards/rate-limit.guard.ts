@@ -1,7 +1,7 @@
 import { CanActivate, ExecutionContext, HttpException, HttpStatus, Injectable } from '@nestjs/common'
 import { createHash } from 'node:crypto'
 import { FastifyRequest } from 'fastify'
-import { RedisService } from '../../cache/services/redis.service.js'
+import { RedisService } from '#app/cache/services/redis.service.js'
 
 @Injectable()
 export class RateLimitGuard implements CanActivate {
@@ -18,7 +18,10 @@ export class RateLimitGuard implements CanActivate {
     const key = `security:api:${createHash('sha256').update(identity).digest('hex')}`
     const count = await this.redis.increment(key, windowSeconds)
 
-    if (count !== null && count > limit) {
+    if (count === null) {
+      throw new HttpException('请求限频服务暂不可用，请稍后重试', HttpStatus.SERVICE_UNAVAILABLE)
+    }
+    if (count > limit) {
       throw new HttpException('请求过于频繁，请稍后重试', HttpStatus.TOO_MANY_REQUESTS)
     }
     return true

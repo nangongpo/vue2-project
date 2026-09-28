@@ -1,4 +1,4 @@
-import { OrderStatus, RoleType, StandardDataScopeType } from '@prisma/client'
+import { OrderStatus, RoleType, StandardDataScopeType } from '#app/common/types/prisma-enums.js'
 
 /** 接口响应中的静态枚举中文名称统一从这里读取。 */
 export const ROLE_TYPE_LABELS: Record<RoleType, string> = {

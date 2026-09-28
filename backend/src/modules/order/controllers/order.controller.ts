@@ -1,11 +1,11 @@
 import { Body, Controller, Get, Inject, Param, ParseUUIDPipe, Patch, Post, Query, Req, UseGuards } from '@nestjs/common'
-import { AuthGuard } from '../../../security/guards/auth.guard.js'
-import { RequirePermissions } from '../../../security/decorators/permission.decorator.js'
-import { SecurityOperation } from '../../../security/decorators/operation.decorator.js'
-import { actorFrom } from '../../role/domain/authorization.js'
-import type { ActorRequest } from '../../role/domain/authorization.js'
-import { CreateOrderDto, OrderQueryDto, OrderReasonDto, UpdateOrderDto } from '../dto/order.dto.js'
-import { OrderService } from '../services/order.service.js'
+import { AuthGuard } from '#app/security/guards/auth.guard.js'
+import { RequirePermissions } from '#app/security/decorators/permission.decorator.js'
+import { SecurityOperation } from '#app/security/decorators/operation.decorator.js'
+import { actorFrom } from '#app/modules/role/domain/authorization.js'
+import type { ActorRequest } from '#app/modules/role/domain/authorization.js'
+import { CreateOrderDto, OrderQueryDto, OrderReasonDto, UpdateOrderDto } from '#app/modules/order/dto/order.dto.js'
+import { OrderService } from '#app/modules/order/services/order.service.js'
 
 @Controller('orders')
 @UseGuards(AuthGuard)

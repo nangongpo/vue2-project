@@ -1,13 +1,14 @@
 import { CallHandler, ExecutionContext, Injectable, Logger, NestInterceptor } from '@nestjs/common'
 import { randomUUID } from 'node:crypto'
 import { Observable, catchError, mergeMap } from 'rxjs'
-import { AuditService } from '../services/audit.service.js'
-import { sanitizeAuditRequest } from '../utils/audit-sanitizer.js'
+import type { FastifyReply } from 'fastify'
+import { AuditService } from '#app/audit/services/audit.service.js'
+import type { AuditRequest } from '#app/audit/types.js'
+import { sanitizeAuditRequest } from '#app/audit/utils/audit-sanitizer.js'
 import { Reflector } from '@nestjs/core'
-import { AUDIT_ACTION } from '../decorators/audit.decorator.js'
-import { REQUIRED_PERMISSIONS } from '../../security/decorators/permission.decorator.js'
-import { SECURITY_OPERATION } from '../../security/decorators/operation.decorator.js'
-import { resolveRiskLevel } from '../../security/policies/risk-policy.js'
+import { AUDIT_ACTION } from '#app/audit/decorators/audit.decorator.js'
+import { SECURITY_OPERATION } from '#app/security/decorators/operation.decorator.js'
+import { resolveRiskDecision } from '#app/security/policies/risk-policy.js'
 
 @Injectable()
 export class AuditInterceptor implements NestInterceptor {
@@ -16,8 +17,8 @@ export class AuditInterceptor implements NestInterceptor {
   constructor(private readonly audit: AuditService, private readonly reflector: Reflector) {}
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
-    const request = context.switchToHttp().getRequest()
-    const response = context.switchToHttp().getResponse()
+    const request = context.switchToHttp().getRequest<AuditRequest>()
+    const response = context.switchToHttp().getResponse<FastifyReply>()
     // The global trace interceptor creates the authoritative server-side id.
     // Keep a defensive fallback for non-standard test/adaptor contexts, but
     // never replace it with a client-provided header.
@@ -28,9 +29,9 @@ export class AuditInterceptor implements NestInterceptor {
     const resource = request.routeOptions?.url || request.routerPath || path
     const action =
       this.reflector.getAllAndOverride<string>(AUDIT_ACTION, [context.getHandler(), context.getClass()]) || `${request.method} ${resource}`
-    const permissions = this.reflector.getAllAndOverride<string[]>(REQUIRED_PERMISSIONS, [context.getHandler(), context.getClass()]) || []
     const operationCode = request.operationCode || this.reflector.getAllAndOverride<string>(SECURITY_OPERATION, [context.getHandler(), context.getClass()])
-    const riskLevel = request.riskLevel || resolveRiskLevel({ permissions, operation: action })
+    const decision = request.riskDecision || (operationCode ? resolveRiskDecision(operationCode) : null)
+    const riskLevel = request.riskLevel || decision?.riskLevel || 'L1'
     const requestDetail = sanitizeAuditRequest(request.query, request.body)
     const requestState = request as { auditRecorded?: boolean }
     const base = {
@@ -54,7 +55,8 @@ export class AuditInterceptor implements NestInterceptor {
             statusCode: response.statusCode,
             detail: {
               request: requestDetail,
-              roleTypes: request.user?.roles?.map((role: { roleType: string }) => role.roleType),
+              roleTypes: request.user?.roles?.map((role) => role.roleType),
+              riskDecision: decision,
             },
           })
         } catch (error) {
@@ -70,8 +72,14 @@ export class AuditInterceptor implements NestInterceptor {
             operationCode,
             riskLevel,
             result: 'FAILURE',
-            statusCode: error.status || 500,
-            detail: { request: requestDetail, error: { status: error.status || 500 } },
+            statusCode: error instanceof Error && 'status' in error && typeof error.status === 'number' ? error.status : 500,
+            detail: {
+              request: requestDetail,
+              riskDecision: decision,
+              error: {
+                status: error instanceof Error && 'status' in error && typeof error.status === 'number' ? error.status : 500,
+              },
+            },
           })
         } catch (auditError) {
           this.logger.error(`audit write failed for ${traceId}`, auditError)

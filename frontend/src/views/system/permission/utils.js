@@ -24,11 +24,10 @@ export function activeApis(apis) {
 }
 
 export function pageApis(apis) {
-  return activeApis(apis).filter(
-    (api) =>
-      api.method === 'GET' &&
-      ['read', 'list', 'detail', 'init', 'options', 'references'].includes(api.action)
-  )
+  // The page API options endpoint has already applied the server-side
+  // catalog policy, including explicit nested actions such as grants.read.
+  // The client only keeps the display invariant here.
+  return activeApis(apis).filter((api) => api.method === 'GET')
 }
 
 export function boundApis(resource) {

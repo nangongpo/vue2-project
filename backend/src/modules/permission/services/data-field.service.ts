@@ -1,8 +1,10 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
-import { FieldRiskLevel, PermissionType, Prisma, PermissionStatus, RoleType } from '@prisma/client'
+import { Prisma } from '@prisma/client'
+import { FieldRiskLevel, PermissionType, PermissionStatus, RoleType, type RiskLevel } from '#app/common/types/prisma-enums.js'
 import { randomUUID } from 'node:crypto'
-import { PrismaService } from '../../../database/prisma.service.js'
-import { ok } from '../policies/policy.js'
+import { PrismaService } from '#app/database/prisma.service.js'
+import { ok } from '#app/modules/permission/policies/policy.js'
+import { ENABLEMENT_STATUS_LABELS } from '#app/common/constants/enum-labels.js'
 
 type FieldMutationContext = {
   user: { internalId: bigint; userId: string; roles?: unknown[] }
@@ -10,7 +12,16 @@ type FieldMutationContext = {
   method: string
   url: string
   ip?: string
-  riskLevel?: 'L0' | 'L1' | 'L2' | 'L3'
+  riskLevel?: RiskLevel
+}
+
+function fieldView<T extends { status: PermissionStatus }>(field: T) {
+  const { status, ...view } = field
+  return {
+    ...view,
+    statusLabel: ENABLEMENT_STATUS_LABELS[status],
+    isActive: status === PermissionStatus.ACTIVE,
+  }
 }
 
 @Injectable()
@@ -117,15 +128,14 @@ export class DataFieldService {
               typeof value === 'bigint' ? value.toString() : value)),
           },
         })
-        return ok(after)
+        return ok(fieldView(after))
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
     )
   }
 
   async list(resource?: string) {
-    return ok(
-      await this.prisma.permissionField.findMany({
+    const fields = await this.prisma.permissionField.findMany({
         where: resource ? { resource } : undefined,
         orderBy: [{ resource: 'asc' }, { field: 'asc' }],
         select: {
@@ -142,7 +152,7 @@ export class DataFieldService {
           writePermission: { select: { code: true } },
         },
       })
-    )
+    return ok(fields.map(fieldView))
   }
 
   async status(id: string, status: PermissionStatus, req: FieldMutationContext) {
@@ -172,7 +182,7 @@ export class DataFieldService {
             ),
           },
         })
-        return ok(after)
+        return ok(fieldView(after))
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
     )
@@ -225,7 +235,7 @@ export class DataFieldService {
             ),
           },
         })
-        return ok(after)
+        return ok(fieldView(after))
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
     )

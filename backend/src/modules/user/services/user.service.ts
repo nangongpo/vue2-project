@@ -1,11 +1,18 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
-import { Prisma, UserStatus } from '@prisma/client'
-import { PrismaService } from '../../../database/prisma.service.js'
-import { PasswordService } from '../../../security/services/password.service.js'
-import { PasswordPolicyService } from '../../../security/services/password-policy.service.js'
-import { API_CODE } from '../../../common/constants/api-code.js'
-import { ENABLEMENT_STATUS_LABELS, USER_STATUS_LABELS } from '../../../common/constants/enum-labels.js'
-import { normalizePagination, paginationData } from '../../../common/pagination.js'
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common'
+import { Prisma } from '@prisma/client'
+import { UserStatus } from '#app/common/types/prisma-enums.js'
+import { PrismaService } from '#app/database/prisma.service.js'
+import { PasswordService } from '#app/security/services/password.service.js'
+import { PasswordPolicyService } from '#app/security/services/password-policy.service.js'
+import { API_CODE } from '#app/common/constants/api-code.js'
+import { ENABLEMENT_STATUS_LABELS, USER_STATUS_LABELS } from '#app/common/constants/enum-labels.js'
+import { normalizePagination, paginationData } from '#app/common/pagination.js'
 import {
   activeGrant,
   audit,
@@ -15,8 +22,8 @@ import {
   requireActor,
   requireReason,
   serializable,
-} from '../../role/domain/authorization.js'
-import type { Actor } from '../../role/domain/authorization.js'
+} from '#app/modules/role/domain/authorization.js'
+import type { Actor } from '#app/modules/role/domain/authorization.js'
 
 const userSelect = {
   userId: true,
@@ -65,6 +72,7 @@ export class UserService {
           displayName: true,
           status: true,
           failedLogins: true,
+          lockedUntil: true,
           lastLoginAt: true,
           createdAt: true,
           roles: {
@@ -74,27 +82,36 @@ export class UserService {
         },
       }),
     ])
-    const pageItems = items.map((item) => ({
-      userId: item.userId,
-      username: item.username,
-      displayName: item.displayName,
-      statusLabel: USER_STATUS_LABELS[item.status],
-      isActive: item.status === 'ACTIVE',
-      isLocked: item.status === 'LOCKED',
-      failedLogins: item.failedLogins,
-      lastLoginAt: item.lastLoginAt,
-      createdAt: item.createdAt,
-      needsRoleApproval: item.roles.some(({ role }) => role.roleType !== 'BUSINESS'),
-      roles: item.roles.map(({ role }) => ({
-        role: {
-          roleId: role.roleId,
-          code: role.code,
-          name: role.name,
-          statusLabel: ENABLEMENT_STATUS_LABELS[role.status],
-          isActive: role.status === 'ACTIVE',
-        },
-      })),
-    }))
+    const now = new Date()
+    const pageItems = items.map((item) => {
+      // Login lockouts are represented by lockedUntil while the persisted
+      // account status remains ACTIVE. Expose the effective status here so
+      // the admin UI can render the dedicated unlock action.
+      const isLocked =
+        item.status === 'LOCKED' || (item.status === 'ACTIVE' && !!item.lockedUntil && item.lockedUntil > now)
+      const effectiveStatus = isLocked ? 'LOCKED' : item.status
+      return {
+        userId: item.userId,
+        username: item.username,
+        displayName: item.displayName,
+        statusLabel: USER_STATUS_LABELS[effectiveStatus],
+        isActive: effectiveStatus === 'ACTIVE',
+        isLocked,
+        failedLogins: item.failedLogins,
+        lastLoginAt: item.lastLoginAt,
+        createdAt: item.createdAt,
+        needsRoleApproval: item.roles.some(({ role }) => role.roleType !== 'BUSINESS'),
+        roles: item.roles.map(({ role }) => ({
+          role: {
+            roleId: role.roleId,
+            code: role.code,
+            name: role.name,
+            statusLabel: ENABLEMENT_STATUS_LABELS[role.status],
+            isActive: role.status === 'ACTIVE',
+          },
+        })),
+      }
+    })
     return {
       code: API_CODE.SUCCESS,
       message: 'success',
@@ -189,7 +206,8 @@ export class UserService {
       if (adminTypes.size > 1) throw new ForbiddenException('系统、安全、审计管理员职责互斥')
       const before = await tx.userRole.findMany({ where: { userId: user.id } })
       // Existing administrative bindings also require approval to revoke or renew.
-      for (const binding of before.filter((binding) => binding.revokedAt === null)) await ordinaryRole(tx, binding.roleId)
+      for (const binding of before.filter((binding) => binding.revokedAt === null))
+        await ordinaryRole(tx, binding.roleId)
       for (const role of roles) await ordinaryRole(tx, role.id)
       await tx.userRole.updateMany({
         where: {
@@ -226,12 +244,6 @@ export class UserService {
     return this.changeStatus(id, { status: 'ACTIVE', reason }, actor, false)
   }
 
-  /** Internal compatibility for service callers; HTTP clients use enable/disable routes. */
-  async status(id: string, input: { status: 'ACTIVE' | 'DISABLED'; reason: string }, actor: Actor) {
-    if (!['ACTIVE', 'DISABLED'].includes(input.status)) throw new BadRequestException('用户状态无效')
-    return this.changeStatus(id, input, actor, false)
-  }
-
   async disable(id: string, reason: string, actor: Actor) {
     return this.changeStatus(id, { status: 'DISABLED', reason }, actor, false)
   }
@@ -240,7 +252,12 @@ export class UserService {
     return this.changeStatus(id, { status: 'ACTIVE', reason }, actor, true)
   }
 
-  private async changeStatus(id: string, input: { status: 'ACTIVE' | 'DISABLED'; reason: string }, actor: Actor, unlock: boolean) {
+  private async changeStatus(
+    id: string,
+    input: { status: 'ACTIVE' | 'DISABLED'; reason: string },
+    actor: Actor,
+    unlock: boolean
+  ) {
     requireReason(input.reason)
     await this.prisma.$transaction(async (tx) => {
       await requireActor(tx, actor)
@@ -252,7 +269,8 @@ export class UserService {
       if (before.id === actor.internalId) throw new ForbiddenException('不能修改自身账户状态')
       await this.protectAdministrator(tx, before.id)
       if (unlock && before.status !== 'LOCKED') throw new BadRequestException('只能解锁已锁定账户')
-      if (!unlock && input.status === 'ACTIVE' && before.status === 'LOCKED') throw new BadRequestException('锁定账户必须使用解锁接口')
+      if (!unlock && input.status === 'ACTIVE' && before.status === 'LOCKED')
+        throw new BadRequestException('锁定账户必须使用解锁接口')
       const after = await tx.user.update({
         where: { id: before.id },
         data: { status: input.status, ...(unlock ? { failedLogins: 0, lockedUntil: null } : {}) },

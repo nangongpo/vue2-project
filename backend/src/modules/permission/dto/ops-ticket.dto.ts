@@ -1,6 +1,5 @@
-import { Type } from 'class-transformer'
 import { IsBoolean, IsIn, IsISO8601, IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator'
-import { PaginationQueryDto } from '../../../common/dto/pagination.dto.js'
+import { PaginationQueryDto } from '#app/common/dto/pagination.dto.js'
 
 const ticketTypes = ['MFA_RESET_EMERGENCY', 'DB_MANUAL_FIX', 'PERMISSION_RECOVERY', 'ACCOUNT_RECOVERY', 'OTHER'] as const
 const statuses = ['DRAFT', 'SUBMITTED', 'APPROVED', 'EXECUTED', 'REVIEWED', 'REJECTED', 'CANCELLED'] as const

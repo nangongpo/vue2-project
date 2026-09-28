@@ -23,12 +23,12 @@ import {
   MaxLength,
   MinLength,
 } from 'class-validator'
-import { AuthGuard } from '../../../security/guards/auth.guard.js'
-import { RequirePermissions } from '../../../security/decorators/permission.decorator.js'
-import { DataFieldSecurity } from '../../../common/decorators/data-field-security.decorator.js'
-import { RoleService } from '../services/role.service.js'
-import { actorFrom } from '../domain/authorization.js'
-import type { ActorRequest } from '../domain/authorization.js'
+import { AuthGuard } from '#app/security/guards/auth.guard.js'
+import { RequirePermissions } from '#app/security/decorators/permission.decorator.js'
+import { DataFieldSecurity } from '#app/common/decorators/data-field-security.decorator.js'
+import { RoleService } from '#app/modules/role/services/role.service.js'
+import { actorFrom } from '#app/modules/role/domain/authorization.js'
+import type { ActorRequest } from '#app/modules/role/domain/authorization.js'
 
 export class CreateRoleDto {
   /** 角色名称。 */
@@ -96,25 +96,17 @@ export class RoleController {
   @Patch(':id')
   @RequirePermissions('system.role.update')
   @DataFieldSecurity('system.role')
-  update(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body() body: UpdateRoleDto,
-    @Req() request: ActorRequest
-  ) {
+  update(@Param('id', ParseUUIDPipe) id: string, @Body() body: UpdateRoleDto, @Req() request: ActorRequest) {
     return this.roles.update(id, body, actorFrom(request))
   }
 
-@Patch(':id/grants')
+  @Patch(':id/grants')
   // Granting and revoking permissions are one atomic authorization change.
   // The service records both directions in the same audit event; requiring
   // the separate approval-only revoke capability here incorrectly denied the
   // security administrator before the request could reach the risk flow.
   @RequirePermissions('system.role.grant')
-  grants(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body() body: GrantPermissionsDto,
-    @Req() request: ActorRequest
-  ) {
+  grants(@Param('id', ParseUUIDPipe) id: string, @Body() body: GrantPermissionsDto, @Req() request: ActorRequest) {
     return this.roles.grants(id, body, actorFrom(request))
   }
 

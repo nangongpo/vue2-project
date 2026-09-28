@@ -1,18 +1,64 @@
 import { describe, expect, it } from 'vitest'
-import { PAGE_PERMISSION_DOMAINS } from '../../database/page-permission-bindings.js'
+import { PAGE_PERMISSION_BINDINGS, type SeedPageCode } from '#app/database/page-permission-bindings.js'
+import { allApiDefinitions } from '#app/security/policies/permission-catalog/index.js'
 
-describe('administrative page permission bindings', () => {
-  it('binds data-scope APIs to role management', () => {
-    expect(PAGE_PERMISSION_DOMAINS['page.system.role']).toContain('system.data-scope')
+describe('seeded page permission bindings', () => {
+  it('declares every seeded page and directory explicitly', () => {
+    const seededPages: SeedPageCode[] = [
+      'system',
+      'business',
+      'page.system.user',
+      'page.system.role',
+      'page.system.permission',
+      'page.system.api',
+      'page.system.approval',
+      'page.system.audit',
+      'page.system.health',
+      'page.system.ops-tickets',
+      'page.business.order-manage',
+    ]
+    expect(Object.keys(PAGE_PERMISSION_BINDINGS).sort()).toEqual([...seededPages].sort())
   })
 
-  it('binds emergency ticket evidence and execution APIs to the ticket page', () => {
-    expect(PAGE_PERMISSION_DOMAINS['page.system.ops-tickets']).toEqual(
-      expect.arrayContaining([
-        'system.ops-ticket',
-        'system.ops-ticket.evidence',
-        'system.ops-ticket.execution',
-      ])
-    )
+  it('allows only GET APIs as page initialization bindings', () => {
+    const apiByCode = new Map(allApiDefinitions().map((api) => [api.code, api]))
+    for (const [pageCode, bindings] of Object.entries(PAGE_PERMISSION_BINDINGS)) {
+      for (const binding of bindings.filter((item) => item.type === 'PAGE_API')) {
+        const api = apiByCode.get(binding.apiCode)
+        expect(api, `${pageCode} -> ${binding.apiCode}`).toBeDefined()
+        expect(api?.method, `${pageCode} -> ${binding.apiCode}`).toBe('GET')
+      }
+    }
+  })
+
+  it('keeps high-impact APIs out of page initialization bindings', () => {
+    const pageApiCodes = Object.values(PAGE_PERMISSION_BINDINGS)
+      .flat()
+      .filter((binding) => binding.type === 'PAGE_API')
+      .map((binding) => binding.apiCode)
+    expect(pageApiCodes).not.toContain('system.role.grant')
+    expect(pageApiCodes).not.toContain('system.data-scope.update')
+    expect(pageApiCodes).not.toContain('system.audit.export')
+    expect(pageApiCodes).not.toContain('order.create')
+  })
+
+  it('binds business order management only to its read API', () => {
+    expect(PAGE_PERMISSION_BINDINGS['page.business.order-manage']).toEqual([
+      { type: 'PAGE_API', apiCode: 'order.read' },
+    ])
+  })
+
+  it('binds role management data-scope reads explicitly', () => {
+    expect(PAGE_PERMISSION_BINDINGS['page.system.role']).toContainEqual({
+      type: 'PAGE_API',
+      apiCode: 'system.data-scope.read',
+    })
+  })
+
+  it('binds button action options to permission management page initialization', () => {
+    expect(PAGE_PERMISSION_BINDINGS['page.system.permission']).toContainEqual({
+      type: 'PAGE_API',
+      apiCode: 'system.button.options',
+    })
   })
 })

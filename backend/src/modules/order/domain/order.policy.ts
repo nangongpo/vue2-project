@@ -1,5 +1,5 @@
 import { BadRequestException } from '@nestjs/common'
-import { OrderStatus } from '@prisma/client'
+import { OrderStatus } from '#app/common/types/prisma-enums.js'
 
 const transitions: Record<OrderStatus, readonly OrderStatus[]> = {
   DRAFT: ['CONFIRMED', 'CANCELLED'],

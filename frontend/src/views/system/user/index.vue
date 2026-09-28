@@ -39,7 +39,7 @@
             {{ formatDate(scope.row.lastLoginAt) || '暂无记录' }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="230" fixed="right">
+        <el-table-column label="操作" width="280" fixed="right">
           <template #default="scope">
             <el-button v-permission="'system.user.update'" type="text" @click="openEdit(scope.row)">
               编辑
@@ -66,12 +66,11 @@
               {{ scope.row.isActive ? '停用' : '启用' }}
             </el-button>
             <el-button
-              v-if="scope.row.isLocked"
               v-permission="'system.user.unlock'"
               type="text"
-              :disabled="saving"
+              :disabled="saving || !scope.row.isLocked"
               @click="unlock(scope.row)">
-              解锁
+              解除锁定
             </el-button>
           </template>
         </el-table-column>

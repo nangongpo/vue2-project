@@ -93,3 +93,6 @@ node backend/dist/main.js
 ```
 
 不要在生产环境使用 `tsx watch`，也不要提交 `.env`、数据库密码、MFA 密钥或验证码服务密钥。
+
+
+backend/src/common  检查 无用的装饰器、无用的方法、无用的测试、越权、参数类型缺失、不要兼容方案、删除最高权限属性

@@ -3,8 +3,14 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "imports": {
+    "#app/*": {
+      "development": "./src/*",
+      "default": "./dist/*"
+    }
+  },
   "scripts": {
-    "dev": "nest start --watch",
+    "dev": "node --conditions=development node_modules/@nestjs/cli/bin/nest.js start --watch",
     "build": "nest build",
     "start": "node dist/main.js",
     "test": "vitest run"

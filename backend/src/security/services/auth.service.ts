@@ -1,23 +1,22 @@
 import { ConflictException, HttpException, HttpStatus, Injectable, UnauthorizedException } from '@nestjs/common'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { Prisma } from '@prisma/client'
-import { PrismaService } from '../../database/prisma.service.js'
-import { PasswordService } from './password.service.js'
-import { AuthenticatedUser } from '../types/auth.types.js'
-import { RedisService } from '../../cache/services/redis.service.js'
-import { CaptchaService } from '../../captcha/services/captcha.service.js'
-import { API_CODE } from '../../common/constants/api-code.js'
-import { effectivePermissions } from './effective-permissions.js'
-import { MfaService } from './mfa.service.js'
-import { roleAllowsPermission } from '../policies/permission-catalog.js'
-import { AUTHENTICATED_NAVIGATION } from '../policies/navigation-catalog.js'
-import { PasswordPolicyService } from './password-policy.service.js'
-import { riskLevelForOperation } from '../policies/risk-policy.js'
+import type { SessionKind } from '#app/common/types/prisma-enums.js'
+import { PrismaService } from '#app/database/prisma.service.js'
+import { PasswordService } from '#app/security/services/password.service.js'
+import { AuthenticatedUser } from '#app/security/types/auth.types.js'
+import { RedisService } from '#app/cache/services/redis.service.js'
+import { CaptchaService } from '#app/captcha/services/captcha.service.js'
+import { API_CODE } from '#app/common/constants/api-code.js'
+import { effectivePermissions } from '#app/security/services/effective-permissions.js'
+import { MfaService } from '#app/security/services/mfa.service.js'
+import { roleAllowsPermission } from '#app/security/policies/permission-catalog/index.js'
+import { AUTHENTICATED_NAVIGATION } from '#app/security/policies/navigation-catalog.js'
+import { PasswordPolicyService } from '#app/security/services/password-policy.service.js'
+import { resolveRiskDecision } from '#app/security/policies/risk-policy.js'
 
 export const SESSION_COOKIE = 'app_session'
 export const PREAUTH_COOKIE = 'app_pre_auth'
-export type SessionKind = 'PRE_AUTH' | 'AUTHENTICATED'
-
 type AuthUserRecord = Prisma.UserGetPayload<{
   include: {
     roles: {
@@ -70,7 +69,8 @@ export class AuthService {
     const rateLimit = Number(process.env.LOGIN_RATE_LIMIT || 10)
     const rateWindow = Number(process.env.LOGIN_RATE_WINDOW_SECONDS || 60)
     const requests = await this.redis.increment(rateKey, rateWindow)
-    if (requests !== null && requests > rateLimit) {
+    if (requests === null) throw new HttpException('登录限频服务暂不可用，请稍后重试', HttpStatus.SERVICE_UNAVAILABLE)
+    if (requests > rateLimit) {
       throw new HttpException('登录请求过于频繁，请 1 分钟后重试', HttpStatus.TOO_MANY_REQUESTS)
     }
     const captchaVerified = captchaToken
@@ -410,7 +410,7 @@ export class AuthService {
               traceId: auditContext.traceId || randomUUID(),
               actorId: userId,
               action: 'auth.password.change',
-              riskLevel: riskLevelForOperation('auth.password.change'),
+              riskLevel: resolveRiskDecision('auth.password.change').riskLevel,
               resource: 'user',
               method: 'POST',
               path: '/api/v1/auth/password',
@@ -550,7 +550,6 @@ export class AuthService {
       tenantId: user.tenantId,
       departmentId: user.departmentId,
       organizationId: user.organizationId,
-      isSuperAdmin: false,
     }
   }
 }

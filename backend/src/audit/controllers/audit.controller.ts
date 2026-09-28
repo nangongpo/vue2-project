@@ -1,14 +1,15 @@
 import { BadRequestException, Controller, Get, Inject, Param, ParseUUIDPipe, Query, UseGuards } from '@nestjs/common'
-import { AuthGuard } from '../../security/guards/auth.guard.js'
-import { RequirePermissions } from '../../security/decorators/permission.decorator.js'
-import { DataFieldSecurity } from '../../common/decorators/data-field-security.decorator.js'
-import { AuditService } from '../services/audit.service.js'
-import { AuditAction } from '../decorators/audit.decorator.js'
+import { AuthGuard } from '#app/security/guards/auth.guard.js'
+import { RequirePermissions } from '#app/security/decorators/permission.decorator.js'
+import { DataFieldSecurity } from '#app/common/decorators/data-field-security.decorator.js'
+import { AuditService } from '#app/audit/services/audit.service.js'
+import { AuditAction } from '#app/audit/decorators/audit.decorator.js'
 import { IsDateString, IsIn, IsISO8601, IsOptional, IsString, IsUUID, Matches, MaxLength } from 'class-validator'
-import { RiskLevel } from '@prisma/client'
-import { PaginationQueryDto } from '../../common/dto/pagination.dto.js'
+import { RiskLevel } from '#app/common/types/prisma-enums.js'
+import { PaginationQueryDto } from '#app/common/dto/pagination.dto.js'
+import type { AuditExportQuery, AuditPageRequest } from '#app/audit/types.js'
 
-class ExportAuditQuery {
+class ExportAuditQuery implements AuditExportQuery {
   @IsISO8601() from!: string
   @IsISO8601() to!: string
   @IsOptional() @IsString() @MaxLength(128) keyword?: string
@@ -17,7 +18,7 @@ class ExportAuditQuery {
   @IsOptional() @IsString() @MaxLength(128) operationCode?: string
 }
 
-class AuditQueryDto extends PaginationQueryDto {
+class AuditQueryDto extends PaginationQueryDto implements AuditPageRequest {
   @IsOptional() @IsString() @MaxLength(128) keyword = ''
   @IsOptional() @IsIn(['SUCCESS', 'FAILURE']) result?: 'SUCCESS' | 'FAILURE'
   @IsOptional() @IsIn(['L0', 'L1', 'L2', 'L3']) riskLevel?: RiskLevel

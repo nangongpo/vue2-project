@@ -7,21 +7,26 @@
       @tab-click="$emit('tab-click', $event)">
       <el-tab-pane label="页面基础接口" name="apis">
         <div class="section-card page-api-card">
-          <el-alert
-            class="page-api-notice"
-            title="仅允许启用的 GET/read 接口。写操作、导出和审批接口应绑定具体按钮。"
-            type="info"
-            show-icon
-            :closable="false" />
-          <el-alert
-            v-if="optionsReady && unavailablePageApis.length"
-            :title="`有 ${unavailablePageApis.length} 个异常绑定，请点击对应接口的“解绑”按钮清理。`"
-            type="warning"
-            :closable="false" />
-          <div class="page-api-binding-row">
+          <div class="permission-panel-heading">
+            <el-alert
+              class="permission-panel-notice"
+              title="仅允许启用的 GET/read 接口。写操作、导出和审批接口应绑定具体按钮。"
+              type="info"
+              show-icon
+              :closable="false" />
+            <el-button
+              icon="el-icon-refresh"
+              :loading="pageBindingsLoading"
+              :disabled="!can('system.page.api.read')"
+              @click="refreshPageApis">
+              刷新
+            </el-button>
+          </div>
+          <div class="permission-panel-toolbar">
             <el-select
               v-model="pageApiSelection"
               filterable
+              clearable
               class="page-api-select"
               :disabled="!can('system.page.api.bind') || !optionsReady"
               placeholder="选择页面基础接口">
@@ -39,11 +44,18 @@
               @click="bindPageApi">
               绑定接口
             </el-button>
+            <div class="permission-panel-summary">
+              <span>已绑定接口</span>
+              <span class="muted">{{ boundPageApis.length }} 个</span>
+            </div>
           </div>
-          <div class="bound-api-heading">
-            <span>已绑定接口</span>
-            <span class="muted">{{ boundPageApis.length }} 个</span>
-          </div>
+          <el-alert
+            class="permission-panel-warning"
+            v-if="optionsReady && unavailablePageApis.length"
+            :title="`有 ${unavailablePageApis.length} 个异常绑定，请点击对应接口的“解绑”按钮清理。`"
+            type="warning"
+            show-icon
+            :closable="false" />
           <el-table
             :data="boundPageApis"
             border
@@ -93,13 +105,22 @@
 
       <el-tab-pane v-if="can('system.button.read')" label="按钮与操作接口" name="buttons">
         <div class="button-workspace">
-          <el-alert
-            class="button-api-notice"
-            title="按钮权限与操作接口需由角色独立授权，页面基础接口仅用于页面加载。"
-            type="info"
-            show-icon
-            :closable="false" />
-          <div class="button-toolbar">
+          <div class="permission-panel-heading">
+            <el-alert
+              class="permission-panel-notice"
+              title="按钮权限与操作接口需由角色独立授权，页面基础接口仅用于页面加载。"
+              type="info"
+              show-icon
+              :closable="false" />
+            <el-button
+              icon="el-icon-refresh"
+              :loading="buttonListLoading"
+              :disabled="!can('system.button.read')"
+              @click="refreshButtonList">
+              刷新
+            </el-button>
+          </div>
+          <div class="permission-panel-toolbar">
             <el-button
               v-permission="'system.button.create'"
               type="primary"
@@ -132,7 +153,7 @@
               <el-option label="已绑定接口" value="BOUND" />
               <el-option label="待配置" value="UNBOUND" />
             </el-select>
-            <span class="button-summary"
+            <span class="permission-panel-summary"
               >{{ buttonTotal }} 个按钮 · {{ buttonBoundCount }} 个已绑定</span
             >
           </div>
@@ -143,9 +164,9 @@
             class="button-table"
             empty-text="暂无按钮">
             <el-table-column prop="label" label="显示文本" min-width="100" />
-            <el-table-column prop="name" label="按钮名称" min-width="120" />
+            <!-- <el-table-column prop="name" label="操作标识" min-width="100" /> -->
             <el-table-column prop="code" label="权限码" min-width="180" />
-            <el-table-column label="绑定接口" min-width="210">
+            <el-table-column label="绑定接口" min-width="160">
               <template slot-scope="{ row }">
                 <template v-if="boundApis(row).length">
                   <span v-for="api in boundApis(row).slice(0, 2)" :key="api.id" class="api-binding">
@@ -161,10 +182,10 @@
                 <span v-else class="muted">待配置</span>
               </template>
             </el-table-column>
-            <el-table-column label="状态" width="82">
+            <el-table-column label="状态" width="70">
               <template slot-scope="{ row }">
-                <el-tag :type="row.status === 'ACTIVE' ? 'success' : 'info'" size="mini">
-                  {{ row.status === 'ACTIVE' ? '启用' : '停用' }}
+                <el-tag :type="row.isActive ? 'success' : 'info'" size="mini">
+                  {{ row.statusLabel }}
                 </el-tag>
               </template>
             </el-table-column>
@@ -183,12 +204,12 @@
                   >绑定接口</el-button
                 >
                 <el-button
-                  v-permission="'system.button.status'"
+                  v-permission="row.isActive ? 'system.button.disable' : 'system.button.enable'"
                   type="text"
-                  :class="{ 'text-danger': row.status === 'ACTIVE' }"
+                  :class="{ 'text-danger': row.isActive }"
                   :disabled="saving"
                   @click="changeStatus('button', row)">
-                  {{ row.status === 'ACTIVE' ? '停用' : '启用' }}
+                  {{ row.isActive ? '停用' : '启用' }}
                 </el-button>
               </template>
             </el-table-column>
@@ -197,83 +218,20 @@
         </div>
       </el-tab-pane>
 
-      <el-tab-pane v-if="can('system.data-resource.read')" label="数据范围资源" name="resources">
-        <div class="section-card data-resource-card">
-          <div class="data-resource-heading">
+      <el-tab-pane v-if="can('system.field.read')" label="数据字段权限" name="fields">
+        <div class="section-card data-field-card">
+          <div class="permission-panel-heading">
             <el-alert
-              class="data-resource-notice"
-              title="仅登记可用于角色数据范围的业务对象，接口和字段资源不在此维护。"
+              class="permission-panel-notice"
+              title="控制当前数据资源的字段返回和写入权限，字段权限由角色独立授权。"
               type="info"
               show-icon
               :closable="false" />
-            <el-button icon="el-icon-refresh" :loading="dataResourcesLoading" @click="loadDataResources(true)">刷新</el-button>
-          </div>
-          <div class="data-resource-toolbar">
-            <el-button
-              v-permission="'system.data-resource.create'"
-              type="primary"
-              icon="el-icon-plus"
-              @click="openDataResource()">
-              登记资源
-            </el-button>
-            <el-input
-              v-model="dataResourceKeyword"
-              class="data-resource-search"
-              clearable
-              prefix-icon="el-icon-search"
-              placeholder="检索资源名称或编码" />
-            <span class="data-field-count">共 {{ filteredDataResources.length }} 个资源</span>
-          </div>
-          <el-table
-            v-loading="dataResourcesLoading"
-            :data="filteredDataResources"
-            border
-            stripe
-            class="data-resource-table"
-            empty-text="暂无数据范围资源">
-            <el-table-column prop="name" label="资源名称" min-width="160" />
-            <el-table-column prop="code" label="资源编码" min-width="180" />
-            <el-table-column prop="description" label="说明" min-width="220" />
-            <el-table-column label="状态" width="82">
-              <template slot-scope="{ row }">
-                <el-tag :type="row.status === 'ACTIVE' ? 'success' : 'info'" size="mini">
-                  {{ row.status === 'ACTIVE' ? '启用' : '停用' }}
-                </el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column label="操作" width="130" fixed="right">
-              <template slot-scope="{ row }">
-                <el-button v-permission="'system.data-resource.update'" type="text" @click="openDataResource(row)">编辑</el-button>
-                <el-button
-                  v-permission="'system.data-resource.status'"
-                  type="text"
-                  :class="{ 'text-danger': row.status === 'ACTIVE' }"
-                  :disabled="saving"
-                  @click="changeDataResourceStatus(row)">
-                  {{ row.status === 'ACTIVE' ? '停用' : '启用' }}
-                </el-button>
-              </template>
-            </el-table-column>
-          </el-table>
-        </div>
-      </el-tab-pane>
-
-      <el-tab-pane v-if="can('system.field.read')" label="数据字段权限" name="fields">
-        <div class="section-card data-field-card">
-          <div class="data-field-heading">
-            <div>
-              <el-alert
-                class="data-field-notice"
-                title="控制当前数据资源的字段返回和写入权限，字段权限由角色独立授权。"
-                type="info"
-                show-icon
-                :closable="false" />
-            </div>
-            <el-button icon="el-icon-refresh" :loading="dataFieldsLoading" @click="loadDataFields"
+            <el-button icon="el-icon-refresh" :loading="dataFieldsLoading" @click="loadFieldData"
               >刷新</el-button
             >
           </div>
-          <div class="data-field-toolbar">
+          <div class="permission-panel-toolbar">
             <el-button
               v-permission="'system.field.create'"
               type="primary"
@@ -297,7 +255,7 @@
               <el-option label="L2 · 较高" value="L2" />
               <el-option label="L3 · 高风险" value="L3" />
             </el-select>
-            <span class="data-field-count">共 {{ filteredDataFields.length }} 个字段</span>
+            <span class="permission-panel-summary">共 {{ filteredDataFields.length }} 个字段</span>
           </div>
           <el-table
             v-loading="dataFieldsLoading"
@@ -333,8 +291,8 @@
             </el-table-column>
             <el-table-column label="状态" width="82">
               <template slot-scope="{ row }"
-                ><el-tag :type="row.status === 'ACTIVE' ? 'success' : 'info'" size="mini">{{
-                  row.status === 'ACTIVE' ? '启用' : '停用'
+                ><el-tag :type="row.isActive ? 'success' : 'info'" size="mini">{{
+                  row.statusLabel
                 }}</el-tag></template
               >
             </el-table-column>
@@ -348,13 +306,74 @@
                   >编辑</el-button
                 >
                 <el-button
-                  v-permission="'system.field.status'"
+                  v-permission="row.isActive ? 'system.field.disable' : 'system.field.enable'"
                   type="text"
-                  :class="{ 'text-danger': row.status === 'ACTIVE' }"
+                  :class="{ 'text-danger': row.isActive }"
                   :disabled="saving"
                   @click="changeDataFieldStatus(row)"
-                  >{{ row.status === 'ACTIVE' ? '停用' : '启用' }}</el-button
+                  >{{ row.isActive ? '停用' : '启用' }}</el-button
                 >
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+      </el-tab-pane>
+
+      <el-tab-pane v-if="!isSystemBuiltinFunction && can('system.data-resource.read')" label="数据范围资源" name="resources">
+        <div class="section-card data-resource-card">
+          <div class="permission-panel-heading">
+            <el-alert
+              class="permission-panel-notice"
+              title="仅登记可用于角色数据范围的业务对象，接口和字段资源不在此维护。"
+              type="info"
+              show-icon
+              :closable="false" />
+            <el-button icon="el-icon-refresh" :loading="dataResourcesLoading" @click="loadResourceData(true)">刷新</el-button>
+          </div>
+          <div class="permission-panel-toolbar">
+            <el-button
+              v-permission="'system.data-resource.create'"
+              type="primary"
+              icon="el-icon-plus"
+              @click="openDataResource()">
+              登记资源
+            </el-button>
+            <el-input
+              v-model="dataResourceKeyword"
+              class="data-resource-search"
+              clearable
+              prefix-icon="el-icon-search"
+              placeholder="检索资源名称或编码" />
+            <span class="permission-panel-summary">共 {{ filteredDataResources.length }} 个资源</span>
+          </div>
+          <el-table
+            v-loading="dataResourcesLoading"
+            :data="filteredDataResources"
+            border
+            stripe
+            class="data-resource-table"
+            empty-text="暂无数据范围资源">
+            <el-table-column prop="name" label="资源名称" min-width="160" />
+            <el-table-column prop="code" label="资源编码" min-width="180" />
+            <el-table-column prop="description" label="说明" min-width="220" />
+            <el-table-column label="状态" width="82">
+              <template slot-scope="{ row }">
+                <el-tag :type="row.isActive ? 'success' : 'info'" size="mini">
+                  {{ row.statusLabel }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="130" fixed="right">
+              <template slot-scope="{ row }">
+                <el-button v-permission="'system.data-resource.update'" type="text" @click="openDataResource(row)">编辑</el-button>
+                <el-button
+                  v-permission="row.isActive ? 'system.data-resource.disable' : 'system.data-resource.enable'"
+                  type="text"
+                  :class="{ 'text-danger': row.isActive }"
+                  :disabled="saving"
+                  @click="changeDataResourceStatus(row)">
+                  {{ row.isActive ? '停用' : '启用' }}
+                </el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -391,8 +410,23 @@ export default {
     optionsReady() {
       return this.context.pageOptionsReady
     },
+    pageOptionsLoading() {
+      return this.context.pageOptionsLoading
+    },
+    pageBindingsLoading() {
+      return this.context.pageBindingsLoading
+    },
+    buttonOptionsLoading() {
+      return this.context.buttonOptionsLoading
+    },
+    buttonListLoading() {
+      return this.context.buttonListLoading
+    },
     saving() {
       return this.context.saving
+    },
+    isSystemBuiltinFunction() {
+      return this.context.isSystemBuiltinFunction
     },
     unavailablePageApis() {
       return this.context.unavailablePageApis
@@ -495,8 +529,8 @@ export default {
     riskTagType() {
       return this.context.riskTagType
     },
-    loadDataResources() {
-      return this.context.loadDataResources
+    loadResourceData() {
+      return this.context.loadResourceData
     },
     openDataResource() {
       return this.context.openDataResource
@@ -522,6 +556,12 @@ export default {
     unbindPageApi(api) {
       this.context.unbindPageApi(api)
     },
+    refreshPageApis() {
+      return this.context.refreshPageApis()
+    },
+    refreshButtonList() {
+      return this.context.refreshButtonList()
+    },
     openButton(button) {
       this.context.openButton(button)
     },
@@ -531,8 +571,8 @@ export default {
     changeStatus(kind, item) {
       this.context.changeStatus(kind, item)
     },
-    loadDataFields() {
-      this.context.loadDataFields(true)
+    loadFieldData() {
+      this.context.loadFieldData(true)
     },
     openDataField(field) {
       this.context.openDataField(field)
@@ -564,50 +604,42 @@ export default {
 .data-field-card {
   min-height: 420px;
 }
-.data-field-heading {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 14px;
-}
-.data-resource-heading {
+.permission-panel-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 14px;
 }
-.data-resource-notice {
+.permission-panel-notice {
   flex: 1;
   margin: 0;
+  font-size: 14px;
+  font-weight: 600;
 }
-.data-resource-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 10px;
+.permission-panel-warning {
+  margin-bottom: 14px;
 }
 .data-resource-search {
   width: 240px;
 }
-.data-field-notice {
-  font-size: 14px;
-  font-weight: 600;
-}
-.data-field-toolbar {
+.permission-panel-toolbar {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 10px;
 }
-.data-field-toolbar .el-input {
+.data-field-card .permission-panel-toolbar .el-input {
   width: 180px;
 }
-.data-field-toolbar .el-select {
+.data-field-card .permission-panel-toolbar .el-select {
   width: 140px;
 }
-.data-field-count {
+.permission-panel-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   margin-left: auto;
   color: #8a94a6;
   font-size: 13px;
@@ -625,45 +657,11 @@ export default {
   color: #909399;
   font-size: 13px;
 }
-.page-api-card .el-alert {
-  margin: 14px 0;
-}
-.page-api-card .page-api-notice {
-  margin: 0 0 14px;
-  font-size: 14px;
-  font-weight: 600;
-}
-.page-api-binding-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
 .page-api-select {
   width: 320px;
 }
-.bound-api-heading {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 20px 0 10px;
-  color: #202b3c;
-  font-size: 15px;
-  font-weight: 600;
-}
 .page-api-table {
   width: 100%;
-}
-.button-api-notice {
-  margin-bottom: 14px;
-  font-size: 14px;
-  font-weight: 600;
-}
-.button-toolbar {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 10px;
 }
 .button-search {
   width: 200px;
@@ -671,16 +669,11 @@ export default {
 .button-filter {
   width: 140px;
 }
-.button-summary {
-  margin-left: auto;
-  color: #606a7a;
-  font-size: 13px;
-  white-space: nowrap;
-}
 .button-table ::v-deep .el-table__cell {
   padding: 8px 0;
 }
 .method-tag {
+  font-size: 12px;
   margin: 2px 4px 2px 0;
 }
 .api-binding {
@@ -691,12 +684,11 @@ export default {
 }
 .api-path {
   display: inline-block;
-  max-width: 150px;
-  overflow: hidden;
+  /* overflow: hidden; */
   color: #606266;
-  text-overflow: ellipsis;
+  /* text-overflow: ellipsis;
   vertical-align: middle;
-  white-space: nowrap;
+  white-space: nowrap; */
 }
 .more-apis {
   color: #409eff;
@@ -711,34 +703,26 @@ export default {
   width: 100%;
 }
 @media (max-width: 900px) {
-  .page-api-binding-row {
+  .permission-panel-toolbar {
     align-items: stretch;
     flex-direction: column;
   }
   .page-api-select {
     width: 100%;
   }
-  .data-field-toolbar {
-    align-items: stretch;
-    flex-wrap: wrap;
+  .permission-panel-summary {
+    margin-left: 0;
   }
-  .data-field-toolbar .el-input,
-  .data-field-toolbar .el-select {
-    width: 100%;
-  }
-  .data-resource-heading {
+  .permission-panel-heading {
     align-items: stretch;
     flex-direction: column;
   }
-  .data-resource-toolbar {
-    align-items: stretch;
-    flex-wrap: wrap;
+  .permission-panel-toolbar .el-input,
+  .permission-panel-toolbar .el-select {
+    width: 100%;
   }
   .data-resource-search {
     width: 100%;
-  }
-  .data-field-count {
-    margin-left: 0;
   }
 }
 </style>

@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { PasswordService } from '../services/password.service.js'
-import { scryptSync } from 'node:crypto'
+import { PasswordService } from '#app/security/services/password.service.js'
 
 // Keep memory-hard operations sequential, including under a concurrent test default.
 describe.sequential('PasswordService', () => {
@@ -16,12 +15,9 @@ describe.sequential('PasswordService', () => {
     await expect(new PasswordService().verify('password', 'invalid')).resolves.toBe(false)
   })
 
-  it('still verifies existing weak passwords without applying the new strength policy', async () => {
-    const salt = Buffer.alloc(16, 1)
-    const hash = scryptSync('legacy', salt, 64, { N: 16384, r: 8, p: 1 })
-    await expect(
-      new PasswordService().verify('legacy', `scrypt$16384$8$1$${salt.toString('base64url')}$${hash.toString('base64url')}`)
-    ).resolves.toBe(true)
+  it('rejects hashes produced with an unregistered cost factor', async () => {
+    const encoded = `scrypt$16384$8$1$${Buffer.alloc(16, 1).toString('base64url')}$${Buffer.alloc(64).toString('base64url')}`
+    await expect(new PasswordService().verify('legacy', encoded)).resolves.toBe(false)
   })
 
   it('rejects corrupted costs, lengths, encodings, and trailing fields before deriving', async () => {

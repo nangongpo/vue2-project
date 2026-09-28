@@ -10,14 +10,14 @@ describe('frontend permission contracts', () => {
     expect(STANDARD_SCOPES.map((item: any) => item.value)).not.toContain('ALL')
     expect(STANDARD_SCOPES.map((item: any) => item.value)).not.toContain('CUSTOM')
   })
-  it('limits base API selectors to active reads, not GET exports or writes', () => {
+  it('keeps active GET APIs returned by the page API options endpoint', () => {
     const items = [
       { id: 1, method: 'GET', isActive: true, statusLabel: '启用', action: 'read' },
       { id: 2, method: 'POST', isActive: true, statusLabel: '启用', action: 'create' },
-      { id: 3, method: 'GET', isActive: true, statusLabel: '启用', action: 'export' },
+      { id: 3, method: 'GET', isActive: true, statusLabel: '启用', action: 'grants.read' },
       { id: 4, method: 'GET', isActive: false, statusLabel: '停用', action: 'read' },
     ]
-    expect(pageApis(items).map((item: any) => item.id)).toEqual([1])
+    expect(pageApis(items).map((item: any) => item.id)).toEqual([1, 3])
   })
   it('blocks deletion if reference response is absent or incomplete', () => {
     expect(hasReferences(null)).toBe(true)

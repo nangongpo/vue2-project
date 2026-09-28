@@ -1,5 +1,5 @@
 import { IsDateString, IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator'
-import { PaginationQueryDto } from '../../../common/dto/pagination.dto.js'
+import { PaginationQueryDto } from '#app/common/dto/pagination.dto.js'
 
 const amountPattern = /^\d{1,16}(\.\d{1,2})?$/
 

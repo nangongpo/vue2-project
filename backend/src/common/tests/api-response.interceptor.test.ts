@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { of, lastValueFrom } from 'rxjs'
-import { ApiResponseInterceptor } from '../interceptors/api-response.interceptor.js'
+import { ApiResponseInterceptor } from '#app/common/interceptors/api-response.interceptor.js'
 
 describe('ApiResponseInterceptor', () => {
   const context = (statusCode = 200) =>
@@ -19,6 +19,19 @@ describe('ApiResponseInterceptor', () => {
     const payload = { code: '000000', message: 'success', data: null }
     const result = await lastValueFrom(new ApiResponseInterceptor().intercept(context(), { handle: () => of(payload) }))
     expect(result).toBe(payload)
+  })
+
+  it('wraps objects with an unknown response code', async () => {
+    const result = await lastValueFrom(
+      new ApiResponseInterceptor().intercept(context(), {
+        handle: () => of({ code: 'forged', message: 'success', data: { id: '1' } }),
+      })
+    )
+    expect(result).toEqual({
+      code: '000000',
+      message: 'success',
+      data: { code: 'forged', message: 'success', data: { id: '1' } },
+    })
   })
 
   it('keeps 204 responses bodyless', async () => {

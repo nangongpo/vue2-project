@@ -2,9 +2,9 @@ import 'reflect-metadata'
 import { describe, expect, it, vi } from 'vitest'
 import { BadRequestException, ValidationPipe } from '@nestjs/common'
 import { ROUTE_ARGS_METADATA } from '@nestjs/common/constants.js'
-import { REQUIRED_PERMISSIONS } from '../../../security/decorators/permission.decorator.js'
-import { CreateRoleDto, GrantPermissionsDto, RoleController, UpdateRoleDto } from '../controllers/role.controller.js'
-import { AssignRolesDto, CreateUserDto, UpdateUserDto, UserController } from '../../user/controllers/user.controller.js'
+import { REQUIRED_PERMISSIONS } from '#app/security/decorators/permission.decorator.js'
+import { CreateRoleDto, GrantPermissionsDto, RoleController, UpdateRoleDto } from '#app/modules/role/controllers/role.controller.js'
+import { AssignRolesDto, CreateUserDto, UpdateUserDto, UserController } from '#app/modules/user/controllers/user.controller.js'
 
 const pipe = new ValidationPipe({
   transform: true,

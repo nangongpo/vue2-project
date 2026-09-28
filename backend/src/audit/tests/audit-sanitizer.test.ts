@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { sanitizeAuditRequest } from '../utils/audit-sanitizer.js'
+import { sanitizeAuditRequest } from '#app/audit/utils/audit-sanitizer.js'
 
 describe('audit sanitizer', () => {
   it('redacts nested MFA codes, enrollment secrets and import URIs', () => {

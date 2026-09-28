@@ -1,32 +1,55 @@
 import { describe, expect, it } from 'vitest'
-import { RoleType } from '@prisma/client'
+import { RoleType } from '#app/common/types/prisma-enums.js'
 import {
-  ADMIN_APIS,
+  allApiDefinitions,
+  BUSINESS_APIS,
   DATA_FIELD_ROLE_POLICIES,
   MANAGEMENT_PERMISSION_ROLE_POLICIES,
   PAGE_PERMISSION_ROLE_POLICIES,
+  SYSTEM_APIS,
+  matchesPermissionTarget,
   roleAllowsPermission,
-} from '../policies/permission-catalog.js'
+} from '#app/security/policies/permission-catalog/index.js'
+import { OPERATION_ACTION_OPTIONS } from '#app/security/policies/permission-catalog/operation-actions.js'
 
 describe('permission catalog route contracts', () => {
+  it('exposes the standard operation action directory separately from API permissions', () => {
+    expect(OPERATION_ACTION_OPTIONS.map((item) => item.value)).toEqual([
+      'read', 'detail', 'options', 'create', 'update', 'enable', 'disable', 'unlock',
+      'delete', 'bind', 'grant', 'revoke', 'submit', 'approve', 'execute', 'review',
+      'cancel', 'export', 'verify',
+    ])
+    expect(OPERATION_ACTION_OPTIONS.every((item) => item.description.length > 0)).toBe(true)
+    expect(SYSTEM_APIS).toContainEqual(expect.objectContaining({
+      code: 'system.button.options',
+      method: 'GET',
+      path: '/api/v1/permission/buttons/action-options',
+      resource: 'system.button',
+      action: 'options',
+    }))
+  })
+
   it('registers page API options as a distinct read-only permission', () => {
-    expect(ADMIN_APIS).toContainEqual(
+    expect(SYSTEM_APIS.some((entry) => entry.code === 'system.role.grants.read')).toBe(true)
+    expect(BUSINESS_APIS.some((entry) => entry.code === 'order.read')).toBe(true)
+    expect(SYSTEM_APIS.some((entry) => entry.code === 'order.read')).toBe(false)
+    expect(allApiDefinitions()).toContainEqual(
       expect.objectContaining({
         code: 'system.page.api.options',
         method: 'GET',
-        path: '/api/v1/permission/functions/api-options',
+        path: '/api/v1/permission/pages/base-apis/options',
         resource: 'system.page.api',
         action: 'options',
       })
     )
-    expect(ADMIN_APIS).toContainEqual(
+    expect(allApiDefinitions()).toContainEqual(
       expect.objectContaining({
         code: 'system.api.options',
         method: 'GET',
         path: '/api/v1/permission/api-options',
       })
     )
-    expect(ADMIN_APIS).toContainEqual(
+    expect(allApiDefinitions()).toContainEqual(
       expect.objectContaining({
         code: 'system.approval.target-options',
         method: 'GET',
@@ -35,67 +58,125 @@ describe('permission catalog route contracts', () => {
     )
   })
 
+  it('uses explicit enable and disable permissions for managed status changes', () => {
+    expect(allApiDefinitions()).toContainEqual(
+      expect.objectContaining({
+        code: 'system.button.enable',
+        method: 'PATCH',
+        path: '/api/v1/permission/buttons/:id/enable',
+      })
+    )
+    expect(allApiDefinitions()).toContainEqual(
+      expect.objectContaining({
+        code: 'system.button.disable',
+        method: 'PATCH',
+        path: '/api/v1/permission/buttons/:id/disable',
+      })
+    )
+    expect(allApiDefinitions()).toContainEqual(
+      expect.objectContaining({
+        code: 'system.field.enable',
+        method: 'PATCH',
+        path: '/api/v1/permission/fields/:id/enable',
+      })
+    )
+    expect(allApiDefinitions()).toContainEqual(
+      expect.objectContaining({
+        code: 'system.field.disable',
+        method: 'PATCH',
+        path: '/api/v1/permission/fields/:id/disable',
+      })
+    )
+    expect(allApiDefinitions()).not.toContainEqual(expect.objectContaining({ code: 'system.button.status' }))
+    expect(allApiDefinitions()).not.toContainEqual(expect.objectContaining({ code: 'system.field.status' }))
+    expect(allApiDefinitions()).toContainEqual(
+      expect.objectContaining({
+        code: 'system.data-resource.enable',
+        method: 'PATCH',
+        path: '/api/v1/permission/data-resources/:id/enable',
+      })
+    )
+    expect(allApiDefinitions()).toContainEqual(
+      expect.objectContaining({
+        code: 'system.data-resource.disable',
+        method: 'PATCH',
+        path: '/api/v1/permission/data-resources/:id/disable',
+      })
+    )
+    expect(allApiDefinitions()).not.toContainEqual(
+      expect.objectContaining({ code: 'system.data-resource.status' })
+    )
+  })
+
   it('supports explicit resource/action declarations for nested API codes', () => {
-    expect(ADMIN_APIS).toContainEqual(
+    expect(allApiDefinitions()).toContainEqual(
       expect.objectContaining({
         code: 'system.role.grants.read',
         resource: 'system.role',
         action: 'grants.read',
       })
     )
+    expect(matchesPermissionTarget(
+      { resource: 'system.role', action: 'grants.read' },
+      { resource: 'system.role', action: 'grants.read' },
+    )).toBe(true)
+    expect(matchesPermissionTarget(
+      { resource: 'system.role.grants', action: 'read' },
+      { resource: 'system.role', action: 'grants.read' },
+    )).toBe(false)
   })
 
   it('stores Chinese display names separately from stable API permission codes', () => {
-    expect(ADMIN_APIS).toContainEqual(
+    expect(allApiDefinitions()).toContainEqual(
       expect.objectContaining({ code: 'system.audit.read', name: '查询审计日志' })
     )
-    expect(ADMIN_APIS).toContainEqual(
+    expect(allApiDefinitions()).toContainEqual(
       expect.objectContaining({ code: 'system.role.grant', name: '配置角色权限' })
     )
-    expect(ADMIN_APIS).toContainEqual(
+    expect(allApiDefinitions()).toContainEqual(
       expect.objectContaining({ code: 'order.create', name: '创建订单' })
     )
   })
 
   it('registers directory creation separately from page creation', () => {
-    expect(ADMIN_APIS).toContainEqual(
+    expect(allApiDefinitions()).toContainEqual(
       expect.objectContaining({
         code: 'system.directory.create',
         method: 'POST',
         path: '/api/v1/permission/directories',
       })
     )
-    expect(ADMIN_APIS).toContainEqual(
+    expect(allApiDefinitions()).toContainEqual(
       expect.objectContaining({
         code: 'system.directory.update',
         method: 'PATCH',
         path: '/api/v1/permission/directories/:id',
       })
     )
-    expect(ADMIN_APIS).toContainEqual(
+    expect(allApiDefinitions()).toContainEqual(
       expect.objectContaining({
         code: 'system.directory.delete',
         method: 'DELETE',
         path: '/api/v1/permission/directories/:id',
       })
     )
-    expect(ADMIN_APIS).toContainEqual(
+    expect(allApiDefinitions()).toContainEqual(
       expect.objectContaining({
         code: 'system.page.delete',
         method: 'DELETE',
-        path: '/api/v1/permission/functions/:id',
+        path: '/api/v1/permission/pages/:id',
       })
     )
-    expect(ADMIN_APIS).not.toContainEqual(
+    expect(allApiDefinitions()).not.toContainEqual(
       expect.objectContaining({
         code: 'system.directory.create',
-        path: '/api/v1/permission/functions',
+        path: '/api/v1/permission/pages',
       })
     )
   })
 
   it('does not have duplicate method and route entries', () => {
-    const keys = ADMIN_APIS.map((api) => `${api.method} ${api.path}`)
+    const keys = allApiDefinitions().map((api) => `${api.method} ${api.path}`)
     expect(new Set(keys).size).toBe(keys.length)
   })
 
@@ -159,13 +240,13 @@ describe('permission catalog route contracts', () => {
   })
 
   it('declares read access roles in the catalog instead of a permission-code branch', () => {
-    expect(ADMIN_APIS).toContainEqual(
+    expect(allApiDefinitions()).toContainEqual(
       expect.objectContaining({
         code: 'system.ops-ticket.read',
         rolePolicy: { type: 'ROLE_ALLOWLIST', roleTypes: ['SECURITY', 'SYSTEM', 'AUDIT'] },
       })
     )
-    expect(ADMIN_APIS).toContainEqual(
+    expect(allApiDefinitions()).toContainEqual(
       expect.objectContaining({
         code: 'system.ops-ticket.detail',
         rolePolicy: { type: 'ROLE_ALLOWLIST', roleTypes: ['SECURITY', 'SYSTEM', 'AUDIT'] },

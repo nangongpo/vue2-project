@@ -11,16 +11,16 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common'
-import { AuthGuard } from '../../../security/guards/auth.guard.js'
-import { RequirePermissions } from '../../../security/decorators/permission.decorator.js'
-import { DataFieldSecurity } from '../../../common/decorators/data-field-security.decorator.js'
+import { AuthGuard } from '#app/security/guards/auth.guard.js'
+import { RequirePermissions } from '#app/security/decorators/permission.decorator.js'
+import { DataFieldSecurity } from '#app/common/decorators/data-field-security.decorator.js'
 import {
   ApprovalActionDto,
   ApprovalQueryDto,
   ApprovalTargetOptionsQuery,
   CreateApprovalDto,
-} from '../dto/approval.dto.js'
-import { ApprovalActor, ApprovalContext, ApprovalService } from '../services/approval.service.js'
+} from '#app/modules/permission/dto/approval.dto.js'
+import { ApprovalActor, ApprovalContext, ApprovalService } from '#app/modules/permission/services/approval.service.js'
 
 type Request = {
   user: ApprovalActor

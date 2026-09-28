@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common'
-import { RoleService } from '../services/role.service.js'
-import { grantInput, ordinaryPermission } from '../domain/authorization.js'
+import { RoleService } from '#app/modules/role/services/role.service.js'
+import { grantInput, ordinaryPermission } from '#app/modules/role/domain/authorization.js'
 
 const actor = { internalId: 1n, traceId: 'trace' }
 const uuid = '550e8400-e29b-41d4-a716-446655440000'

@@ -24,7 +24,7 @@ export function effectivePermissions(
   buttonApis: Array<{ buttonId: string; apiId: string }>
 ) {
   const active = grants.filter(
-    (p) => p.status === 'ACTIVE' && !['*', 'system.permission.manage'].includes(p.code)
+    (p) => p.status === 'ACTIVE' && p.code !== '*' && p.code !== 'system.permission.manage'
   )
   const granted = new Set(active.map((p) => p.id))
   const pageMap = new Map(pages.map((p) => [p.id, p]))

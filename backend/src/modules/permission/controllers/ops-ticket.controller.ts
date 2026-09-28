@@ -11,10 +11,10 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common'
-import { AuthGuard } from '../../../security/guards/auth.guard.js'
-import { RequirePermissions } from '../../../security/decorators/permission.decorator.js'
-import { DataFieldSecurity } from '../../../common/decorators/data-field-security.decorator.js'
-import { actorFrom, type ActorRequest } from '../../role/domain/authorization.js'
+import { AuthGuard } from '#app/security/guards/auth.guard.js'
+import { RequirePermissions } from '#app/security/decorators/permission.decorator.js'
+import { DataFieldSecurity } from '#app/common/decorators/data-field-security.decorator.js'
+import { actorFrom, type ActorRequest } from '#app/modules/role/domain/authorization.js'
 import {
   CreateOpsTicketDto,
   OpsEvidenceDto,
@@ -22,8 +22,8 @@ import {
   OpsNoteDto,
   OpsTicketQueryDto,
   PatchOpsTicketDto,
-} from '../dto/ops-ticket.dto.js'
-import { OpsTicketService } from '../services/ops-ticket.service.js'
+} from '#app/modules/permission/dto/ops-ticket.dto.js'
+import { OpsTicketService } from '#app/modules/permission/services/ops-ticket.service.js'
 
 @Controller('ops-tickets')
 @UseGuards(AuthGuard)

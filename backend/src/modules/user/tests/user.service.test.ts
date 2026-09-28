@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common'
-import { UserService } from '../services/user.service.js'
+import { UserService } from '#app/modules/user/services/user.service.js'
 
 const actor = { internalId: 1n }
 const uuid = '550e8400-e29b-41d4-a716-446655440000'
@@ -30,7 +30,9 @@ function createPrisma() {
       create: vi.fn().mockResolvedValue({ userId: uuid, username: 'new-user' }),
       findUnique: vi
         .fn()
-        .mockImplementation(({ where }) => Promise.resolve(where.id === 1n ? { userId: uuid, status: 'ACTIVE', expiresAt: null } : target)),
+        .mockImplementation(({ where }) =>
+          Promise.resolve(where.id === 1n ? { userId: uuid, status: 'ACTIVE', expiresAt: null } : target)
+        ),
       update: vi.fn().mockResolvedValue(target),
     },
     role: {
@@ -66,6 +68,32 @@ describe('UserService', () => {
     expect(prisma.user.findMany).toHaveBeenCalledWith(expect.objectContaining({ skip: 10, take: 10 }))
   })
 
+  it('exposes an active account with a future lock deadline as locked', async () => {
+    const prisma = createPrisma()
+    prisma.user.findMany.mockResolvedValue([
+      {
+        userId: uuid,
+        username: 'locked-user',
+        displayName: 'Locked User',
+        status: 'ACTIVE',
+        failedLogins: 5,
+        lockedUntil: new Date(Date.now() + 60_000),
+        lastLoginAt: null,
+        createdAt: new Date(),
+        roles: [],
+      },
+    ] as any)
+    const service = new UserService(prisma as any, { hash: vi.fn() } as any)
+
+    const result = await service.page({})
+
+    expect(result.data.items[0]).toMatchObject({
+      statusLabel: '锁定',
+      isActive: false,
+      isLocked: true,
+    })
+  })
+
   it('hashes the initial password when creating a user', async () => {
     const prisma = createPrisma()
     const passwords = { hash: vi.fn().mockResolvedValue('hashed-password') }
@@ -78,7 +106,9 @@ describe('UserService', () => {
       })
     )
     expect(
-      JSON.stringify(prisma.auditLog.create.mock.calls, (_key, value) => (typeof value === 'bigint' ? value.toString() : value))
+      JSON.stringify(prisma.auditLog.create.mock.calls, (_key, value) =>
+        typeof value === 'bigint' ? value.toString() : value
+      )
     ).not.toContain('hashed-password')
   })
 
@@ -91,16 +121,21 @@ describe('UserService', () => {
     ).rejects.toBeInstanceOf(ConflictException)
   })
 
-  it.each(['roleIds', 'permissionIds', 'roleType', 'status'])('rejects embedded %s from profile endpoints', async (field) => {
-    const prisma = createPrisma()
-    const service = new UserService(prisma as any, { hash: vi.fn() } as any)
-    await expect(
-      service.create({ username: 'test', password: 'Strong-password-123!', displayName: 'Test', [field]: [] }, actor)
-    ).rejects.toBeInstanceOf(BadRequestException)
-    await expect(service.update(uuid, { displayName: 'Test', [field]: [] }, actor)).rejects.toBeInstanceOf(BadRequestException)
-    expect(prisma.user.create).not.toHaveBeenCalled()
-    expect(prisma.user.update).not.toHaveBeenCalled()
-  })
+  it.each(['roleIds', 'permissionIds', 'roleType', 'status'])(
+    'rejects embedded %s from profile endpoints',
+    async (field) => {
+      const prisma = createPrisma()
+      const service = new UserService(prisma as any, { hash: vi.fn() } as any)
+      await expect(
+        service.create({ username: 'test', password: 'Strong-password-123!', displayName: 'Test', [field]: [] }, actor)
+      ).rejects.toBeInstanceOf(BadRequestException)
+      await expect(service.update(uuid, { displayName: 'Test', [field]: [] }, actor)).rejects.toBeInstanceOf(
+        BadRequestException
+      )
+      expect(prisma.user.create).not.toHaveBeenCalled()
+      expect(prisma.user.update).not.toHaveBeenCalled()
+    }
+  )
 
   it('assigns business roles with revocation history and a transactional audit', async () => {
     const prisma = createPrisma()
@@ -152,7 +187,9 @@ describe('UserService', () => {
     prisma.role.findMany.mockResolvedValue([{ ...role, roleType }])
     prisma.role.findUniqueOrThrow.mockResolvedValue({ ...role, roleType })
     const service = new UserService(prisma as any, {} as any)
-    await expect(service.roles(uuid, { roleIds: [uuid], reason: 'Test' }, actor)).rejects.toBeInstanceOf(ForbiddenException)
+    await expect(service.roles(uuid, { roleIds: [uuid], reason: 'Test' }, actor)).rejects.toBeInstanceOf(
+      ForbiddenException
+    )
     expect(prisma.userRole.upsert).not.toHaveBeenCalled()
   })
 
@@ -173,9 +210,9 @@ describe('UserService', () => {
     prisma.role.findMany.mockResolvedValue([])
     prisma.userRole.findMany.mockResolvedValue([{ roleId: 3n, revokedAt: null }] as any)
     prisma.role.findUniqueOrThrow.mockResolvedValue({ ...role, roleType: 'AUDIT' })
-    await expect(new UserService(prisma as any, {} as any).roles(uuid, { roleIds: [], reason: 'Test' }, actor)).rejects.toBeInstanceOf(
-      ForbiddenException
-    )
+    await expect(
+      new UserService(prisma as any, {} as any).roles(uuid, { roleIds: [], reason: 'Test' }, actor)
+    ).rejects.toBeInstanceOf(ForbiddenException)
     expect(prisma.userRole.updateMany).not.toHaveBeenCalled()
   })
 
@@ -189,20 +226,24 @@ describe('UserService', () => {
         },
       ],
     } as any)
-    await expect(new UserService(prisma as any, {} as any).roles(uuid, { roleIds: [uuid], reason: 'Test' }, actor)).rejects.toBeInstanceOf(
-      ForbiddenException
-    )
+    await expect(
+      new UserService(prisma as any, {} as any).roles(uuid, { roleIds: [uuid], reason: 'Test' }, actor)
+    ).rejects.toBeInstanceOf(ForbiddenException)
   })
 
   it('requires the dedicated unlock endpoint and revokes sessions on disable', async () => {
     const prisma = createPrisma()
     const service = new UserService(prisma as any, {} as any)
-    await service.status(uuid, { status: 'DISABLED', reason: 'Offboarding' }, actor)
-    expect(prisma.session.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: { revokedAt: expect.any(Date) } }))
-    prisma.user.findUnique.mockImplementation(({ where }) =>
-      Promise.resolve(where.id === 1n ? { userId: uuid, status: 'ACTIVE', expiresAt: null } : { ...target, status: 'LOCKED' })
+    await service.disable(uuid, 'Offboarding', actor)
+    expect(prisma.session.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { revokedAt: expect.any(Date) } })
     )
-    await expect(service.status(uuid, { status: 'ACTIVE', reason: 'Test' }, actor)).rejects.toBeInstanceOf(BadRequestException)
+    prisma.user.findUnique.mockImplementation(({ where }) =>
+      Promise.resolve(
+        where.id === 1n ? { userId: uuid, status: 'ACTIVE', expiresAt: null } : { ...target, status: 'LOCKED' }
+      )
+    )
+    await expect(service.enable(uuid, 'Test', actor)).rejects.toBeInstanceOf(BadRequestException)
     await service.unlock(uuid, 'Verified', actor)
     expect(prisma.user.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: { status: 'ACTIVE', failedLogins: 0, lockedUntil: null } })
@@ -236,7 +277,9 @@ describe('UserService', () => {
     })
     expect(prisma.auditLog.create).toHaveBeenCalled()
     expect(
-      JSON.stringify(prisma.auditLog.create.mock.calls, (_key, value) => (typeof value === 'bigint' ? value.toString() : value))
+      JSON.stringify(prisma.auditLog.create.mock.calls, (_key, value) =>
+        typeof value === 'bigint' ? value.toString() : value
+      )
     ).not.toMatch(/hashed-secret|old-hash|Strong-password/)
   })
 
@@ -247,9 +290,9 @@ describe('UserService', () => {
       hash: vi.fn(),
       verify: vi.fn(async (_password: string, hash: string) => hash === reused),
     }
-    await expect(new UserService(prisma as any, passwords as any).resetPassword(uuid, 'Strong-password-123!', actor)).rejects.toThrow(
-      '历史密码'
-    )
+    await expect(
+      new UserService(prisma as any, passwords as any).resetPassword(uuid, 'Strong-password-123!', actor)
+    ).rejects.toThrow('历史密码')
     expect(passwords.hash).not.toHaveBeenCalled()
     expect(prisma.user.update).not.toHaveBeenCalled()
     expect(prisma.session.updateMany).not.toHaveBeenCalled()
@@ -258,7 +301,9 @@ describe('UserService', () => {
 
   it('rejects weak reset passwords before writes', async () => {
     const prisma = createPrisma()
-    await expect(new UserService(prisma as any, {} as any).resetPassword(uuid, 'weak', actor)).rejects.toBeInstanceOf(BadRequestException)
+    await expect(new UserService(prisma as any, {} as any).resetPassword(uuid, 'weak', actor)).rejects.toBeInstanceOf(
+      BadRequestException
+    )
     expect(prisma.user.update).not.toHaveBeenCalled()
     expect(prisma.passwordHistory.create).not.toHaveBeenCalled()
   })
@@ -283,17 +328,17 @@ describe('UserService', () => {
       hash: vi.fn().mockResolvedValue('hashed-secret'),
       verify: vi.fn().mockResolvedValue(false),
     }
-    await expect(new UserService(prisma as any, passwords as any).resetPassword(uuid, 'Strong-password-123!', actor)).rejects.toThrow(
-      'Audit unavailable'
-    )
+    await expect(
+      new UserService(prisma as any, passwords as any).resetPassword(uuid, 'Strong-password-123!', actor)
+    ).rejects.toThrow('Audit unavailable')
     expect(prisma.passwordHistory.create).toHaveBeenCalledOnce()
   })
 
   it('fails the mutation when its audit cannot be recorded', async () => {
     const prisma = createPrisma()
     prisma.auditLog.create.mockRejectedValue(new Error('Audit unavailable'))
-    await expect(new UserService(prisma as any, {} as any).roles(uuid, { roleIds: [uuid], reason: 'Test' }, actor)).rejects.toThrow(
-      'Audit unavailable'
-    )
+    await expect(
+      new UserService(prisma as any, {} as any).roles(uuid, { roleIds: [uuid], reason: 'Test' }, actor)
+    ).rejects.toThrow('Audit unavailable')
   })
 })

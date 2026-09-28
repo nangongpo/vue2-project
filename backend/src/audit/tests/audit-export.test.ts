@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { AuditService } from '../services/audit.service.js'
+import { AuditService } from '#app/audit/services/audit.service.js'
 describe('controlled audit export', () => {
   const range = { from: '2026-09-01T00:00:00Z', to: '2026-09-02T00:00:00Z' }
   it('requires bounded dates before querying', async () => {

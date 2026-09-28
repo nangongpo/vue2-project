@@ -1,11 +1,11 @@
 import { ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus, Logger } from '@nestjs/common'
 import { randomUUID } from 'node:crypto'
 import { FastifyReply, FastifyRequest } from 'fastify'
-import { API_CODE, API_MESSAGE, API_TITLE, ApiCode } from '../constants/api-code.js'
-import { ApiResponse } from '../http/api-response.js'
-import { AuditService } from '../../audit/services/audit.service.js'
-import { sanitizeAuditRequest } from '../../audit/utils/audit-sanitizer.js'
-import { resolveRiskLevel, type RiskLevel } from '../../security/policies/risk-policy.js'
+import { API_CODE, API_MESSAGE, API_TITLE, ApiCode } from '#app/common/constants/api-code.js'
+import { ApiResponse } from '#app/common/http/api-response.js'
+import { AuditService } from '#app/audit/services/audit.service.js'
+import { sanitizeAuditRequest } from '#app/audit/utils/audit-sanitizer.js'
+import type { RiskLevel } from '#app/security/policies/risk-policy.js'
 
 export function codeForStatus(status: number): ApiCode {
   if (status === HttpStatus.BAD_REQUEST) return API_CODE.INVALID_PARAMS
@@ -31,6 +31,7 @@ export class ApiExceptionFilter implements ExceptionFilter {
         traceId?: string
         auditRecorded?: boolean
         riskLevel?: RiskLevel
+        riskDecision?: unknown
         operationCode?: string
         user?: { internalId?: bigint }
       }
@@ -75,7 +76,7 @@ export class ApiExceptionFilter implements ExceptionFilter {
           actorId: request.user?.internalId,
           operationCode: request.operationCode,
           action: `${request.method} ${request.url.split('?')[0]}`,
-          riskLevel: request.riskLevel || resolveRiskLevel({ operation: `${request.method} ${request.url.split('?')[0]}` }),
+          riskLevel: request.riskLevel || 'L1',
           resource: request.url.split('?')[0],
           method: request.method,
           path: request.url.split('?')[0],
@@ -85,6 +86,7 @@ export class ApiExceptionFilter implements ExceptionFilter {
           userAgent: request.headers['user-agent'],
           detail: {
             request: sanitizeAuditRequest(request.query, request.body),
+            riskDecision: request.riskDecision,
             error: { code, message: safeMessage },
           },
         })

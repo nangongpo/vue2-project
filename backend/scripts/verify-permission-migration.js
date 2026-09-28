@@ -7,19 +7,19 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { loadEnvFile } from 'node:process'
 import { PrismaClient } from '@prisma/client'
-import { DataScopeService } from '../dist/security/services/data-scope.service.js'
-import { PermissionService } from '../dist/modules/permission/services/permission.service.js'
-import { AuthService } from '../dist/security/services/auth.service.js'
+import { DataScopeService } from '#app/security/services/data-scope.service.js'
+import { PermissionService } from '#app/modules/permission/services/permission.service.js'
+import { AuthService } from '#app/security/services/auth.service.js'
 import { createHash } from 'node:crypto'
 import { NestFactory } from '@nestjs/core'
 import { ValidationPipe } from '@nestjs/common'
 import { FastifyAdapter } from '@nestjs/platform-fastify'
 import cookie from '@fastify/cookie'
-import { AppModule } from '../dist/app.module.js'
-import { ApiExceptionFilter } from '../dist/common/filters/api-exception.filter.js'
-import { AuditService } from '../dist/audit/services/audit.service.js'
-import { TraceIdInterceptor } from '../dist/common/interceptors/trace-id.interceptor.js'
-import { ADMIN_APIS, allowedRoleTypesForPermission } from '../dist/security/policies/permission-catalog.js'
+import { AppModule } from '#app/app.module.js'
+import { ApiExceptionFilter } from '#app/common/filters/api-exception.filter.js'
+import { AuditService } from '#app/audit/services/audit.service.js'
+import { TraceIdInterceptor } from '#app/common/interceptors/trace-id.interceptor.js'
+import { allApiDefinitions, allowedRoleTypesForPermission } from '#app/security/policies/permission-catalog/index.js'
 
 const backendRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 try { loadEnvFile(resolve(backendRoot, '.env')) } catch { /* env supplied by CI */ }
@@ -34,7 +34,8 @@ const require = createRequire(import.meta.url)
 const prismaCli = require.resolve('prisma/build/index.js')
 
 async function assertPermissionCatalogMatchesDatabase(db) {
-  const codes = ADMIN_APIS.map((entry) => entry.code)
+  const catalog = allApiDefinitions()
+  const codes = catalog.map((entry) => entry.code)
   const rows = await db.permission.findMany({
     where: { code: { in: codes } },
     select: {
@@ -48,7 +49,7 @@ async function assertPermissionCatalogMatchesDatabase(db) {
     },
   })
   const byCode = new Map(rows.map((row) => [row.code, row]))
-  for (const entry of ADMIN_APIS) {
+  for (const entry of catalog) {
     const row = byCode.get(entry.code)
     assert.ok(row, `catalog permission is missing from database: ${entry.code}`)
     assert.deepEqual(

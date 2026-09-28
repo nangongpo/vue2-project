@@ -46,7 +46,7 @@
           @click.stop
         >
           <el-button
-            v-if="data.status === 'ACTIVE'"
+          v-if="data.isActive"
             v-permission="'system.page.create'"
             type="text"
             class="tree-directory-link"
@@ -64,18 +64,18 @@
           />
         </span>
         <span v-else class="tree-node-meta">
-          <el-tag :type="data.status === 'ACTIVE' ? 'success' : 'info'" size="mini">
-            {{ data.status === 'ACTIVE' ? '启用' : '停用' }}
+          <el-tag :type="data.isActive ? 'success' : 'info'" size="mini">
+            {{ data.statusLabel }}
           </el-tag>
         </span>
         <span v-if="data.nodeType !== 'DIRECTORY'" class="tree-node-actions" @click.stop>
           <el-button
             v-if="data.nodeType !== 'DIRECTORY'"
-            v-permission="data.status === 'ACTIVE' ? 'system.page.disable' : 'system.page.enable'"
+            v-permission="data.isActive ? 'system.page.disable' : 'system.page.enable'"
             type="text"
             class="tree-inline-action"
-            :icon="data.status === 'ACTIVE' ? 'el-icon-video-pause' : 'el-icon-video-play'"
-            :title="data.status === 'ACTIVE' ? '停用页面' : '启用页面'"
+            :icon="data.isActive ? 'el-icon-video-pause' : 'el-icon-video-play'"
+            :title="data.isActive ? '停用页面' : '启用页面'"
             @click="$emit('toggle-status', data)"
           />
           <el-button

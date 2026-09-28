@@ -1,17 +1,17 @@
 import { Body, Controller, Get, HttpCode, HttpStatus, Inject, Post, Req, Res, UnauthorizedException, UseGuards } from '@nestjs/common'
 import { IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator'
 import { FastifyReply, FastifyRequest } from 'fastify'
-import { API_CODE } from '../../common/constants/api-code.js'
-import { AuditAction } from '../../audit/decorators/audit.decorator.js'
-import { MfaAuthGuard } from '../guards/auth.guard.js'
+import { API_CODE } from '#app/common/constants/api-code.js'
+import { AuditAction } from '#app/audit/decorators/audit.decorator.js'
+import { MfaAuthGuard } from '#app/security/guards/auth.guard.js'
 import {
   PREAUTH_COOKIE,
   SESSION_COOKIE,
   preAuthCookieOptions,
   sessionCookieOptions,
-} from '../services/auth.service.js'
-import { assertSameOrigin } from '../policies/csrf.js'
-import { MfaService } from '../services/mfa.service.js'
+} from '#app/security/services/auth.service.js'
+import { assertSameOrigin } from '#app/security/policies/csrf.js'
+import { MfaService } from '#app/security/services/mfa.service.js'
 
 class PasswordProofDto {
   @IsString()

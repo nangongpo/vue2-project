@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createHmac } from 'node:crypto'
-import { CaptchaService } from '../services/captcha.service.js'
+import { CaptchaService } from '#app/captcha/services/captcha.service.js'
 
 const encode = (value: string) =>
   encodeURIComponent(value).replace(

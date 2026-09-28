@@ -1,10 +1,10 @@
 import 'reflect-metadata'
 import { describe, expect, it, vi } from 'vitest'
-import { ApprovalService, ApprovalActor, APPROVAL_MAX_TTL_MS } from '../services/approval.service.js'
-import { approvalPayload, CreateApprovalDto } from '../dto/approval.dto.js'
-import { ApprovalController } from '../controllers/approval.controller.js'
-import { REQUIRED_PERMISSIONS } from '../../../security/decorators/permission.decorator.js'
-import { PermissionGuard } from '../../../security/guards/permission.guard.js'
+import { ApprovalService, ApprovalActor, APPROVAL_MAX_TTL_MS } from '#app/modules/permission/services/approval.service.js'
+import { approvalPayload, CreateApprovalDto } from '#app/modules/permission/dto/approval.dto.js'
+import { ApprovalController } from '#app/modules/permission/controllers/approval.controller.js'
+import { REQUIRED_PERMISSIONS } from '#app/security/decorators/permission.decorator.js'
+import { PermissionGuard } from '#app/security/guards/permission.guard.js'
 
 const uuid = (n: number) => `00000000-0000-4000-8000-${n.toString().padStart(12, '0')}`
 function actor(n = 1, roleType = 'SECURITY'): ApprovalActor {
@@ -261,7 +261,7 @@ describe('high-risk revocation workflows', () => {
       h,
       input('ELEVATED_SCOPE', {
         roleId: uuid(20),
-        resource: 'orders',
+        resource: 'order',
         scopeType: 'ALL',
         targets: [],
       })
@@ -286,7 +286,7 @@ describe('high-risk revocation workflows', () => {
       h.service.create(
         input('ELEVATED_SCOPE', {
           roleId: uuid(20),
-          resource: 'orders',
+          resource: 'order',
           scopeType: 'CUSTOM',
           targets: [{ targetType: 'DEPARTMENT', targetId: uuid(52) }],
         }),
@@ -374,12 +374,11 @@ describe('approval authorization and validation', () => {
   it.each(['BUSINESS', 'SYSTEM', 'AUDIT'])('rejects %s creation even with all permission codes', async (type) => {
     await expect(harness().service.create(input(), actor(1, type))).rejects.toThrow('显式权限')
   })
-  it('does not honor legacy superadmin bypass', async () => {
+  it('does not authorize without explicit permission', async () => {
     await expect(
       harness().service.create(input(), {
         ...actor(),
         permissions: [],
-        isSuperAdmin: true,
       } as ApprovalActor)
     ).rejects.toThrow('显式权限')
   })
@@ -421,7 +420,7 @@ describe('approval authorization and validation', () => {
     expect(() =>
       approvalPayload('ELEVATED_SCOPE', {
         roleId: uuid(20),
-        resource: 'orders',
+        resource: 'order',
         scopeType: 'CUSTOM',
         targets: [],
       })
@@ -429,7 +428,7 @@ describe('approval authorization and validation', () => {
     expect(() =>
       approvalPayload('ELEVATED_SCOPE', {
         roleId: uuid(20),
-        resource: 'orders',
+        resource: 'order',
         scopeType: 'ALL',
         targets: [{ targetType: 'USER', targetId: uuid(10) }],
       })
@@ -437,7 +436,7 @@ describe('approval authorization and validation', () => {
     expect(() =>
       approvalPayload('ELEVATED_SCOPE', {
         roleId: uuid(20),
-        resource: 'orders',
+        resource: 'order',
         scopeType: 'CUSTOM',
         targets: [{ targetType: 'USER', targetId: uuid(10), unexpected: true }],
       })
@@ -670,13 +669,13 @@ describe('approval target policies', () => {
     const h = harness()
     h.tx.permission.findFirst.mockResolvedValue({ id: uuid(30) })
     const targets = scopeType === 'CUSTOM' ? [{ targetType: 'USER', targetId: uuid(10) }] : []
-    const { data } = await h.service.create(input('ELEVATED_SCOPE', { roleId: uuid(20), scopeType, resource: 'orders', targets }), actor())
+    const { data } = await h.service.create(input('ELEVATED_SCOPE', { roleId: uuid(20), scopeType, resource: 'order', targets }), actor())
     await h.service.transition(data.id, 'approve', { note: 'approve' }, actor(2))
     await h.service.transition(data.id, 'execute', { note: 'execute' }, actor(3))
     expect(h.tx.roleElevatedDataScope.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         scopeType,
-        resource: 'orders',
+        resource: 'order',
         approvalRef: data.id,
         expiresAt: data.expiresAt,
         targets: {
@@ -695,7 +694,7 @@ describe('approval target policies', () => {
         input('ELEVATED_SCOPE', {
           roleId: uuid(20),
           scopeType: 'CUSTOM',
-          resource: 'orders',
+          resource: 'order',
           targets: [{ targetType: 'TENANT', targetId: uuid(50) }],
         }),
         actor()

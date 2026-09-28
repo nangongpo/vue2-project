@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
-import { IdempotencyGuard } from '../guards/idempotency.guard.js'
+import { IdempotencyGuard } from '#app/security/guards/idempotency.guard.js'
 
-function context(redis: any, options: any) {
+function context(options: any) {
   const raw = { once: vi.fn() }
   const request = {
     method: 'POST',
@@ -23,7 +23,7 @@ describe('IdempotencyGuard', () => {
   it('rejects a duplicate request while the lock is held', async () => {
     const redis = { acquireLock: vi.fn().mockResolvedValue(false), releaseLock: vi.fn() }
     const guard = new IdempotencyGuard(redis as any, { getAllAndOverride: () => ({ scope: 'auth.login' }) } as any)
-    await expect(guard.canActivate(context(redis, { scope: 'auth.login' }))).rejects.toMatchObject({
+    await expect(guard.canActivate(context({ scope: 'auth.login' }))).rejects.toMatchObject({
       status: 409,
       response: { code: '100009' },
     })
@@ -33,7 +33,7 @@ describe('IdempotencyGuard', () => {
   it('registers response cleanup after acquiring a lock', async () => {
     const redis = { acquireLock: vi.fn().mockResolvedValue(true), releaseLock: vi.fn() }
     const guard = new IdempotencyGuard(redis as any, { getAllAndOverride: () => ({ scope: 'auth.login' }) } as any)
-    const ctx = context(redis, { scope: 'auth.login' })
+    const ctx = context({ scope: 'auth.login' })
     await expect(guard.canActivate(ctx)).resolves.toBe(true)
     expect(ctx.switchToHttp().getResponse().raw.once).toHaveBeenCalledWith('finish', expect.any(Function))
   })

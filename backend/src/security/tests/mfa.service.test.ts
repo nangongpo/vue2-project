@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createHash } from 'node:crypto'
-import { encodeBase32, MfaService, totpAtStep } from '../services/mfa.service.js'
+import { encodeBase32, MfaService, totpAtStep } from '#app/security/services/mfa.service.js'
 
 function decodeBase32(encoded: string) {
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'

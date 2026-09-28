@@ -1,8 +1,8 @@
 import { Controller, Get, Inject, UseGuards } from '@nestjs/common'
-import { RequirePermissions } from '../security/decorators/permission.decorator.js'
-import { AuthGuard } from '../security/guards/auth.guard.js'
-import { DataFieldSecurity } from '../common/decorators/data-field-security.decorator.js'
-import { SystemHealthService } from './system-health.service.js'
+import { RequirePermissions } from '#app/security/decorators/permission.decorator.js'
+import { AuthGuard } from '#app/security/guards/auth.guard.js'
+import { DataFieldSecurity } from '#app/common/decorators/data-field-security.decorator.js'
+import { SystemHealthService } from '#app/system/system-health.service.js'
 
 @Controller('system/health')
 @UseGuards(AuthGuard)

@@ -18,7 +18,7 @@
 示例：
 
 ```text
-system.operation-policy.create
+system.operation-policy.read
 system.user.reset-password
 system.ops-ticket.execution.create
 ```
@@ -49,7 +49,9 @@ data-scope
 | 查询 | `options` | 下拉选项或选择器数据 |
 | 写入 | `create` | 创建 |
 | 写入 | `update` | 修改 |
-| 状态 | `status` | 启用或停用 |
+| 状态 | `enable` | 启用 |
+| 状态 | `disable` | 停用 |
+| 状态 | `unlock` | 解除锁定 |
 | 删除 | `delete` | 删除，必须经过引用保护 |
 | 绑定 | `bind` | 建立明确绑定关系 |
 | 授权 | `grant` | 授予权限或范围 |
@@ -131,14 +133,44 @@ system.page.api.bind
 system.button.api.bind
 
 system.operation-policy.read
-system.operation-policy.create
-system.operation-policy.activate
-system.operation-policy.status
 ```
 
 API 权限必须与服务端目录中的真实 HTTP 方法和 Fastify 路由模板绑定。前端不能根据 URL、方法或权限码前缀临时推导 API 权限。
 
-### 2.3 按钮权限
+#### 2.3 `code` 与 `resource/action` 的匹配
+
+权限码用于稳定标识和展示，运行时授权匹配使用服务端目录中显式声明的
+`resource` 与 `action`，不得从权限码通过前缀、正则或字符串拆分推断安全边界。
+
+具有嵌套语义的权限码必须保留完整意图，并成对声明目标资源和动作：
+
+```ts
+api('system.role.grants.read', 'GET', '/roles/:id/grants', {
+  roleType: 'SECURITY',
+  resource: 'system.role',
+  action: 'grants.read',
+})
+```
+
+上例的匹配目标是精确的 `(system.role, grants.read)`，不是
+`(system.role.grants, read)`。实现应使用 `resource/action` 的精确组合匹配；
+不同资源或不同动作均不得视为同一权限。
+
+页面基础接口候选接口只按数据库中的 `type = API`、`status = ACTIVE`、
+`method = GET` 筛选，不再根据 action、权限码或其他业务元数据做额外判断。
+
+API 目录按来源分为两组，并通过索引统一访问：
+
+- `SYSTEM_APIS`：系统内置接口，由服务端代码目录维护；
+- `BUSINESS_APIS`：业务接口，由业务模块代码目录维护。
+
+全量 API 遍历统一使用 `allApiDefinitions()`，不代表新的安全分类来源。
+按权限码和 `(resource, action)` 查找时分别使用 `API_BY_CODE` 和 `API_BY_TARGET`，
+禁止在运行时重新遍历目录或从权限码拆分目标字段。
+页面基础接口选项返回的 `isSystemBuiltin` 由系统接口代码集合精确判断；数据库不
+保存该分类字段，也不能通过修改数据库把业务接口变成系统内置接口。
+
+### 2.4 按钮权限
 
 格式：
 
@@ -166,7 +198,7 @@ AND
 
 任何一项不满足，操作都必须拒绝。按钮权限不能单独产生 API 权限。
 
-### 2.4 数据字段权限
+### 2.5 数据字段权限
 
 格式：
 
@@ -201,7 +233,7 @@ system.permission.field.id.read
 
 表示 `Permission` 数据模型的 `id` 字段读取权限；它不是“字段管理接口读取权限”。
 
-### 2.5 配置对象字段权限
+### 2.6 配置对象字段权限
 
 按钮定义自身的字段权限使用：
 
@@ -219,7 +251,7 @@ system.button.field.apis.write
 
 这类权限用于控制按钮配置对象的字段，不属于业务数据字段权限。
 
-### 2.6 字段管理 API 权限
+### 2.7 字段管理 API 权限
 
 字段定义管理接口使用独立资源：
 
@@ -239,9 +271,9 @@ system.permission.field.disable
 
 这样可以避免它们与 `system.permission.field.<field>.<read|write>` 数据字段权限混淆。
 
-### 2.7 数据范围权限
+### 2.8 数据范围权限
 
-数据范围权限使用独立资源：
+角色数据范围管理权限使用独立资源：
 
 ```text
 system.data-scope.read
@@ -250,6 +282,20 @@ system.data-scope.revoke
 ```
 
 数据范围权限表示角色的数据访问范围，不等于数据字段权限，也不等于 API 权限。
+
+数据范围资源字典使用独立的资源管理权限，启停必须使用明确动作：
+
+```text
+system.data-resource.read
+system.data-resource.create
+system.data-resource.update
+system.data-resource.enable
+system.data-resource.disable
+```
+
+禁止新增或继续使用 `system.data-resource.status`。资源启停接口分别使用
+`/permission/data-resources/:id/enable` 和 `/permission/data-resources/:id/disable`，响应使用
+`isActive/statusLabel`，不返回数据库内部 `status` 字段。
 
 ## 3. 生成规则
 
@@ -264,6 +310,8 @@ system.data-scope.revoke
 | BUTTON FIELD | `button-field-policy.ts` | 否 |
 
 内置管理 API 必须由服务端目录维护，不能由普通前端请求动态注册权限码、方法或路径。
+
+API 目录同时声明该操作的 `riskBaseline` 和安全控制。API 型操作的风险基线不得在 `operation-catalog.ts` 中重复声明；没有对应 API 的密码、会话、路由变更等安全操作，才进入独立安全操作目录。
 
 ### 3.2 数据字段
 
@@ -288,6 +336,8 @@ resource + ".field." + field + ".write   // writable=true 时生成
 6. 页面基础 API 不包含写入、导出、审批和执行接口。
 7. 历史废弃权限码不重新启用。
 8. 权限码必须在 `sys_permission_role_type` 中登记明确的允许角色类型。
+
+风险策略不得根据权限码最后一段动作、前缀或正则推断。API 权限码如果同时作为安全操作标识使用，必须通过完整 `operationCode` 与权限目录中的 `resource/action` 精确关联；数据库风险策略只能增强代码目录中的最低风险基线。
 
 ## 4. 权限绑定关系
 
@@ -322,7 +372,6 @@ AND 请求方法和路由模板精确匹配
 | `system.button.bind-api` | `system.button.api.bind` |
 | `system.page.apis` | `system.page.api.read` |
 | `system.page.api-options` | `system.page.api.options` |
-| `system.operation-policy.manage` | `system.operation-policy.create` |
 | `system.ops-ticket.executions` | `system.ops-ticket.execution.create` |
 
 迁移顺序：

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { canonicalize, signRequest } from '../protocol/protocol.js'
+import { canonicalize, signRequest } from '#app/captcha/protocol/protocol.js'
 
 describe('internal request signature', () => {
   it('sorts and RFC3986-encodes every parameter except Signature', () => {

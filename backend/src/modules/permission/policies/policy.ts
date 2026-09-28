@@ -1,8 +1,15 @@
 import { BadRequestException } from '@nestjs/common'
-import { ApiResponse, successResponse } from '../../../common/http/api-response.js'
+import { ApiResponse, successResponse } from '#app/common/http/api-response.js'
 
 export const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const
-export const RETIRED_CODES = ['*', 'system.permission.manage']
+export const RETIRED_CODES: string[] = [
+  '*',
+  'system.permission.manage',
+  'system.operation-policy.manage',
+  'system.operation-policy.create',
+  'system.operation-policy.activate',
+  'system.operation-policy.status',
+]
 
 // Route templates are compared against Fastify's matched route, never the raw URL.
 export function canonicalPath(path: string) {

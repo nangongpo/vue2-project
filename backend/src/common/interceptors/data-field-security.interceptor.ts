@@ -5,20 +5,24 @@ import {
   Injectable,
   NestInterceptor,
 } from '@nestjs/common'
+import { PermissionStatus } from '#app/common/types/prisma-enums.js'
 import { Reflector } from '@nestjs/core'
 import { Observable, from, map, switchMap } from 'rxjs'
-import { isApiResponse } from '../http/api-response.js'
-import { DATA_FIELD_SECURITY_RESOURCE } from '../decorators/data-field-security.decorator.js'
-import { PrismaService } from '../../database/prisma.service.js'
+import { isApiResponse } from '#app/common/http/api-response.js'
+import { DATA_FIELD_SECURITY_RESOURCE } from '#app/common/decorators/data-field-security.decorator.js'
+import { PrismaService } from '#app/database/prisma.service.js'
 import {
   hasRecentSecurityProof,
   maxRiskLevel,
+  resolveRiskDecision,
   securityStepUpException,
   type RiskLevel,
-} from '../../security/policies/risk-policy.js'
+} from '#app/security/policies/risk-policy.js'
+
+type RequestMethod = 'GET' | 'POST' | 'PATCH'
 
 type DataFieldRequest = {
-  method?: string
+  method?: RequestMethod
   body?: Record<string, unknown>
   user?: {
     permissions?: string[]
@@ -38,7 +42,7 @@ type FieldDefinition = {
   readCode: string
   writeCode?: string
   riskLevel: RiskLevel
-  status: string
+  status: PermissionStatus
 }
 
 @Injectable()
@@ -81,8 +85,11 @@ export class DataFieldSecurityInterceptor implements NestInterceptor {
           if (
             (request.riskLevel === 'L2' || request.riskLevel === 'L3') &&
             !hasRecentSecurityProof(request.user || {}, request.riskLevel)
-          )
-            throw securityStepUpException(request.user || {}, request.riskLevel, request.operationCode || `field-security.${resource}`)
+          ) {
+            const operationCode = request.operationCode
+            if (!operationCode) throw new ForbiddenException('字段安全操作未声明 operationCode')
+            throw securityStepUpException(request.user || {}, resolveRiskDecision(operationCode, { fieldRiskLevels: [riskLevel] }))
+          }
         }
         return next
           .handle()

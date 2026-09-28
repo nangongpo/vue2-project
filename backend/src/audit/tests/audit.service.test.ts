@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { AuditService } from '../services/audit.service.js'
+import { AuditService } from '#app/audit/services/audit.service.js'
 
 describe('AuditService', () => {
   it('writes an integrity hash for every new audit record', async () => {

@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common'
 import type { Prisma } from '@prisma/client'
-import type { PasswordService } from './password.service.js'
+import type { PasswordService } from '#app/security/services/password.service.js'
 
 export const PASSWORD_HISTORY_LIMIT = 5
 export const PASSWORD_MIN_AGE_MS = 24 * 60 * 60 * 1000

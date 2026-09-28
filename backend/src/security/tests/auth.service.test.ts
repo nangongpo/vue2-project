@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { AuthService } from '../services/auth.service.js'
+import { AuthService } from '#app/security/services/auth.service.js'
 
 afterEach(() => vi.unstubAllEnvs())
 
@@ -114,6 +114,19 @@ describe('AuthService session lifecycle', () => {
     await expect(service.login('admin', 'password', '127.0.0.1')).rejects.toThrow('登录请求过于频繁')
     expect(findUnique).not.toHaveBeenCalled()
     process.env.LOGIN_RATE_LIMIT = originalLimit
+  })
+
+  it('fails closed when the login rate-limit store is unavailable', async () => {
+    const findUnique = vi.fn()
+    const prisma = { user: { findUnique } } as any
+    const service = new AuthService(
+      prisma,
+      {} as any,
+      { increment: vi.fn().mockResolvedValue(null) } as any
+    )
+
+    await expect(service.login('admin', 'password', '127.0.0.1')).rejects.toThrow('登录限频服务暂不可用')
+    expect(findUnique).not.toHaveBeenCalled()
   })
 })
 

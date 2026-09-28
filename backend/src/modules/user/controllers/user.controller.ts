@@ -24,13 +24,13 @@ import {
   MaxLength,
   MinLength,
 } from 'class-validator'
-import { AuthGuard } from '../../../security/guards/auth.guard.js'
-import { RequirePermissions } from '../../../security/decorators/permission.decorator.js'
-import { DataFieldSecurity } from '../../../common/decorators/data-field-security.decorator.js'
-import { UserService } from '../services/user.service.js'
-import { actorFrom } from '../../role/domain/authorization.js'
-import type { ActorRequest } from '../../role/domain/authorization.js'
-import { PaginationQueryDto } from '../../../common/dto/pagination.dto.js'
+import { AuthGuard } from '#app/security/guards/auth.guard.js'
+import { RequirePermissions } from '#app/security/decorators/permission.decorator.js'
+import { DataFieldSecurity } from '#app/common/decorators/data-field-security.decorator.js'
+import { UserService } from '#app/modules/user/services/user.service.js'
+import { actorFrom } from '#app/modules/role/domain/authorization.js'
+import type { ActorRequest } from '#app/modules/role/domain/authorization.js'
+import { PaginationQueryDto } from '#app/common/dto/pagination.dto.js'
 
 export class CreateUserDto {
   /** 登录账号。 */

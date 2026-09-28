@@ -12,10 +12,10 @@ import {
 } from '@nestjs/common'
 import { randomUUID } from 'node:crypto'
 import { FastifyReply, FastifyRequest } from 'fastify'
-import { CaptchaEngine, CaptchaError, CaptchaPoint } from '../services/captcha.engine.js'
-import { findBinding, loadBindings } from '../config/config.js'
-import { requiredVersion, signRequest, signaturesMatch } from '../protocol/protocol.js'
-import { RedisService } from '../services/redis.service.js'
+import { CaptchaEngine, CaptchaError, CaptchaPoint } from '#app/captcha/services/captcha.engine.js'
+import { findBinding, loadBindings } from '#app/captcha/config/config.js'
+import { requiredVersion, signRequest, signaturesMatch } from '#app/captcha/protocol/protocol.js'
+import { RedisService } from '#app/captcha/services/redis.service.js'
 import { ApiBody, ApiResponse, ApiSecurity, ApiTags } from '@nestjs/swagger'
 
 const protocolResponseSchema = {
