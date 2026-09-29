@@ -4,11 +4,12 @@ import { Observable, catchError, mergeMap } from 'rxjs'
 import type { FastifyReply } from 'fastify'
 import { AuditService } from '#app/audit/services/audit.service.js'
 import type { AuditRequest } from '#app/audit/types.js'
-import { sanitizeAuditRequest } from '#app/audit/utils/audit-sanitizer.js'
+import { sanitizeAuditDetail, sanitizeAuditRequest } from '#app/audit/utils/audit-sanitizer.js'
 import { Reflector } from '@nestjs/core'
 import { AUDIT_ACTION } from '#app/audit/decorators/audit.decorator.js'
 import { SECURITY_OPERATION } from '#app/security/decorators/operation.decorator.js'
 import { resolveRiskDecision } from '#app/security/policies/risk-policy.js'
+import { normalizeAuditAction } from '#app/audit/utils/audit-action.js'
 
 @Injectable()
 export class AuditInterceptor implements NestInterceptor {
@@ -27,9 +28,13 @@ export class AuditInterceptor implements NestInterceptor {
     response.header('X-Request-Trace-Id', traceId)
     const path = request.url.split('?')[0]
     const resource = request.routeOptions?.url || request.routerPath || path
-    const action =
-      this.reflector.getAllAndOverride<string>(AUDIT_ACTION, [context.getHandler(), context.getClass()]) || `${request.method} ${resource}`
     const operationCode = request.operationCode || this.reflector.getAllAndOverride<string>(SECURITY_OPERATION, [context.getHandler(), context.getClass()])
+    const action = normalizeAuditAction({
+      action: this.reflector.getAllAndOverride<string>(AUDIT_ACTION, [context.getHandler(), context.getClass()]),
+      operationCode,
+      method: request.method,
+      path: resource,
+    })
     const decision = request.riskDecision || (operationCode ? resolveRiskDecision(operationCode) : null)
     const riskLevel = request.riskLevel || decision?.riskLevel || 'L1'
     const requestDetail = sanitizeAuditRequest(request.query, request.body)
@@ -55,6 +60,7 @@ export class AuditInterceptor implements NestInterceptor {
             statusCode: response.statusCode,
             detail: {
               request: requestDetail,
+              response: sanitizeAuditDetail(value),
               roleTypes: request.user?.roles?.map((role) => role.roleType),
               riskDecision: decision,
             },
@@ -75,6 +81,11 @@ export class AuditInterceptor implements NestInterceptor {
             statusCode: error instanceof Error && 'status' in error && typeof error.status === 'number' ? error.status : 500,
             detail: {
               request: requestDetail,
+              response: sanitizeAuditDetail(
+                typeof error === 'object' && error !== null && 'response' in error
+                  ? (error as { response?: unknown }).response
+                  : { status: error instanceof Error && 'status' in error && typeof error.status === 'number' ? error.status : 500 }
+              ),
               riskDecision: decision,
               error: {
                 status: error instanceof Error && 'status' in error && typeof error.status === 'number' ? error.status : 500,

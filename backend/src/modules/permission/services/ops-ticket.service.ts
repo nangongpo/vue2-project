@@ -22,6 +22,7 @@ import type {
   PatchOpsTicketDto,
 } from '#app/modules/permission/dto/ops-ticket.dto.js'
 import { resolveRiskDecision } from '#app/security/policies/risk-policy.js'
+import { sanitizeAuditDetail } from '#app/audit/utils/audit-sanitizer.js'
 
 const serializable = { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
 const securityTypes = new Set<OpsTicketType>(['MFA_RESET_EMERGENCY', 'PERMISSION_RECOVERY', 'ACCOUNT_RECOVERY'])
@@ -360,9 +361,7 @@ export class OpsTicketService {
         statusCode: 200,
         ip: actor.ip,
         userAgent: actor.userAgent,
-        detail: JSON.parse(
-          JSON.stringify({ targetId, before, after }, (_key, value) => (typeof value === 'bigint' ? value.toString() : value))
-        ),
+        detail: sanitizeAuditDetail({ targetId, before, after }) as Prisma.InputJsonValue,
       },
     })
   }

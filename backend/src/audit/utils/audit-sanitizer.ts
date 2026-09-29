@@ -1,11 +1,33 @@
-const SENSITIVE_KEY =
-  /(password|passwd|token|secret|cookie|authorization|credential|private.?key|access.?key|refresh.?token|otp|recovery.?code|^uri$)/i
+const SENSITIVE_KEYS = new Set([
+  'password',
+  'passwd',
+  'passwordhash',
+  'authorization',
+  'cookie',
+  'setcookie',
+  'token',
+  'accesstoken',
+  'refreshtoken',
+  'captchatoken',
+  'sessionid',
+  'secret',
+  'mfasecret',
+  'clientsecret',
+  'privatekey',
+  'accesskey',
+  'otp',
+  'totp',
+  'recoverycode',
+  'uri',
+])
 const MAX_DEPTH = 4
 const MAX_STRING_LENGTH = 512
 const MAX_COLLECTION_SIZE = 50
 
 export function sanitizeAuditValue(value: unknown, key = '', depth = 0): unknown {
-  if (SENSITIVE_KEY.test(key)) return '[REDACTED]'
+  if (SENSITIVE_KEYS.has(key.toLowerCase().replaceAll('-', '').replaceAll('_', ''))) return '[REDACTED]'
+  if (typeof value === 'bigint') return value.toString()
+  if (value instanceof Date) return value.toISOString()
   if (value === null || value === undefined || typeof value === 'boolean' || typeof value === 'number') return value
   if (typeof value === 'string') return value.length > MAX_STRING_LENGTH ? `${value.slice(0, MAX_STRING_LENGTH)}...[TRUNCATED]` : value
   if (depth >= MAX_DEPTH) return '[TRUNCATED]'
@@ -19,6 +41,12 @@ export function sanitizeAuditValue(value: unknown, key = '', depth = 0): unknown
       }, {})
   }
   return `[${typeof value}]`
+}
+
+/** Sanitize any detail before it is persisted to the audit log. */
+export function sanitizeAuditDetail(value: unknown) {
+  const sanitized = sanitizeAuditValue(value)
+  return sanitized === undefined ? null : sanitized
 }
 
 export function sanitizeAuditRequest(query: unknown, body: unknown) {

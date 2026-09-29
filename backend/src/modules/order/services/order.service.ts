@@ -4,6 +4,7 @@ import { OrderStatus } from '#app/common/types/prisma-enums.js'
 import { randomUUID } from 'node:crypto'
 import { PrismaService } from '#app/database/prisma.service.js'
 import { API_CODE } from '#app/common/constants/api-code.js'
+import { normalizePagination, paginationData } from '#app/common/pagination.js'
 import { ORDER_STATUS_LABELS } from '#app/common/constants/enum-labels.js'
 import { audit, requireActor, serializable, type Actor } from '#app/modules/role/domain/authorization.js'
 import { assertEditable, assertOrderTransition } from '#app/modules/order/domain/order.policy.js'
@@ -70,8 +71,7 @@ export class OrderService {
     actor: Actor
   ) {
     const context = await this.context(actor)
-    const page = input.page || 1
-    const pageSize = input.pageSize || 20
+    const { page, pageSize } = normalizePagination(input)
     const createdAt: Prisma.DateTimeFilter = {}
     if (input.createdFrom) createdAt.gte = new Date(input.createdFrom)
     if (input.createdTo) createdAt.lt = new Date(input.createdTo)
@@ -95,7 +95,11 @@ export class OrderService {
     return {
       code: API_CODE.SUCCESS,
       message: 'success',
-      data: { items: orders.map((order) => this.format(order)), total, page, pageSize },
+      data: paginationData(
+        orders.map((order) => this.format(order)),
+        total,
+        { page, pageSize }
+      ),
     }
   }
 

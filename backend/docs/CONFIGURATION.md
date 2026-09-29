@@ -50,6 +50,7 @@ backend 默认监听 `0.0.0.0:3000`，接口前缀为 `/api/v1`。
 | `CAPTCHA_SERVICE_URL` | `http://127.0.0.1:3100` | captcha-service 内网地址。 |
 | `CAPTCHA_SERVICE_ID` | `backend-admin` | 与 captcha-service 绑定的调用方 ID。 |
 | `CAPTCHA_SERVICE_SECRET` | 随机密钥 | HMAC-SHA256 密钥，必须与 captcha-service 完全一致。禁止提交到 Git。 |
+| `CAPTCHA_LOG_HASH_SECRET` | 随机密钥 | 验证码审计日志脱敏哈希密钥，必须与 captcha-service 使用同一组独立密钥；生产环境至少 32 位，禁止与 `CAPTCHA_SERVICE_SECRET` 复用或提交到 Git。 |
 | `CAPTCHA_SERVICE_TIMEOUT_MS` | `2000` | backend 调用 captcha-service 的超时时间。 |
 | `LOG_LEVEL` | `info` | 日志级别。 |
 | `SEED_SECURITY_USERNAME` / `SEED_SECURITY_PASSWORD` | `security-admin` / 无默认生产密码 | 数据库 seed 创建的第一名初始安全管理员账号及密码，至少 12 位。 |
@@ -62,6 +63,21 @@ backend 默认监听 `0.0.0.0:3000`，接口前缀为 `/api/v1`。
 | `OPS_EXECUTION_SIGNING_SECRET` | 空 | 受控应急执行代理的 HMAC-SHA256 签名密钥，至少 32 个字符；仅在启用应急执行回写时配置。可使用 `openssl rand -hex 32` 生成 64 位密钥，且不得提交到 Git。 |
 | `AUDIT_INTEGRITY_SECRET` | 必填 | 审计日志 HMAC-SHA256 密钥，至少 32 个字符；必须由服务端保管，禁止写入数据库或提交到 Git。更换密钥前需执行受控密钥轮换；开发环境更换密钥后清空旧审计日志。 |
 
+验证码审计事件会写入 backend 的 `sys_audit_log`，使用现有审计日志页面查询。事件操作码包括：
+
+```text
+captcha.challenge.created
+captcha.verify.success
+captcha.verify.failed
+captcha.token.consumed
+captcha.rate_limited
+captcha.service_auth_failed
+captcha.redis_unavailable
+captcha.protocol_rejected
+```
+
+审计详情只保存脱敏后的 `traceId`、`requestId`、`attemptId`、账号标识和来源 IP，以及场景、结果、失败原因、耗时和依赖状态；不得记录 `ServiceSecret`、HMAC 签名、`CaptchaToken`、验证码答案、完整滑动轨迹、Redis Key 或完整 User-Agent。
+
 会话默认策略为：绝对有效期 8 小时、闲置有效期 30 分钟、MFA 完成前的临时会话有效期 5 分钟。活动请求会更新服务端闲置时间，但不得突破绝对有效期；绝对过期前 5 分钟前端允许用户通过账号安全认证受控续签。
 
 ## 与 captcha-service 的对应关系
@@ -73,10 +89,12 @@ backend 默认监听 `0.0.0.0:3000`，接口前缀为 `/api/v1`。
 CAPTCHA_SERVICE_ID=backend-admin
 CAPTCHA_SERVICE_SECRET=同一组随机密钥
 CAPTCHA_SERVICE_URL=http://127.0.0.1:3100
+CAPTCHA_LOG_HASH_SECRET=同一组独立的日志哈希密钥
 
 # captcha-service/.env
 CAPTCHA_SERVICE_ID=backend-admin
 CAPTCHA_SERVICE_SECRET=同一组随机密钥
+CAPTCHA_LOG_HASH_SECRET=同一组独立的日志哈希密钥
 ```
 
 backend 不需要配置 `CAPTCHA_PREFIX`。Prefix 由 captcha-service 的服务端绑定配置决定，仅用于服务端状态隔离；不下发浏览器，也不需要注入前端 `CaptchaConfig`。
@@ -107,9 +125,11 @@ COOKIE_SECURE=true
 
 - 不要把 `.env` 提交到代码仓库或复制到前端项目。
 - `DATABASE_URL`、`REDIS_URL`、`CAPTCHA_SERVICE_SECRET` 应通过密钥管理系统或受保护的环境文件注入。
+- `CAPTCHA_LOG_HASH_SECRET` 必须通过密钥管理系统或受保护的环境文件注入，backend 与 captcha-service 保持一致，但不得与 `CAPTCHA_SERVICE_SECRET` 共用。
 - 生产环境必须设置 `COOKIE_SECURE=true`、`CSRF_ALLOWED_ORIGINS`，并通过 HTTPS 对外提供服务。
 - backend 可以监听公网或网关网络，但 captcha-service 和 Redis 不应暴露公网。
 - 修改验证码凭证后必须同时重启 backend 和 captcha-service。
+- 验证码和审计日志应集中留存不少于六个月，并配置防篡改、定期备份、审计只读权限、独立导出权限、统一时间同步及异常告警。
 
 ## Swagger 文档
 

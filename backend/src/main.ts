@@ -54,6 +54,10 @@ const env = Joi.object({
     .default('http://127.0.0.1:3100'),
   CAPTCHA_SERVICE_ID: Joi.string().min(1).default('backend-admin'),
   CAPTCHA_SERVICE_SECRET: Joi.string().min(1).allow('').default(''),
+  CAPTCHA_LOG_HASH_SECRET: Joi.string()
+    .min(32)
+    .default('development-captcha-log-hash-secret-change-me')
+    .when('NODE_ENV', { is: 'production', then: Joi.string().min(32).required() }),
   CAPTCHA_SERVICE_TIMEOUT_MS: Joi.number().integer().min(200).max(10000).default(2000),
   OPS_EXECUTION_SIGNING_SECRET: Joi.string().min(32).allow('').default(''),
   AUDIT_INTEGRITY_SECRET: Joi.string().min(32).required(),

@@ -32,6 +32,10 @@ const env = Joi.object({
     .pattern(/^[a-z0-9]{4,32}$/)
     .default('yaxbgo'),
   CAPTCHA_SERVICE_BINDINGS: Joi.string().allow('').default(''),
+  CAPTCHA_LOG_HASH_SECRET: Joi.string()
+    .min(32)
+    .default('development-captcha-log-hash-secret-change-me')
+    .when('NODE_ENV', { is: 'production', then: Joi.string().min(32).required() }),
   REDIS_URL: Joi.string()
     .uri({ scheme: ['redis', 'rediss'] })
     .required(),

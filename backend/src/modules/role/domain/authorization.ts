@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { isUUID } from 'class-validator'
 import { resolveRiskDecision } from '#app/security/policies/risk-policy.js'
 import { isCatalogManagementCode, isManagementApiPath, isManagementResource } from '#app/security/policies/permission-catalog/index.js'
+import { sanitizeAuditDetail } from '#app/audit/utils/audit-sanitizer.js'
 
 export type Actor = {
   internalId: bigint
@@ -127,7 +128,7 @@ export async function audit(
       statusCode: action.endsWith('.create') ? 201 : 200,
       ip: actor.ip,
       userAgent: actor.userAgent,
-      detail,
+      detail: sanitizeAuditDetail(detail) as Prisma.InputJsonValue,
     },
   })
 }

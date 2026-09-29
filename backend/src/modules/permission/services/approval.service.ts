@@ -9,6 +9,7 @@ import { HttpAdapterHost } from '@nestjs/core'
 import { ApprovalRequest, Permission, Prisma, Role } from '@prisma/client'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { PrismaService } from '#app/database/prisma.service.js'
+import { sanitizeAuditDetail } from '#app/audit/utils/audit-sanitizer.js'
 import { APPROVAL_KIND_LABELS } from '#app/common/constants/enum-labels.js'
 import { AuthenticatedUser } from '#app/security/types/auth.types.js'
 import {
@@ -1319,7 +1320,7 @@ export class ApprovalService {
         statusCode: action === 'create' ? 201 : 200,
         ip: context.ip,
         userAgent: context.userAgent,
-        detail: json({
+        detail: sanitizeAuditDetail(json({
           targetId: id,
           actorId: actor.internalId,
           actorUserId: actor.userId,
@@ -1328,7 +1329,7 @@ export class ApprovalService {
           ),
           before,
           after,
-        }),
+        })) as Prisma.InputJsonValue,
       },
     })
   }

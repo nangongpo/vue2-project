@@ -27,6 +27,7 @@ pnpm dev:captcha
 | `CAPTCHA_HOST` | `127.0.0.1` | 监听地址；生产环境不要直接使用公网地址。 |
 | `CAPTCHA_SERVICE_ID` | `backend-admin` | 允许调用的 backend 服务 ID。 |
 | `CAPTCHA_SERVICE_SECRET` | 随机密钥 | HMAC-SHA256 密钥，必须与 backend 完全一致；生产环境至少 32 位。 |
+| `CAPTCHA_LOG_HASH_SECRET` | 随机密钥 | 日志脱敏哈希密钥；不得与 ServiceSecret 共用，生产环境至少 32 位。 |
 | `CAPTCHA_PREFIX` | `yaxbgo` | 公开验证码实例标识，不是密码，不参与内部请求签名。 |
 | `CAPTCHA_SERVICE_BINDINGS` | 空 | 可选的多 backend JSON 配置；填写后优先于单组 `CAPTCHA_SERVICE_*` 配置。 |
 | `REDIS_URL` | `redis://127.0.0.1:6379` | Challenge、Token、Nonce 和限流状态存储，必填。 |

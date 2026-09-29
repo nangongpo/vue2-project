@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto'
 import { PrismaService } from '#app/database/prisma.service.js'
 import { ok } from '#app/modules/permission/policies/policy.js'
 import { ENABLEMENT_STATUS_LABELS } from '#app/common/constants/enum-labels.js'
+import { sanitizeAuditDetail } from '#app/audit/utils/audit-sanitizer.js'
 
 type FieldMutationContext = {
   user: { internalId: bigint; userId: string; roles?: unknown[] }
@@ -124,8 +125,7 @@ export class DataFieldService {
             ip: req.ip,
             result: 'SUCCESS',
             statusCode: 201,
-            detail: JSON.parse(JSON.stringify({ actorId: req.user.userId, after }, (_, value) =>
-              typeof value === 'bigint' ? value.toString() : value)),
+            detail: sanitizeAuditDetail({ actorId: req.user.userId, after }) as Prisma.InputJsonValue,
           },
         })
         return ok(fieldView(after))
@@ -175,11 +175,7 @@ export class DataFieldService {
             ip: req.ip,
             result: 'SUCCESS',
             statusCode: 200,
-            detail: JSON.parse(
-              JSON.stringify({ actorId: req.user.userId, before, after }, (_, value) =>
-                typeof value === 'bigint' ? value.toString() : value
-              )
-            ),
+            detail: sanitizeAuditDetail({ actorId: req.user.userId, before, after }) as Prisma.InputJsonValue,
           },
         })
         return ok(fieldView(after))

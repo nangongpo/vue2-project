@@ -11,6 +11,13 @@
           <el-option label="成功" value="SUCCESS" />
           <el-option label="失败" value="FAILURE" />
         </el-select>
+        <el-select v-model="query.operationCode" clearable filterable placeholder="操作码">
+          <el-option
+            v-for="code in captchaOperationCodes"
+            :key="code"
+            :label="code"
+            :value="code" />
+        </el-select>
         <el-date-picker
           v-model="dateRange"
           type="datetimerange"
@@ -127,9 +134,7 @@
           </span>
         </el-descriptions-item>
         <el-descriptions-item label="请求参数" labelClassName="detail-label" :span="2">
-          <pre class="detail-content">
-            {{ formatRequestDetail(selectedLog.detail) }}
-          </pre>
+          <pre class="detail-content">{{ formatRequestDetail(selectedLog.detail) }}</pre>
         </el-descriptions-item>
         <el-descriptions-item
           v-if="
@@ -137,22 +142,14 @@
           "
           label="变更前后"
           :span="2">
-          <pre class="detail-content">{{
-            formatDetail({
-              before: selectedLog.detail.before,
-              after: selectedLog.detail.after,
-              reason: selectedLog.detail.reason,
-            })
-          }}</pre>
+          <pre class="detail-content">{{ formatDetail({ before: selectedLog.detail.before, after: selectedLog.detail.after, reason: selectedLog.detail.reason }) }}</pre>
         </el-descriptions-item>
         <el-descriptions-item
           v-if="selectedLog.detail && selectedLog.detail.error"
           label="错误信息"
           labelClassName="detail-label"
           :span="2">
-          <pre class="detail-content">
-            {{ formatDetail(selectedLog.detail.error) }}
-          </pre>
+          <pre class="detail-content">{{ formatDetail(selectedLog.detail.error) }}</pre>
         </el-descriptions-item>
       </el-descriptions>
       <span slot="footer">
@@ -181,12 +178,27 @@ export default {
       query: {
         keyword: '',
         result: '',
+        operationCode: '',
         from: '',
         to: '',
         page: 1,
         pageSize: 20,
       },
     }
+  },
+  computed: {
+    captchaOperationCodes() {
+      return [
+        'captcha.challenge.created',
+        'captcha.verify.success',
+        'captcha.verify.failed',
+        'captcha.token.consumed',
+        'captcha.rate_limited',
+        'captcha.service_auth_failed',
+        'captcha.redis_unavailable',
+        'captcha.protocol_rejected',
+      ]
+    },
   },
   created() {
     this.loadLogs()
@@ -204,6 +216,7 @@ export default {
           to: this.dateRange[1],
           keyword: this.query.keyword || undefined,
           result: this.query.result || undefined,
+          operationCode: this.query.operationCode || undefined,
         })
         const url = URL.createObjectURL(
           new Blob([result.content], { type: 'text/csv;charset=utf-8' })
@@ -234,6 +247,7 @@ export default {
         const params = {
           ...this.query,
           result: this.query.result || undefined,
+          operationCode: this.query.operationCode || undefined,
           from: this.dateRange[0] || undefined,
           to: this.dateRange[1] || undefined,
         }

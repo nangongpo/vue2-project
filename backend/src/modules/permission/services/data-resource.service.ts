@@ -6,6 +6,7 @@ import { PrismaService } from '#app/database/prisma.service.js'
 import { ok } from '#app/modules/permission/policies/policy.js'
 import { isBusinessDataResource } from '#app/modules/permission/policies/data-resource-policy.js'
 import { ENABLEMENT_STATUS_LABELS } from '#app/common/constants/enum-labels.js'
+import { sanitizeAuditDetail } from '#app/audit/utils/audit-sanitizer.js'
 
 type ResourceMutationContext = {
   user: { internalId: bigint; userId: string }
@@ -126,7 +127,7 @@ export class DataResourceService {
         ip: req.ip,
         result: 'SUCCESS',
         statusCode: 200,
-        detail: JSON.parse(JSON.stringify({ actorId: req.user.userId, before, after })),
+        detail: sanitizeAuditDetail({ actorId: req.user.userId, before, after }) as Prisma.InputJsonValue,
       },
     })
   }

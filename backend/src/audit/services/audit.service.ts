@@ -5,6 +5,8 @@ import { PrismaService } from '#app/database/prisma.service.js'
 import { API_CODE } from '#app/common/constants/api-code.js'
 import { normalizePagination, paginationData } from '#app/common/pagination.js'
 import type { AuditExportQuery, AuditPageQuery, AuditRecordInput } from '#app/audit/types.js'
+import { normalizeAuditAction } from '#app/audit/utils/audit-action.js'
+import { sanitizeAuditDetail } from '#app/audit/utils/audit-sanitizer.js'
 
 const canonicalize = (value: unknown): unknown => {
   if (typeof value === 'bigint') return value.toString()
@@ -57,7 +59,7 @@ export class AuditService {
       statusCode: input.statusCode,
       ip: input.ip ?? null,
       userAgent: input.userAgent ?? null,
-      detail: input.detail ?? null,
+      detail: sanitizeAuditDetail(input.detail),
       createdAt,
     }
     await this.prisma.auditLog.create({
@@ -122,7 +124,19 @@ export class AuditService {
         },
       }),
     ])
-    return { code: API_CODE.SUCCESS, message: 'success', data: paginationData(items, total, pagination) }
+    return {
+      code: API_CODE.SUCCESS,
+      message: 'success',
+      data: paginationData(
+        items.map((item) =>
+          item.action || item.operationCode || item.method || item.path
+            ? { ...item, action: normalizeAuditAction(item) }
+            : item
+        ),
+        total,
+        pagination
+      ),
+    }
   }
 
   async detail(id: string) {
@@ -147,7 +161,11 @@ export class AuditService {
       },
     })
     if (!item) throw new NotFoundException('审计记录不存在')
-    return { code: API_CODE.SUCCESS, message: 'success', data: item }
+    return {
+      code: API_CODE.SUCCESS,
+      message: 'success',
+      data: { ...item, action: normalizeAuditAction(item) },
+    }
   }
 
   async verify(id: string) {
@@ -219,7 +237,7 @@ export class AuditService {
         item.createdAt,
         item.actor?.userId,
         item.actor?.username,
-        item.action,
+        normalizeAuditAction(item),
         item.riskLevel,
         item.resource,
         item.method,

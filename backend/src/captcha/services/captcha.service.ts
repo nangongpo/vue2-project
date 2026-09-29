@@ -2,6 +2,7 @@ import { createHash, createHmac, randomUUID } from 'node:crypto'
 import { HttpException, Injectable, ServiceUnavailableException } from '@nestjs/common'
 import { API_CODE } from '#app/common/constants/api-code.js'
 import { RedisService } from '#app/cache/services/redis.service.js'
+import { AuditService } from '#app/audit/services/audit.service.js'
 export type CaptchaPoint = { x: number; y: number; t: number }
 type Attempt = {
   username: string
@@ -29,7 +30,7 @@ function sign(body: Record<string, unknown>, secret: string) {
 
 @Injectable()
 export class CaptchaService {
-  constructor(private readonly redis: RedisService) {}
+  constructor(private readonly redis: RedisService, private readonly audit?: AuditService) {}
   private readonly baseUrl = (process.env.CAPTCHA_SERVICE_URL || 'http://127.0.0.1:3100').replace(
     /\/$/,
     ''
@@ -46,12 +47,87 @@ export class CaptchaService {
       SignatureMethod: 'HMAC-SHA256',
       SignatureVersion: '1.0',
       SignatureNonce: randomUUID(),
+      TraceId: randomUUID(),
       SceneId: 'login',
       AttemptId: attemptId,
     }
   }
   private normalizeUsername(username: string) {
     return username.trim()
+  }
+  private auditHash(value: unknown) {
+    return createHash('sha256')
+      .update(`${process.env.CAPTCHA_LOG_HASH_SECRET || 'captcha-log-hash-v1'}:${String(value || '')}`)
+      .digest('hex')
+      .slice(0, 32)
+  }
+  private maskIp(value?: string) {
+    if (!value) return undefined
+    if (value.includes(':')) return `${value.split(':').slice(0, 3).join(':')}:*`
+    const parts = value.split('.')
+    return parts.length === 4 ? `${parts.slice(0, 3).join('.')}.*` : '[MASKED]'
+  }
+  private operationCode(path: string, payload: Record<string, unknown>, result: 'SUCCESS' | 'FAILURE') {
+    if (result === 'FAILURE') {
+      return payload.Code === 'RATE_LIMITED'
+        ? 'captcha.rate_limited'
+        : payload.Code === 'SERVICE_AUTH_FAILED'
+          ? 'captcha.service_auth_failed'
+        : payload.Code === 'SERVICE_UNAVAILABLE'
+            ? 'captcha.redis_unavailable'
+            : path.endsWith('/verify') && ['ANSWER_INVALID', 'TRACK_INVALID', 'CHALLENGE_EXPIRED', 'CHALLENGE_NOT_FOUND', 'CONTEXT_MISMATCH'].includes(String(payload.Code || ''))
+              ? 'captcha.verify.failed'
+            : 'captcha.protocol_rejected'
+    }
+    if (path.endsWith('/challenges')) return 'captcha.challenge.created'
+    if (path.endsWith('/verify')) return payload.Verified === true ? 'captcha.verify.success' : 'captcha.verify.failed'
+    return payload.Valid === true ? 'captcha.token.consumed' : 'captcha.verify.failed'
+  }
+  private async auditEvent(input: {
+    path: string
+    body: Record<string, unknown>
+    payload: Record<string, unknown>
+    result: 'SUCCESS' | 'FAILURE'
+    statusCode: number
+    durationMs: number
+  }) {
+    if (!this.audit) return
+    const requestId = String(input.body.RequestId || '')
+    const operationCode = this.operationCode(input.path, input.payload, input.result)
+    try {
+      await this.audit.record({
+        traceId: this.auditHash(String(input.body.TraceId || requestId)),
+        action: operationCode,
+        operationCode,
+        riskLevel: 'L1',
+        resource: 'captcha-service',
+        method: 'INTERNAL',
+        path: input.path,
+        result: input.result,
+        statusCode: input.statusCode,
+        ip: this.maskIp(typeof input.body.ClientIp === 'string' ? input.body.ClientIp : undefined),
+        detail: {
+          service: 'captcha-service',
+          instance: process.env.CAPTCHA_INSTANCE_ID || process.env.HOSTNAME || 'unknown',
+          environment: process.env.NODE_ENV || 'development',
+          action: String(input.body.Action || ''),
+          code: input.payload.Code || 'SUCCESS',
+          requestId: requestId ? this.auditHash(requestId) : undefined,
+          attemptId: input.body.AttemptId ? this.auditHash(input.body.AttemptId) : undefined,
+          subjectHash: input.body.Subject ? this.auditHash(input.body.Subject) : undefined,
+          durationMs: input.durationMs,
+          rateLimited: input.payload.Code === 'RATE_LIMITED',
+          dependency: input.payload.Code === 'SERVICE_UNAVAILABLE' ? 'captcha-service-or-redis' : undefined,
+        },
+      })
+    } catch (error) {
+      console.error(JSON.stringify({
+        service: 'backend',
+        operationCode: 'audit.write.failed',
+        dependency: 'database',
+        error: error instanceof Error ? error.message : String(error),
+      }))
+    }
   }
   private attemptKey(id: string) {
     return `security:captcha:attempt:${id}`
@@ -201,6 +277,7 @@ export class CaptchaService {
     const secret = process.env.CAPTCHA_SERVICE_SECRET
     if (!secret) throw new ServiceUnavailableException('验证码服务密钥未配置')
     let timer: ReturnType<typeof setTimeout> | undefined
+    const startedAt = Date.now()
     try {
       const controller = new AbortController()
       timer = setTimeout(() => controller.abort(), this.timeout)
@@ -228,11 +305,22 @@ export class CaptchaService {
             : status >= 500
             ? API_CODE.INTERNAL_ERROR
             : API_CODE.CAPTCHA_INVALID
+        await this.auditEvent({ path, body, payload, result: 'FAILURE', statusCode: status, durationMs: Date.now() - startedAt })
         throw new HttpException({ code, message: payload.Message || '验证码服务校验失败' }, status)
       }
+      const eventResult = this.operationCode(path, payload, 'SUCCESS').endsWith('.failed') ? 'FAILURE' : 'SUCCESS'
+      await this.auditEvent({ path, body, payload, result: eventResult, statusCode: response.status, durationMs: Date.now() - startedAt })
       return payload as T
     } catch (error) {
       if (error instanceof HttpException) throw error
+      await this.auditEvent({
+        path,
+        body,
+        payload: { Code: 'SERVICE_UNAVAILABLE' },
+        result: 'FAILURE',
+        statusCode: 503,
+        durationMs: Date.now() - startedAt,
+      })
       console.error(
         JSON.stringify({
           service: 'backend',

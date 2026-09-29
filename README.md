@@ -51,13 +51,13 @@ backend 接口统一使用业务码响应。成功码为 `000000`，异常码如
 分页请求统一使用 `page` 和 `pageSize`：
 
 ```http
-GET /api/v1/users?page=1&pageSize=20&keyword=admin
+GET /api/v1/users?page=1&pageSize=10&keyword=admin
 Accept: application/json
 ```
 
 ```text
 page: 正整数，默认 1
-pageSize: 1–100，默认 20
+pageSize: 1–100，默认 10
 ```
 
 JSON 请求体示例：
@@ -114,7 +114,7 @@ Content-Type: application/json
     "items": [],
     "total": 0,
     "page": 1,
-    "pageSize": 20,
+    "pageSize": 10,
     "totalPages": 0
   }
 }

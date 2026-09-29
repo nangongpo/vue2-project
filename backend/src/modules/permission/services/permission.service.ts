@@ -21,6 +21,7 @@ import {
   type RiskLevel,
 } from '#app/security/policies/risk-policy.js'
 import { ENABLEMENT_STATUS_LABELS } from '#app/common/constants/enum-labels.js'
+import { sanitizeAuditDetail } from '#app/audit/utils/audit-sanitizer.js'
 import {
   isCatalogManagementCode,
   isManagementApiPath,
@@ -681,11 +682,7 @@ export class PermissionService {
               ip: req.ip,
               result: 'SUCCESS',
               statusCode: req.method === 'POST' ? 201 : req.method === 'DELETE' ? 204 : 200,
-              detail: JSON.parse(
-                JSON.stringify({ actorId: req.user.userId, roles: req.user.roles, before, after }, (_, value) =>
-                  typeof value === 'bigint' ? value.toString() : value
-                )
-              ),
+              detail: sanitizeAuditDetail({ actorId: req.user.userId, roles: req.user.roles, before, after }) as Prisma.InputJsonValue,
             },
           })
           return ok(after)

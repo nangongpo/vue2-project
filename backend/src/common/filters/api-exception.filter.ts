@@ -6,6 +6,7 @@ import { ApiResponse } from '#app/common/http/api-response.js'
 import { AuditService } from '#app/audit/services/audit.service.js'
 import { sanitizeAuditRequest } from '#app/audit/utils/audit-sanitizer.js'
 import type { RiskLevel } from '#app/security/policies/risk-policy.js'
+import { normalizeAuditAction } from '#app/audit/utils/audit-action.js'
 
 export function codeForStatus(status: number): ApiCode {
   if (status === HttpStatus.BAD_REQUEST) return API_CODE.INVALID_PARAMS
@@ -33,6 +34,7 @@ export class ApiExceptionFilter implements ExceptionFilter {
         riskLevel?: RiskLevel
         riskDecision?: unknown
         operationCode?: string
+        routerPath?: string
         user?: { internalId?: bigint }
       }
       >()
@@ -70,14 +72,19 @@ export class ApiExceptionFilter implements ExceptionFilter {
     response.header('X-Request-Trace-Id', traceId)
     if (!request.auditRecorded && this.audit && status >= HttpStatus.BAD_REQUEST) {
       request.auditRecorded = true
+      const auditPath = request.routeOptions?.url || request.routerPath || request.url.split('?')[0]
       void this.audit
         .record({
           traceId,
           actorId: request.user?.internalId,
           operationCode: request.operationCode,
-          action: `${request.method} ${request.url.split('?')[0]}`,
+          action: normalizeAuditAction({
+            operationCode: request.operationCode,
+            method: request.method,
+            path: auditPath,
+          }),
           riskLevel: request.riskLevel || 'L1',
-          resource: request.url.split('?')[0],
+          resource: auditPath,
           method: request.method,
           path: request.url.split('?')[0],
           result: 'FAILURE',

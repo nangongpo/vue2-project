@@ -17,6 +17,7 @@ import { findBinding, loadBindings } from '#app/captcha/config/config.js'
 import { requiredVersion, signRequest, signaturesMatch } from '#app/captcha/protocol/protocol.js'
 import { RedisService } from '#app/captcha/services/redis.service.js'
 import { ApiBody, ApiResponse, ApiSecurity, ApiTags } from '@nestjs/swagger'
+import { logSecurityEvent } from '#app/captcha/services/security-event.logger.js'
 
 const protocolResponseSchema = {
   type: 'object',
@@ -306,11 +307,31 @@ export class CaptchaController {
     reply: FastifyReply
   ) {
     const requestId = String(body.RequestId || randomUUID())
+    const startedAt = Date.now()
     try {
       if (body.Action !== action) throw new CaptchaError('ACTION_PATH_MISMATCH', '操作与路径不匹配')
       const versionError = requiredVersion(body)
       if (versionError) throw new CaptchaError(versionError, '请求版本不支持')
       const result = await operation(body)
+      const operationCode = action === 'CreateChallenge'
+        ? 'captcha.challenge.created'
+        : action === 'VerifyChallenge'
+          ? result.Verified === true ? 'captcha.verify.success' : 'captcha.verify.failed'
+          : result.Valid === true ? 'captcha.token.consumed' : 'captcha.verify.failed'
+      const eventResult = operationCode.endsWith('.failed') ? 'FAILURE' : 'SUCCESS'
+      logSecurityEvent({
+        operationCode,
+        action,
+        result: eventResult,
+        code: 'SUCCESS',
+        requestId,
+        traceId: String(body.TraceId || requestId),
+        attemptId: String(body.AttemptId || ''),
+        sceneId: String(body.SceneId || ''),
+        clientIp: String(body.ClientIp || ''),
+        subject: String(body.Subject || ''),
+        durationMs: Date.now() - startedAt,
+      })
       reply.status(200)
       return { ApiVersion: '1', ProtocolVersion: '1.0', RequestId: requestId, ...result }
     } catch (e) {
@@ -318,16 +339,31 @@ export class CaptchaController {
         e instanceof CaptchaError
           ? e
           : new CaptchaError('SERVICE_UNAVAILABLE', '验证码服务暂不可用', true)
-      console.error(
-        JSON.stringify({
-          service: 'captcha-service',
-          action,
-          requestId,
-          code: error.code,
-          retryable: error.retryable,
-          timestamp: new Date().toISOString(),
-        })
-      )
+      const operationCode = error.code === 'RATE_LIMITED'
+        ? 'captcha.rate_limited'
+        : error.code === 'SERVICE_AUTH_FAILED'
+          ? 'captcha.service_auth_failed'
+          : error.code === 'SERVICE_UNAVAILABLE'
+            ? 'captcha.redis_unavailable'
+            : action === 'VerifyChallenge' && ['ANSWER_INVALID', 'TRACK_INVALID', 'CHALLENGE_EXPIRED', 'CHALLENGE_NOT_FOUND', 'CONTEXT_MISMATCH'].includes(error.code)
+              ? 'captcha.verify.failed'
+            : 'captcha.protocol_rejected'
+      logSecurityEvent({
+        operationCode,
+        action,
+        result: 'FAILURE',
+        code: error.code,
+        retryable: error.retryable,
+        requestId,
+        traceId: String(body.TraceId || requestId),
+        attemptId: String(body.AttemptId || ''),
+        sceneId: typeof body.SceneId === 'string' ? body.SceneId : undefined,
+        clientIp: typeof body.ClientIp === 'string' ? body.ClientIp : undefined,
+        subject: typeof body.Subject === 'string' ? body.Subject : undefined,
+        durationMs: Date.now() - startedAt,
+        rateLimited: error.code === 'RATE_LIMITED',
+        dependency: error.code === 'SERVICE_UNAVAILABLE' ? 'redis-or-dependency' : undefined,
+      })
       reply.status(
         error.code === 'SERVICE_UNAVAILABLE' ? 503 : error.code === 'RATE_LIMITED' ? 429 : 400
       )

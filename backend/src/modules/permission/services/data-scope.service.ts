@@ -7,6 +7,7 @@ import { effectiveGrant, type ScopeActor } from '#app/security/services/data-sco
 import { ok } from '#app/modules/permission/policies/policy.js'
 import { resolveRiskDecision } from '#app/security/policies/risk-policy.js'
 import { isBusinessDataResource } from '#app/modules/permission/policies/data-resource-policy.js'
+import { sanitizeAuditDetail } from '#app/audit/utils/audit-sanitizer.js'
 
 export type ScopeManagementContext = {
   actor: ScopeActor
@@ -212,7 +213,7 @@ export class DataScopeManagementService {
         statusCode: action === 'grant' ? 201 : 200,
         ip: context.ip,
         userAgent: context.userAgent,
-        detail: { roleId, actorRoleType: 'SECURITY', reason, before, after },
+        detail: sanitizeAuditDetail({ roleId, actorRoleType: 'SECURITY', reason, before, after }) as Prisma.InputJsonValue,
       },
     })
   }

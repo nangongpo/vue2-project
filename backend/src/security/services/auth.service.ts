@@ -14,6 +14,7 @@ import { roleAllowsPermission } from '#app/security/policies/permission-catalog/
 import { AUTHENTICATED_NAVIGATION } from '#app/security/policies/navigation-catalog.js'
 import { PasswordPolicyService } from '#app/security/services/password-policy.service.js'
 import { resolveRiskDecision } from '#app/security/policies/risk-policy.js'
+import { sanitizeAuditDetail } from '#app/audit/utils/audit-sanitizer.js'
 
 export const SESSION_COOKIE = 'app_session'
 export const PREAUTH_COOKIE = 'app_pre_auth'
@@ -418,12 +419,12 @@ export class AuthService {
               statusCode: 200,
               ip: auditContext.ip,
               userAgent: auditContext.userAgent,
-              detail: {
+              detail: sanitizeAuditDetail({
                 targetId: user.userId,
                 passwordChanged: true,
                 sessionsRevoked: true,
                 roleTypes: auditContext.roleTypes || [],
-              },
+              }) as Prisma.InputJsonValue,
             },
           })
         },
