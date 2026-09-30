@@ -69,7 +69,7 @@ describe('AuthService session lifecycle', () => {
     const user = {
       id: 'user-1',
       username: 'admin',
-      passwordHash: 'hash',
+      password: 'hash',
       status: 'ACTIVE',
       failedLogins: 2,
       lockedUntil: null,
@@ -133,7 +133,7 @@ describe('AuthService session lifecycle', () => {
 function transactionFixture() {
   const user = {
     ...session().user,
-    passwordHash: 'old-hash',
+    password: 'old-hash',
     passwordChangedAt: null,
     mfaEnabled: false,
     mfaSecret: null,
@@ -209,7 +209,7 @@ describe('AuthService atomic login concurrency', () => {
     )
   })
   it.each([
-    { passwordHash: 'reset-hash' },
+    { password: 'reset-hash' },
     { status: 'DISABLED' },
     { mfaEnabled: true },
     { mfaSecret: 'rotated' },
@@ -252,7 +252,7 @@ describe('AuthService atomic password change', () => {
     expect(tx.passwordHistory.create).toHaveBeenCalledOnce()
     expect(tx.user.update).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: { passwordHash: 'new-hash', passwordChangedAt: expect.any(Date) },
+        data: { password: 'new-hash', passwordChangedAt: expect.any(Date) },
       })
     )
     expect(tx.session.updateMany).toHaveBeenCalledWith({

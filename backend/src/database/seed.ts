@@ -535,7 +535,7 @@ try {
             where: { username: account.username! },
             create: {
               username: account.username!,
-              passwordHash: account.hash,
+              password: account.hash,
               displayName: account.username!,
             },
             update: {},

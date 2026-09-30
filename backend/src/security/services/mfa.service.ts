@@ -136,7 +136,7 @@ export class MfaService {
   async enroll(userId: bigint, password: string, rawToken?: string) {
     await this.rateLimit(userId, 'password')
     const user = await this.activeUser(userId)
-    if (!(await this.passwords.verify(password, user.passwordHash))) throw new ForbiddenException('密码验证失败')
+    if (!(await this.passwords.verify(password, user.password))) throw new ForbiddenException('密码验证失败')
     if (user.mfaEnabled) throw new BadRequestException('多因素认证已启用')
     if (!(await this.prisma.session.findFirst({ where: this.sessionWhere(userId, rawToken) })))
       throw new UnauthorizedException('登录状态已失效')
@@ -170,7 +170,7 @@ export class MfaService {
           id: userId,
           mfaEnabled: false,
           status: 'ACTIVE',
-          passwordHash: user.passwordHash,
+          password: user.password,
           OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
         },
         data: { mfaSecret: encrypted, mfaEnabled: true, mfaLastStep: step },
@@ -245,7 +245,7 @@ export class MfaService {
   ) {
     await this.rateLimit(userId, 'password')
     const user = await this.activeUser(userId)
-    if (!(await this.passwords.verify(password, user.passwordHash))) throw new ForbiddenException('密码验证失败')
+    if (!(await this.passwords.verify(password, user.password))) throw new ForbiddenException('密码验证失败')
     if (user.mfaEnabled) await this.verify(userId, otp || '')
     const now = new Date()
     const sessionTtl = Number(process.env.SESSION_TTL_SECONDS || 28800)
@@ -256,7 +256,7 @@ export class MfaService {
         where: {
           id: userId,
           status: 'ACTIVE',
-          passwordHash: user.passwordHash,
+          password: user.password,
           mfaEnabled: user.mfaEnabled,
           mfaSecret: user.mfaSecret,
           OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],

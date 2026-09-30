@@ -22,7 +22,7 @@ function fixture() {
   const user = {
     id: 7n,
     username: 'alice',
-    passwordHash: 'hash',
+    password: 'hash',
     status: 'ACTIVE',
     expiresAt: null as Date | null,
     lockedUntil: null,

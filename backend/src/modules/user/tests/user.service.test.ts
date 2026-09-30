@@ -10,7 +10,7 @@ const target = {
   status: 'ACTIVE',
   expiresAt: null,
   lockedUntil: null,
-  passwordHash: 'old-hash',
+  password: 'old-hash',
   passwordChangedAt: new Date(),
 }
 const role = {
@@ -102,7 +102,7 @@ describe('UserService', () => {
     expect(passwords.hash).toHaveBeenCalledWith('Strong-password-123!')
     expect(prisma.user.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ passwordHash: 'hashed-password' }),
+        data: expect.objectContaining({ password: 'hashed-password' }),
       })
     )
     expect(
@@ -266,10 +266,10 @@ describe('UserService', () => {
     })
     expect(prisma.user.update).toHaveBeenCalledWith({
       where: { id: 2n },
-      data: { passwordHash: 'hashed-secret', passwordChangedAt: expect.any(Date) },
+      data: { password: 'hashed-secret', passwordChangedAt: expect.any(Date) },
     })
     expect(prisma.passwordHistory.create).toHaveBeenCalledWith({
-      data: { userId: 2n, passwordHash: 'old-hash', createdAt: expect.any(Date) },
+      data: { userId: 2n, password: 'old-hash', createdAt: expect.any(Date) },
     })
     expect(prisma.session.updateMany).toHaveBeenCalledWith({
       where: { userId: 2n, revokedAt: null },
@@ -285,7 +285,7 @@ describe('UserService', () => {
 
   it.each(['old-hash', 'historical-hash'])('rejects reset reuse of %s even within the minimum age', async (reused) => {
     const prisma = createPrisma()
-    prisma.passwordHistory.findMany.mockResolvedValue([{ passwordHash: 'historical-hash' }] as any)
+    prisma.passwordHistory.findMany.mockResolvedValue([{ password: 'historical-hash' }] as any)
     const passwords = {
       hash: vi.fn(),
       verify: vi.fn(async (_password: string, hash: string) => hash === reused),

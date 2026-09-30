@@ -126,7 +126,7 @@ export class AuthService {
       }
     }
 
-    const valid = await this.passwords.verify(password, user.passwordHash)
+    const valid = await this.passwords.verify(password, user.password)
     if (!valid) {
       const failureLimit = Number(process.env.LOGIN_FAILURE_LIMIT || 5)
       const lockMinutes = Number(process.env.LOGIN_LOCK_MINUTES || 15)
@@ -170,7 +170,7 @@ export class AuthService {
               fresh.status !== 'ACTIVE' ||
               (fresh.expiresAt && fresh.expiresAt <= now) ||
               (fresh.lockedUntil && fresh.lockedUntil > now) ||
-              fresh.passwordHash !== user.passwordHash ||
+              fresh.password !== user.password ||
               fresh.mfaEnabled !== user.mfaEnabled ||
               fresh.mfaSecret !== user.mfaSecret
             ) {
@@ -380,7 +380,7 @@ export class AuthService {
             select: {
               id: true,
               userId: true,
-              passwordHash: true,
+              password: true,
               passwordChangedAt: true,
               status: true,
               expiresAt: true,
@@ -393,7 +393,7 @@ export class AuthService {
             user.status !== 'ACTIVE' ||
             (user.expiresAt && user.expiresAt <= now) ||
             (user.lockedUntil && user.lockedUntil > now) ||
-            !(await this.passwords.verify(currentPassword, user.passwordHash))
+            !(await this.passwords.verify(currentPassword, user.password))
           ) {
             throw new UnauthorizedException('原密码错误或账户已失效')
           }

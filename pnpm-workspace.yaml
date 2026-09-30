@@ -10,6 +10,7 @@ allowBuilds:
   '@prisma/client': true
   '@prisma/engines': true
   prisma: true
+  '@scarf/scarf': false
 
 blockExoticSubdeps: false
 
@@ -18,6 +19,7 @@ minimumReleaseAgeExclude:
   - element-theme-replace@2.0.11
 
 overrides:
+  fastify: 5.11.3
   element-ui: github:nangongpo/element-ui
   vue: github:nangongpo/vue#v2.7.16-security.1
   vue-template-compiler: github:nangongpo/vue#template-compiler-v2.7.16-security.1

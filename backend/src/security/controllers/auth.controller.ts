@@ -162,7 +162,7 @@ export class AuthController {
         user: Record<string, unknown> & { internalId?: string }
       }
     ).user
-    const sensitiveFields = new Set(['internalId', 'apiPermissions', 'mfaSecret', 'mfaLastStep', 'passwordHash'])
+    const sensitiveFields = new Set(['internalId', 'apiPermissions', 'mfaSecret', 'mfaLastStep', 'password'])
     const safeUser = Object.fromEntries(Object.entries(user).filter(([key]) => !sensitiveFields.has(key)))
     const { status, ...publicUser } = safeUser
     const normalizedStatus = typeof status === 'string' ? status : 'DISABLED'

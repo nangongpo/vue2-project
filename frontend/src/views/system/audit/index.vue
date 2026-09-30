@@ -279,7 +279,7 @@ export default {
     },
     sanitizeDetail(value, key = '') {
       const sensitive =
-        /^(password|passwordHash|authorization|cookie|set-cookie|token|accessToken|refreshToken|captchaToken|sessionId|secret|signature)$/i
+        /^(password|password|authorization|cookie|set-cookie|token|accessToken|refreshToken|captchaToken|sessionId|secret|signature)$/i
       if (sensitive.test(key)) return '[已隐藏]'
       if (Array.isArray(value)) return value.map((item) => this.sanitizeDetail(item))
       if (value && typeof value === 'object') {

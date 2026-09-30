@@ -122,11 +122,11 @@ export class UserService {
   async create(input: { username: string; password: string; displayName: string }, actor: Actor) {
     rejectFields(input, ['roleIds', 'status', 'roleType', 'permissionIds'])
     try {
-      const passwordHash = await this.passwords.hash(input.password)
+      const password = await this.passwords.hash(input.password)
       const user = await this.prisma.$transaction(async (tx) => {
         await requireActor(tx, actor)
         const created = await tx.user.create({
-          data: { username: input.username, passwordHash, displayName: input.displayName },
+          data: { username: input.username, password, displayName: input.displayName },
           select: userSelect,
         })
         await audit(tx, actor, 'system.user.create', created.userId, null, created)
@@ -162,7 +162,7 @@ export class UserService {
         await requireActor(tx, actor)
         const user = await tx.user.findUnique({
           where: { userId: id },
-          select: { id: true, passwordHash: true, passwordChangedAt: true, ...userSelect },
+          select: { id: true, password: true, passwordChangedAt: true, ...userSelect },
         })
         if (!user) throw new NotFoundException('用户不存在')
         if (user.id === actor.internalId) throw new ForbiddenException('请通过本人密码修改接口操作')

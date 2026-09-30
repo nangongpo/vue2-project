@@ -3,6 +3,7 @@ import { timingSafeEqual } from 'node:crypto'
 import { loadEnvFile } from 'node:process'
 import { BadRequestException, ValidationPipe } from '@nestjs/common'
 import { NestFactory, Reflector } from '@nestjs/core'
+import fastifyCookie from '@fastify/cookie'
 import helmet from '@fastify/helmet'
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify'
 import { AppModule } from '#app/app.module.js'
@@ -90,8 +91,7 @@ if (env.value.NODE_ENV === 'production' && env.value.ENABLE_CSP !== true) {
 }
 if (
   env.value.NODE_ENV === 'production' &&
-  (env.value.SWAGGER_ADMIN_PASSWORD === 'change-this-swagger-password' ||
-    env.value.SWAGGER_ADMIN_PASSWORD.length < 12)
+  (env.value.SWAGGER_ADMIN_PASSWORD === 'change-this-swagger-password' || env.value.SWAGGER_ADMIN_PASSWORD.length < 12)
 ) {
   throw new Error('生产环境必须配置至少 12 位且非默认的 SWAGGER_ADMIN_PASSWORD')
 }
@@ -105,12 +105,9 @@ if (env.value.NODE_ENV === 'production') {
   } catch {
     throw new Error('生产环境必须配置有效的 PUBLIC_HTTPS_ORIGIN')
   }
-  if (publicOrigin.protocol !== 'https:')
-    throw new Error('生产环境 PUBLIC_HTTPS_ORIGIN 必须使用 HTTPS')
-  if (!env.value.TRUST_PROXY)
-    throw new Error('生产环境必须显式配置 TRUST_PROXY=true，以校验反向代理的 HTTPS 协议')
-  if (env.value.COOKIE_DOMAIN)
-    throw new Error('生产环境 COOKIE_DOMAIN 必须留空，避免扩大会话 Cookie 的作用域')
+  if (publicOrigin.protocol !== 'https:') throw new Error('生产环境 PUBLIC_HTTPS_ORIGIN 必须使用 HTTPS')
+  if (!env.value.TRUST_PROXY) throw new Error('生产环境必须显式配置 TRUST_PROXY=true，以校验反向代理的 HTTPS 协议')
+  if (env.value.COOKIE_DOMAIN) throw new Error('生产环境 COOKIE_DOMAIN 必须留空，避免扩大会话 Cookie 的作用域')
   const origins = env.value.CSRF_ALLOWED_ORIGINS.split(',').map((item: string) => item.trim())
   for (const origin of origins) {
     let parsed: URL
@@ -140,7 +137,7 @@ async function bootstrap() {
     new FastifyAdapter({ logger: false, trustProxy: env.value.TRUST_PROXY })
   )
 
-  await app.register((await import('@fastify/cookie')).default)
+  await app.register(fastifyCookie)
   await app.register(helmet, {
     contentSecurityPolicy: enableCsp
       ? {
@@ -179,9 +176,7 @@ async function bootstrap() {
     },
     required: ['code', 'message', 'data'],
   }
-  for (const pathItem of Object.values(swaggerDocument.paths || {}) as Array<
-    Record<string, unknown>
-  >) {
+  for (const pathItem of Object.values(swaggerDocument.paths || {}) as Array<Record<string, unknown>>) {
     for (const operation of Object.values(pathItem) as Array<{
       responses?: Record<string, { content?: unknown }>
     }>) {
@@ -203,8 +198,7 @@ async function bootstrap() {
     code: (status: number) => {
       header: (name: string, value: string) => { send: (body: string) => void }
     }
-  }) =>
-    reply.code(401).header('WWW-Authenticate', 'Basic realm="backend Swagger"').send('Unauthorized')
+  }) => reply.code(401).header('WWW-Authenticate', 'Basic realm="backend Swagger"').send('Unauthorized')
   app
     .getHttpAdapter()
     .getInstance()
@@ -228,15 +222,9 @@ async function bootstrap() {
       const matches = (actual: string, expected: string) => {
         const actualBuffer = Buffer.from(actual)
         const expectedBuffer = Buffer.from(expected)
-        return (
-          actualBuffer.length === expectedBuffer.length &&
-          timingSafeEqual(actualBuffer, expectedBuffer)
-        )
+        return actualBuffer.length === expectedBuffer.length && timingSafeEqual(actualBuffer, expectedBuffer)
       }
-      if (
-        !matches(username, env.value.SWAGGER_ADMIN_USERNAME) ||
-        !matches(password, env.value.SWAGGER_ADMIN_PASSWORD)
-      )
+      if (!matches(username, env.value.SWAGGER_ADMIN_USERNAME) || !matches(password, env.value.SWAGGER_ADMIN_PASSWORD))
         return unauthorized(reply)
     })
   SwaggerModule.setup('docs', app, swaggerDocument, {
@@ -254,15 +242,12 @@ async function bootstrap() {
   app
     .getHttpAdapter()
     .getInstance()
-    .addHook(
-      'onRequest',
-      async (request: { headers: Record<string, string | string[] | undefined> }) => {
-        const unsupported = Object.keys(request.headers).find(
-          (name) => name.startsWith('x-') && !allowedCustomHeaders.has(name)
-        )
-        if (unsupported) throw new BadRequestException(`不支持的请求头: ${unsupported}`)
-      }
-    )
+    .addHook('onRequest', async (request: { headers: Record<string, string | string[] | undefined> }) => {
+      const unsupported = Object.keys(request.headers).find(
+        (name) => name.startsWith('x-') && !allowedCustomHeaders.has(name)
+      )
+      if (unsupported) throw new BadRequestException(`不支持的请求头: ${unsupported}`)
+    })
   if (isProduction && enableHttps) {
     app
       .getHttpAdapter()
@@ -283,9 +268,7 @@ async function bootstrap() {
   )
   app.useGlobalInterceptors(new TraceIdInterceptor())
   app.useGlobalInterceptors(new FieldSecurityInterceptor(new Reflector()))
-  app.useGlobalInterceptors(
-    new DataFieldSecurityInterceptor(new Reflector(), app.get(PrismaService))
-  )
+  app.useGlobalInterceptors(new DataFieldSecurityInterceptor(new Reflector(), app.get(PrismaService)))
   app.useGlobalInterceptors(new ApiResponseInterceptor())
   app.useGlobalFilters(new ApiExceptionFilter(app.get(AuditService)))
 

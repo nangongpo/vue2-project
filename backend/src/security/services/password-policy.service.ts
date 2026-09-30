@@ -22,7 +22,7 @@ export function assertPasswordStrength(password: string) {
     throw new BadRequestException('密码需包含大小写字母、数字、符号中至少三类，或使用至少 20 个字符、四个不同词语的口令短语')
 }
 
-type PasswordState = { id: bigint; passwordHash: string; passwordChangedAt: Date | null }
+type PasswordState = { id: bigint; password: string; passwordChangedAt: Date | null }
 
 @Injectable()
 export class PasswordPolicyService {
@@ -42,15 +42,15 @@ export class PasswordPolicyService {
       where: { userId: user.id },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: PASSWORD_HISTORY_LIMIT,
-      select: { passwordHash: true },
+      select: { password: true },
     })
     // Compare plaintext against each independently salted, one-way hash.
-    for (const hash of [user.passwordHash, ...history.map((entry) => entry.passwordHash)]) {
+    for (const hash of [user.password, ...history.map((entry) => entry.password)]) {
       if (await this.passwords.verify(password, hash)) throw new BadRequestException('不能重复使用当前或最近 5 次历史密码')
     }
-    const passwordHash = await this.passwords.hash(password)
+    const hashedPassword = await this.passwords.hash(password)
     await tx.passwordHistory.create({
-      data: { userId: user.id, passwordHash: user.passwordHash, createdAt: now },
+      data: { userId: user.id, password: user.password, createdAt: now },
     })
     const retained = await tx.passwordHistory.findMany({
       where: { userId: user.id },
@@ -61,6 +61,6 @@ export class PasswordPolicyService {
     await tx.passwordHistory.deleteMany({
       where: { userId: user.id, id: { notIn: retained.map((entry) => entry.id) } },
     })
-    await tx.user.update({ where: { id: user.id }, data: { passwordHash, passwordChangedAt: now } })
+    await tx.user.update({ where: { id: user.id }, data: { password: hashedPassword, passwordChangedAt: now } })
   }
 }

@@ -67,4 +67,4 @@ pnpm --filter backend db:migrate
 
 `db:deploy` 没有业务级自动回滚，MySQL DDL 也不应假设具备完整事务回滚能力。迁移失败时保留现场并检查 `_prisma_migrations`，不要编辑已应用的迁移或执行 `db:reset`；回滚应使用经验证的备份恢复，或提交新的前向修复迁移。
 
-当前仓库只保留一个可从空库执行的基线迁移：`prisma/migrations/20260927190000_baseline/migration.sql`。新环境直接执行 `db:deploy`；已有 `_prisma_migrations` 记录的数据库不得直接删除迁移历史后重新部署。切换到基线前必须先备份、执行 preflight，并由 DBA 按实际表结构和迁移记录制定一次性基线切换方案。
+当前仓库只保留一个可从空库执行的初始化迁移：`prisma/migrations/20260930000000_initial_schema/migration.sql`。新环境直接执行 `db:deploy`；已有旧 `_prisma_migrations` 记录的数据库不得直接删除迁移历史后重新部署。切换到新基线前必须先备份、执行 preflight，并由 DBA 按实际表结构和迁移记录制定一次性基线切换方案。

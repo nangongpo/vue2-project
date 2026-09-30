@@ -165,8 +165,8 @@ export default {
       loginError: '',
       sliderCaptcha: null,
       loginModel: {
-        username: 'admin',
-        password: 'admin@123456',
+        username: '',
+        password: '',
         otp: '',
       },
     }
@@ -183,6 +183,12 @@ export default {
         return ''
       }
     },
+  },
+  created() {
+    if (import.meta.env.DEV) {
+      this.loginModel.username = 'admin'
+      this.loginModel.password = 'admin@123456'
+    }
   },
   methods: {
     async finishLogin() {

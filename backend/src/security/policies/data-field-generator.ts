@@ -6,7 +6,6 @@ import { allowedRoleTypesForPermission } from '#app/security/policies/permission
 
 const SENSITIVE_FIELDS = new Set([
   'password',
-  'passwordHash',
   'mfaSecret',
   'secret',
   'secretKey',

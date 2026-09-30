@@ -247,7 +247,7 @@ PATCH /permission/data-resources/:id/disable
 
 按钮初始化时，操作标识来自代码中的显式 `actionKey`，不会从 `button.*` 权限码拆分生成。修改权限码、路由或按钮标识必须走受控迁移，旧权限不得直接复用。
 
-数据库基线位于 [`prisma/migrations/20260928050000_baseline/migration.sql`](../prisma/migrations/20260928050000_baseline/migration.sql)，由当前 Prisma schema 重新生成。验证脚本只用于独立测试库，不在本文档中修改其逻辑。
+数据库初始化迁移位于 [`prisma/migrations/20260930000000_initial_schema/migration.sql`](../prisma/migrations/20260930000000_initial_schema/migration.sql)，由当前 Prisma schema 重新生成。`permission-preflight.sql` 和 `scripts/verify-permission-migration.js` 均为只读完整性校验，只检查现有数据表结构，不创建、删除或重置数据库。
 
 ## 十、前端接入原则
 

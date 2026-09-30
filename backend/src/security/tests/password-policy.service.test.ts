@@ -29,7 +29,7 @@ describe('password strength', () => {
 })
 
 function fixture(changedAt: Date | null = null) {
-  const user = { id: 1n, passwordHash: 'current', passwordChangedAt: changedAt }
+  const user = { id: 1n, password: 'current', passwordChangedAt: changedAt }
   const passwords = {
     verify: vi.fn().mockResolvedValue(false),
     hash: vi.fn().mockResolvedValue('next-salted-hash'),
@@ -39,7 +39,7 @@ function fixture(changedAt: Date | null = null) {
     passwordHistory: {
       findMany: vi
         .fn()
-        .mockResolvedValueOnce([{ passwordHash: 'old' }])
+        .mockResolvedValueOnce([{ password: 'old' }])
         .mockResolvedValueOnce([{ id: 6n }, { id: 5n }, { id: 4n }, { id: 3n }, { id: 2n }]),
       create: vi.fn(),
       deleteMany: vi.fn(),
@@ -57,14 +57,14 @@ describe.sequential('PasswordPolicyService', () => {
       ['New-password-123!', 'old'],
     ])
     expect(tx.passwordHistory.create).toHaveBeenCalledWith({
-      data: { userId: 1n, passwordHash: 'current', createdAt: expect.any(Date) },
+      data: { userId: 1n, password: 'current', createdAt: expect.any(Date) },
     })
     expect(tx.passwordHistory.deleteMany).toHaveBeenCalledWith({
       where: { userId: 1n, id: { notIn: [6n, 5n, 4n, 3n, 2n] } },
     })
     expect(tx.user.update).toHaveBeenCalledWith({
       where: { id: 1n },
-      data: { passwordHash: 'next-salted-hash', passwordChangedAt: expect.any(Date) },
+      data: { password: 'next-salted-hash', passwordChangedAt: expect.any(Date) },
     })
   })
   it.each(['current', 'old'])('rejects reuse of %s without writing', async (reused) => {
@@ -78,8 +78,8 @@ describe.sequential('PasswordPolicyService', () => {
     const passwords = new PasswordService()
     const old = await passwords.hash('Old-password-123!')
     const { user, tx } = fixture()
-    user.passwordHash = await passwords.hash('Current-password-123!')
-    tx.passwordHistory.findMany.mockReset().mockResolvedValue([{ passwordHash: old }])
+    user.password = await passwords.hash('Current-password-123!')
+    tx.passwordHistory.findMany.mockReset().mockResolvedValue([{ password: old }])
     await expect(new PasswordPolicyService(passwords).replace(tx as any, user, 'Old-password-123!')).rejects.toThrow('历史密码')
   }, 20_000)
   it('rejects changes before 24 hours, including future timestamps', async () => {
