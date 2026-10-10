@@ -2,6 +2,7 @@ export type ApiDisplayLabel = {
   name: string
   buttonLabel?: string
 }
+export type AvailableAction = { code: string; label: string }
 
 /**
  * Single source of truth for API permission names and management-button labels.
@@ -36,23 +37,23 @@ export const API_DISPLAY_LABELS: Readonly<Record<string, ApiDisplayLabel>> = {
   'system.api.references': { name: '查询接口引用' },
   'system.api.delete': { name: '删除接口权限', buttonLabel: '删除接口' },
   'system.user.read': { name: '查询用户' },
-  'system.user.create': { name: '新增用户', buttonLabel: '新增用户' },
-  'system.user.update': { name: '编辑用户', buttonLabel: '编辑用户' },
-  'system.user.enable': { name: '启用用户', buttonLabel: '启用用户' },
-  'system.user.disable': { name: '停用用户', buttonLabel: '停用用户' },
+  'system.user.create': { name: '新增用户', buttonLabel: '新增' },
+  'system.user.update': { name: '编辑用户', buttonLabel: '编辑' },
+  'system.user.enable': { name: '启用用户', buttonLabel: '启用' },
+  'system.user.disable': { name: '停用用户', buttonLabel: '停用' },
   'system.user.reset-password': { name: '重置用户密码', buttonLabel: '重置密码' },
-  'system.user.unlock': { name: '解除锁定用户', buttonLabel: '解除锁定' },
-  'system.user.grant': { name: '分配用户角色', buttonLabel: '分配角色' },
+  'system.user.unlock': { name: '解除锁定用户', buttonLabel: '解锁' },
+  'system.user.grant': { name: '分配用户角色', buttonLabel: '分配' },
   'system.role.read': { name: '查询角色' },
-  'system.role.create': { name: '新增角色', buttonLabel: '新增角色' },
-  'system.role.update': { name: '编辑角色', buttonLabel: '编辑角色' },
-  'system.role.enable': { name: '启用角色', buttonLabel: '启用角色' },
-  'system.role.disable': { name: '停用角色', buttonLabel: '停用角色' },
+  'system.role.create': { name: '新增角色', buttonLabel: '新增' },
+  'system.role.update': { name: '编辑角色', buttonLabel: '编辑' },
+  'system.role.enable': { name: '启用角色', buttonLabel: '启用' },
+  'system.role.disable': { name: '停用角色', buttonLabel: '停用' },
   'system.role.options': { name: '查询角色权限选项' },
   'system.role.assignment-options': { name: '查询角色分配选项' },
   'system.role.grants.read': { name: '查询角色权限' },
-  'system.role.grant': { name: '配置角色权限', buttonLabel: '配置角色权限' },
-  'system.role.delete': { name: '删除角色', buttonLabel: '删除角色' },
+  'system.role.grant': { name: '配置角色权限', buttonLabel: '授权' },
+  'system.role.delete': { name: '删除角色', buttonLabel: '删除' },
   'system.audit.read': { name: '查询审计日志' },
   'system.audit.detail': { name: '查看审计详情' },
   'system.audit.integrity': { name: '校验日志完整性', buttonLabel: '校验日志完整性' },
@@ -67,7 +68,7 @@ export const API_DISPLAY_LABELS: Readonly<Record<string, ApiDisplayLabel>> = {
   'system.approval.review': { name: '审计复核审批', buttonLabel: '审计复核' },
   'system.approval.cancel': { name: '撤回审批申请', buttonLabel: '撤回审批申请' },
   'system.data-scope.read': { name: '查询角色数据范围' },
-  'system.data-scope.update': { name: '新增角色数据范围', buttonLabel: '调整数据范围' },
+  'system.data-scope.update': { name: '新增角色数据范围', buttonLabel: '数据范围' },
   'system.data-scope.revoke': { name: '撤销角色数据范围', buttonLabel: '撤销数据范围' },
   'system.field.read': { name: '查询字段权限' },
   'system.field.create': { name: '新增字段权限', buttonLabel: '新增字段权限' },
@@ -80,7 +81,26 @@ export const API_DISPLAY_LABELS: Readonly<Record<string, ApiDisplayLabel>> = {
   'system.data-resource.enable': { name: '启用数据资源', buttonLabel: '启用数据对象' },
   'system.data-resource.disable': { name: '停用数据资源', buttonLabel: '停用数据对象' },
   'system.operation-policy.read': { name: '查询操作策略' },
+  'system.file.upload': { name: '上传文件', buttonLabel: '上传文件' },
+  'system.file.upload.status': { name: '查询文件上传状态' },
+  'system.file.upload.complete': { name: '完成文件上传', buttonLabel: '完成文件上传' },
+  'system.file.upload.abort': { name: '中止文件上传', buttonLabel: '中止文件上传' },
+  'system.file.download': { name: '下载文件', buttonLabel: '下载文件' },
+  'system.file.admin.read': { name: '查询文件管理列表' },
+  'system.file.admin.detail': { name: '查看文件详情' },
+  'system.file.admin.scan': { name: '重新扫描文件', buttonLabel: '重新扫描' },
+  'system.file.admin.reject': { name: '拒绝文件', buttonLabel: '拒绝文件' },
+  'system.file.admin.delete': { name: '删除文件', buttonLabel: '删除文件' },
+  'system.file.admin.restore': { name: '恢复文件', buttonLabel: '恢复文件' },
+  'file.upload.initiate': { name: '创建文件上传会话', buttonLabel: '开始上传' },
+  'file.upload.read': { name: '查询文件上传列表' },
+  'file.upload.part': { name: '上传文件分片', buttonLabel: '上传文件分片' },
+  'file.upload.status': { name: '查询文件上传状态', buttonLabel: '查询上传状态' },
+  'file.upload.complete': { name: '完成文件上传', buttonLabel: '完成文件上传' },
+  'file.upload.abort': { name: '中止文件上传', buttonLabel: '中止文件上传' },
+  'file.download': { name: '下载业务文件' },
   'system.ops-ticket.read': { name: '查询应急工单' },
+  'system.ops-ticket.options': { name: '查询应急工单选项' },
   'system.ops-ticket.detail': { name: '查看应急工单详情' },
   'system.ops-ticket.create': { name: '新建应急工单', buttonLabel: '新建应急工单' },
   'system.ops-ticket.update': { name: '编辑应急工单', buttonLabel: '编辑应急工单' },
@@ -91,11 +111,6 @@ export const API_DISPLAY_LABELS: Readonly<Record<string, ApiDisplayLabel>> = {
   'system.ops-ticket.cancel': { name: '取消应急工单', buttonLabel: '取消应急工单' },
   'system.ops-ticket.evidence.create': { name: '补充工单证据', buttonLabel: '补充工单证据' },
   'system.ops-ticket.execution.create': { name: '新增执行记录', buttonLabel: '新增执行记录' },
-  'order.read': { name: '查询订单' },
-  'order.create': { name: '创建订单' },
-  'order.update': { name: '编辑订单' },
-  'order.confirm': { name: '确认订单' },
-  'order.cancel': { name: '取消订单' },
 }
 
 export function apiNameLabel(code: string): string {
@@ -108,4 +123,8 @@ export function apiButtonLabel(code: string): string {
   const label = API_DISPLAY_LABELS[code]?.buttonLabel
   if (!label) throw new Error(`按钮接口未配置显示文案：${code}`)
   return label
+}
+
+export function availableAction(code: string, permissionCode = code): AvailableAction {
+  return { code, label: apiButtonLabel(permissionCode) }
 }

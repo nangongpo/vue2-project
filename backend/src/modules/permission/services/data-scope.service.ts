@@ -8,6 +8,7 @@ import { ok } from '#app/modules/permission/policies/policy.js'
 import { resolveRiskDecision } from '#app/security/policies/risk-policy.js'
 import { isBusinessDataResource } from '#app/modules/permission/policies/data-resource-policy.js'
 import { sanitizeAuditDetail } from '#app/audit/utils/audit-sanitizer.js'
+import { DATA_SCOPE_TYPE_LABELS } from '#app/common/constants/enum-labels.js'
 
 export type ScopeManagementContext = {
   actor: ScopeActor
@@ -99,9 +100,13 @@ export class DataScopeManagementService {
           ...role,
           dataScopes: role.dataScopes.map((scope) => ({
             ...scope,
+            scopeTypeLabel: DATA_SCOPE_TYPE_LABELS[scope.scopeType],
             resourceName: scope.resourceDefinition.name,
             resourceDefinition: undefined,
           })),
+          meta: {
+            scopeTypeOptions: Object.entries(DATA_SCOPE_TYPE_LABELS).map(([value, label]) => ({ value, label })),
+          },
         })
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
@@ -143,6 +148,7 @@ export class DataScopeManagementService {
           roleId,
           resource: scope.resource,
           scopeType: scope.scopeType,
+          scopeTypeLabel: DATA_SCOPE_TYPE_LABELS[scope.scopeType],
           expiresAt: scope.expiresAt,
         })
       },

@@ -4,6 +4,8 @@
 
 本文档是权限码命名的唯一规范。权限体系的表结构和判定流程见 [PERMISSION_DESIGN.md](PERMISSION_DESIGN.md)，业务需求和验收标准见 [REQUIREMENTS.md](REQUIREMENTS.md)。
 
+本文档不定义运行时授权、数据范围或审批 API；这些规则只能在对应权威契约中维护。
+
 ## 1. 总体规则
 
 ### 1.1 字符和长度

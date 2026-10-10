@@ -10,7 +10,12 @@ import { ApprovalRequest, Permission, Prisma, Role } from '@prisma/client'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { PrismaService } from '#app/database/prisma.service.js'
 import { sanitizeAuditDetail } from '#app/audit/utils/audit-sanitizer.js'
-import { APPROVAL_KIND_LABELS } from '#app/common/constants/enum-labels.js'
+import {
+  APPROVAL_DEADLINE_STATUS_LABELS,
+  APPROVAL_KIND_LABELS,
+  APPROVAL_STATUS_LABELS,
+} from '#app/common/constants/enum-labels.js'
+import { availableAction } from '#app/common/constants/api-name-labels.js'
 import { AuthenticatedUser } from '#app/security/types/auth.types.js'
 import {
   ApiRouteChangePayload,
@@ -26,10 +31,12 @@ import {
   CreateApprovalDto,
   ElevatedRevokePayload,
   ElevatedScopePayload,
+  FileActionPayload,
   MfaResetPayload,
   RoleGrantPayload,
   RoleStatusPayload,
   RolePermissionsPayload,
+  type ApprovalKindInput,
   approvalDto,
   approvalPayload,
 } from '#app/modules/permission/dto/approval.dto.js'
@@ -59,9 +66,47 @@ export const APPROVAL_TTL_MS: Record<string, number> = {
   API_ROUTE_CHANGE: APPROVAL_MAX_TTL_MS,
   PAGE_ENABLE: APPROVAL_MAX_TTL_MS,
   PAGE_DISABLE: APPROVAL_MAX_TTL_MS,
+  FILE_DELETE: APPROVAL_MAX_TTL_MS,
+  FILE_REJECT: APPROVAL_MAX_TTL_MS,
+  FILE_RESTORE: APPROVAL_MAX_TTL_MS,
+  FILE_RESCAN: APPROVAL_MAX_TTL_MS,
 }
+const APPROVAL_FORM_FIELDS: Record<string, readonly string[]> = {
+  ROLE_GRANT: ['USER', 'ROLE'],
+  ROLE_STATUS: ['ROLE', 'ROLE_STATUS'],
+  ROLE_PERMISSIONS: ['ROLE', 'PERMISSIONS'],
+  API_ROUTE_CHANGE: ['API_ROUTE'],
+  ELEVATED_SCOPE: ['ROLE', 'ELEVATED_SCOPE'],
+  ROLE_REVOKE: ['USER', 'ROLE'],
+  ROLE_PERMISSION_REVOKE: ['ROLE', 'PERMISSIONS'],
+  ELEVATED_REVOKE: ['SCOPE_ID'],
+  MFA_RESET: ['USER', 'MFA_WARNING'],
+}
+const APPROVAL_CREATE_PERMISSION: Record<string, string> = {
+  ROLE_GRANT: 'system.role.grant',
+  ROLE_STATUS: 'system.role.disable',
+  ROLE_PERMISSIONS: 'system.role.grant',
+  API_ROUTE_CHANGE: 'system.api.update',
+  ELEVATED_SCOPE: 'system.role.grant',
+  ROLE_REVOKE: 'system.role.revoke',
+  ROLE_PERMISSION_REVOKE: 'system.role.revoke',
+  ELEVATED_REVOKE: 'system.role.revoke',
+  MFA_RESET: 'system.user.mfa-reset',
+}
+const APPROVAL_HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const
+const APPROVAL_TARGET_TYPES = [
+  { value: 'USER', label: '用户' },
+  { value: 'DEPARTMENT', label: '部门' },
+  { value: 'ORGANIZATION', label: '组织' },
+  { value: 'TENANT', label: '租户' },
+] as const
+const APPROVAL_SCOPE_TYPES = [
+  { value: 'CUSTOM', label: '指定目标' },
+  { value: 'ALL', label: '全部目标' },
+] as const
 export const APPROVAL_REAUTH_MS = RISK_PROOF_TTL_MS
 export { APPROVAL_KIND_LABELS }
+export { APPROVAL_STATUS_LABELS }
 export type ApprovalActor = AuthenticatedUser
 export type ApprovalContext = {
   traceId?: string
@@ -70,13 +115,18 @@ export type ApprovalContext = {
   path?: string
   userAgent?: string
 }
+export type ApprovalExecutionHandler = (
+  tx: Tx,
+  request: ApprovalRequest,
+  payload: FileActionPayload,
+  actor: ApprovalActor,
+  now: Date,
+) => Promise<{ before: unknown; after: unknown }>
 type Tx = Prisma.TransactionClient
 type Step = 'approve' | 'execute' | 'review'
-type ActorRoleProfile = { roleId: string; code: string; name: string; roleType: string }
 type ActorProfile = {
   userId: string
   displayName: string
-  roles: Array<{ role: ActorRoleProfile }>
 }
 const AUDIT_READ_CODES = new Set([
   'system.audit.read',
@@ -107,6 +157,10 @@ const apiMutationPermission = (kind?: string) =>
       PAGE_ENABLE: 'system.page.enable',
       PAGE_DISABLE: 'system.page.disable',
       PAGE_ROUTE_CHANGE: 'system.page.update',
+      FILE_DELETE: 'system.file.admin.delete',
+      FILE_REJECT: 'system.file.admin.reject',
+      FILE_RESTORE: 'system.file.admin.restore',
+      FILE_RESCAN: 'system.file.admin.scan',
     } as Record<string, string>
   )[kind || ''])
 const REQUEST_NO_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
@@ -132,7 +186,13 @@ const TARGET_FOREIGN_KEY = {
 
 @Injectable()
 export class ApprovalService {
+  private readonly executionHandlers = new Map<string, ApprovalExecutionHandler>()
+
   constructor(private readonly prisma: PrismaService, private readonly http?: HttpAdapterHost) {}
+
+  registerExecutionHandler(kind: ApprovalKindInput, handler: ApprovalExecutionHandler) {
+    this.executionHandlers.set(kind, handler)
+  }
 
   private authorize(
     actor: ApprovalActor,
@@ -375,6 +435,30 @@ export class ApprovalService {
     })
   }
 
+  /**
+   * 业务操作进入受控审批时的统一提交入口。
+   * 业务服务只提供审批类型、目标载荷和原因，不重复计算期限和组装请求。
+   */
+  async createInternal(
+    kind: CreateApprovalDto['kind'],
+    payload: Record<string, unknown>,
+    reason: string,
+    actor: ApprovalActor,
+    context: ApprovalContext = {}
+  ) {
+    const ttl = APPROVAL_TTL_MS[kind] || APPROVAL_MAX_TTL_MS
+    return this.create(
+      {
+        kind,
+        reason,
+        expiresAt: new Date(Date.now() + ttl).toISOString(),
+        payload,
+      },
+      actor,
+      context
+    )
+  }
+
   private assertExternalTargetRefs(kind: string, payload: Record<string, unknown>) {
     const required =
       kind === 'MFA_RESET'
@@ -444,19 +528,57 @@ export class ApprovalService {
       ...(dto.cursor ? { cursor: { id: dto.cursor }, skip: 1 } : {}),
     })
     return ok({
-      items: await this.withActorProfiles(items.slice(0, 50), false),
+      items: await this.withActorProfiles(items.slice(0, 50), false, actor),
       nextCursor: items.length > 50 ? items[49].id : null,
+      meta: {
+        statusOptions: Object.entries(APPROVAL_STATUS_LABELS).map(([value, label]) => ({ value, label })),
+        deadlineStatusOptions: Object.entries(APPROVAL_DEADLINE_STATUS_LABELS).map(([value, label]) => ({ value, label })),
+        kindOptions: Object.entries(APPROVAL_FORM_FIELDS)
+          .filter(([kind]) => this.canCreateKind(actor, kind))
+          .map(([value, fields]) => ({
+            value,
+            label: APPROVAL_KIND_LABELS[value] || '—',
+            minMinutes: 5,
+            maxHours: (APPROVAL_TTL_MS[value] || APPROVAL_MAX_TTL_MS) / 3600000,
+            expiryPresets: [2, 8, 24].filter(
+              (hours) => hours <= (APPROVAL_TTL_MS[value] || APPROVAL_MAX_TTL_MS) / 3600000
+            ),
+            fields,
+          })),
+        httpMethodOptions: [...APPROVAL_HTTP_METHODS],
+        targetTypeOptions: APPROVAL_TARGET_TYPES,
+        scopeTypeOptions: APPROVAL_SCOPE_TYPES,
+      },
     })
+  }
+
+  private canCreateKind(actor: ApprovalActor, kind: string) {
+    const roleTypes = actor.roles
+      .map((role) => (role as typeof role & { roleType?: string }).roleType)
+      .filter((type) => type !== 'BUSINESS')
+    const required = APPROVAL_CREATE_PERMISSION[kind]
+    return (
+      actor.status === 'ACTIVE' &&
+      new Set(roleTypes).size === 1 &&
+      roleTypes[0] === 'SECURITY' &&
+      actor.permissions.includes('system.approval.create') &&
+      !!required &&
+      actor.permissions.includes(required)
+    )
   }
 
   async detail(id: string, actor: ApprovalActor) {
     this.authorize(actor, 'detail')
     const item = await this.prisma.approvalRequest.findUnique({ where: { id } })
     if (!item) throw new NotFoundException('审批单不存在')
-    return ok((await this.withActorProfiles([item], true))[0])
+    return ok((await this.withActorProfiles([item], true, actor))[0])
   }
 
-  private async withActorProfiles<T extends ApprovalRequest>(items: T[], detail: boolean) {
+  private async withActorProfiles<T extends ApprovalRequest>(
+    items: T[],
+    detail: boolean,
+    actor: ApprovalActor
+  ) {
     const ids = [
       ...new Set(
         items.flatMap(
@@ -479,61 +601,124 @@ export class ApprovalService {
             select: {
               userId: true,
               displayName: true,
-              roles: {
-                where: {
-                  revokedAt: null,
-                  OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
-                },
-                select: {
-                  role: { select: { roleId: true, code: true, name: true, roleType: true } },
-                },
-              },
             },
           })
         : []
     const profiles = new Map(users.map((user) => [user.userId, user]))
-    const actor = (id: string | null, snapshot: string | null) =>
+    const profileActor = (id: string | null, snapshot: string | null) =>
       id
         ? {
-            userId: id,
+            ...(detail ? { userId: id } : {}),
             displayName: snapshot || profiles.get(id)?.displayName || null,
-            roles: (profiles.get(id)?.roles || []).map(
-              ({ role }: { role: ActorRoleProfile }) => role
-            ),
           }
         : null
     return items.map((item) => {
+      const status = item.status as keyof typeof APPROVAL_STATUS_LABELS
+      const terminal = status === 'REVIEWED' || status === 'CANCELLED'
+      const now = new Date()
+      const expired = item.expiresAt <= now
+      const deadlineStatus =
+        status === 'CANCELLED'
+          ? 'CANCELLED'
+          : status === 'REVIEWED'
+            ? item.reviewedAt && item.reviewedAt > item.expiresAt
+              ? 'COMPLETED_AFTER_DEADLINE'
+              : 'COMPLETED_ON_TIME'
+            : expired
+              ? 'EXPIRED'
+              : 'ACTIVE'
       const base = {
         id: item.id,
         requestNo: item.requestNo,
         kind: item.kind,
-        kindLabel: APPROVAL_KIND_LABELS[item.kind] || item.kind,
+        kindLabel: APPROVAL_KIND_LABELS[item.kind] || '—',
         status: item.status,
+        statusLabel: APPROVAL_STATUS_LABELS[status] || '—',
+        statusPhase: status === 'EXECUTED' ? 'PENDING_REVIEW' : terminal ? 'CLOSED' : 'OPEN',
+        terminal,
+        expired: deadlineStatus === 'EXPIRED',
+        deadlineStatus,
+        deadlineStatusLabel: APPROVAL_DEADLINE_STATUS_LABELS[deadlineStatus] || '—',
+        availableActions: this.availableActions(item, actor),
         reason: item.reason,
         expiresAt: item.expiresAt,
         createdAt: item.createdAt,
         updatedAt: item.updatedAt,
-        applicant: actor(item.applicantId, item.applicantDisplayName),
-        approver: actor(item.approverId, item.approverDisplayName),
-        executor: actor(item.executorId, item.executorDisplayName),
-        reviewer: actor(item.reviewerId, item.reviewerDisplayName),
-        canceller: actor(item.cancellerId, item.cancellerDisplayName),
+        applicant: profileActor(item.applicantId, item.applicantDisplayName),
+        approver: profileActor(item.approverId, item.approverDisplayName),
+        executor: profileActor(item.executorId, item.executorDisplayName),
+        reviewer: profileActor(item.reviewerId, item.reviewerDisplayName),
+        canceller: profileActor(item.cancellerId, item.cancellerDisplayName),
       }
-      return detail
-        ? {
-            ...base,
-            payload: item.payload,
-            approvedAt: item.approvedAt,
-            executedAt: item.executedAt,
-            reviewedAt: item.reviewedAt,
-            approvalNote: item.approvalNote,
-            executionNote: item.executionNote,
-            reviewNote: item.reviewNote,
-            cancelledAt: item.cancelledAt,
-            cancellationNote: item.cancellationNote,
-          }
-        : base
+      if (detail) {
+        return {
+          ...base,
+          payload: sanitizeAuditDetail(item.payload),
+          approvedAt: item.approvedAt,
+          executedAt: item.executedAt,
+          reviewedAt: item.reviewedAt,
+          approvalNote: item.approvalNote,
+          executionNote: item.executionNote,
+          reviewNote: item.reviewNote,
+          cancelledAt: item.cancelledAt,
+          cancellationNote: item.cancellationNote,
+        }
+      }
+
+      // 列表只返回当前页面和动作控制所需字段；详细审计字段仅由详情接口提供。
+      return {
+        id: base.id,
+        requestNo: base.requestNo,
+        kind: base.kind,
+        kindLabel: base.kindLabel,
+        status: base.status,
+        statusLabel: base.statusLabel,
+        applicant: base.applicant,
+        reason: base.reason,
+        expiresAt: base.expiresAt,
+        deadlineStatus: base.deadlineStatus,
+        deadlineStatusLabel: base.deadlineStatusLabel,
+        availableActions: base.availableActions,
+      }
     })
+  }
+
+  /**
+   * 仅用于界面能力展示，不替代 transition() 的服务端授权和状态校验。
+   */
+  private availableActions(item: ApprovalRequest, actor: ApprovalActor) {
+    const ownId = actor.userId
+    const expired = item.expiresAt <= new Date()
+    const payload = (item.payload || {}) as Record<string, unknown>
+    const actions = [] as ReturnType<typeof availableAction>[]
+    const can = (action: 'approve' | 'execute' | 'review' | 'cancel') => {
+      try {
+        this.authorize(actor, action, item.kind)
+        return true
+      } catch {
+        return false
+      }
+    }
+    if (
+      item.status === 'REQUESTED' &&
+      !expired &&
+      can('approve') &&
+      item.applicantId.toLowerCase() !== ownId.toLowerCase() &&
+      payload.userId !== ownId
+    ) actions.push(availableAction('approve', 'system.approval.approve'))
+    if (item.status === 'APPROVED' && !expired && can('execute') && payload.userId !== ownId)
+      actions.push(availableAction('execute', 'system.approval.execute'))
+    if (
+      item.status === 'EXECUTED' &&
+      can('review') &&
+      ![item.applicantId, item.approverId, item.executorId].some(
+        (id) => id && id.toLowerCase() === ownId.toLowerCase()
+      ) &&
+      payload.userId !== ownId
+    ) actions.push(availableAction('review', 'system.approval.review'))
+    if (item.status === 'REQUESTED' && can('cancel') && item.applicantId.toLowerCase() === ownId.toLowerCase())
+      actions.push(availableAction('cancel', 'system.approval.cancel'))
+    return actions
   }
 
   async transition(
@@ -719,6 +904,10 @@ export class ApprovalService {
         'PAGE_ENABLE',
         'PAGE_DISABLE',
         'PAGE_ROUTE_CHANGE',
+        'FILE_DELETE',
+        'FILE_REJECT',
+        'FILE_RESTORE',
+        'FILE_RESCAN',
       ].includes(kind)
     )
       return
@@ -776,6 +965,16 @@ export class ApprovalService {
   ) {
     await this.assertNotBeneficiary(tx, kind, payload, actors)
     const now = new Date()
+    if (['FILE_DELETE', 'FILE_REJECT', 'FILE_RESTORE', 'FILE_RESCAN'].includes(kind)) {
+      const input = payload as FileActionPayload
+      const file = await tx.fileObject.findUnique({ where: { id: input.fileId } })
+      if (!file) throw new NotFoundException('目标文件不存在')
+      if (kind === 'FILE_DELETE' && file.status === 'DELETED') throw new ConflictException('文件已经删除')
+      if (kind === 'FILE_REJECT' && file.status === 'DELETED') throw new ConflictException('已删除文件不能拒绝')
+      if (kind === 'FILE_RESTORE' && file.status !== 'DELETED') throw new ConflictException('只有已删除文件可以恢复')
+      if (kind === 'FILE_RESCAN' && file.status === 'DELETED') throw new ConflictException('已删除文件不能重新扫描')
+      return
+    }
     if (kind === 'ROLE_STATUS') {
       const input = payload as RoleStatusPayload
       const role = await tx.role.findUnique({ where: { roleId: input.roleId } })
@@ -1028,6 +1227,8 @@ export class ApprovalService {
     actor: ApprovalActor,
     now: Date
   ) {
+    const fileHandler = this.executionHandlers.get(request.kind)
+    if (fileHandler) return fileHandler(tx, request, payload as FileActionPayload, actor, now)
     if (isRevocation(request.kind)) return this.revoke(tx, request, payload, actor, now)
     if (request.kind === 'ROLE_STATUS') {
       const input = payload as RoleStatusPayload
@@ -1087,9 +1288,18 @@ export class ApprovalService {
       }
       return { before, after }
     }
+    const requestedGrantExpiresAt = (payload as RoleGrantPayload).grantExpiresAt
+    const grantExpiryProvided = requestedGrantExpiresAt !== undefined
+    const grantExpiresAt = grantExpiryProvided
+      ? requestedGrantExpiresAt
+        ? new Date(requestedGrantExpiresAt)
+        : null
+      : request.expiresAt
+    if (grantExpiryProvided && grantExpiresAt && grantExpiresAt <= now)
+      throw new BadRequestException('角色授权期限必须在未来')
     const grant = {
       assignedAt: now,
-      expiresAt: request.expiresAt,
+      expiresAt: grantExpiresAt,
       revokedAt: null,
       grantedBy: actor.userId,
       revokedBy: null,

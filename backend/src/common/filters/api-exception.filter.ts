@@ -10,6 +10,7 @@ import { normalizeAuditAction } from '#app/audit/utils/audit-action.js'
 
 export function codeForStatus(status: number): ApiCode {
   if (status === HttpStatus.BAD_REQUEST) return API_CODE.INVALID_PARAMS
+  if (status === HttpStatus.UNSUPPORTED_MEDIA_TYPE) return API_CODE.INVALID_PARAMS
   if (status === HttpStatus.UNAUTHORIZED) return API_CODE.UNAUTHORIZED
   if (status === HttpStatus.FORBIDDEN) return API_CODE.FORBIDDEN
   if (status === HttpStatus.NOT_FOUND) return API_CODE.NOT_FOUND

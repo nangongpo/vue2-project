@@ -1,15 +1,11 @@
 import { describe, expect, it } from 'vitest'
 // Exercise frontend selectors/serialization using the same security examples as the backend.
 // @ts-ignore Frontend is intentionally plain JavaScript without declarations.
-import { approvalBody, STANDARD_SCOPES } from '../../../../../frontend/src/views/system/approval/utils.js'
+import { approvalBody } from '../../../../../frontend/src/views/system/approval/utils.js'
 // @ts-ignore Frontend is intentionally plain JavaScript without declarations.
 import { pageApis, hasReferences, pageTree, grantChanges } from '../../../../../frontend/src/views/system/permission/utils.js'
 const id = '00000000-0000-4000-8000-000000000001'
 describe('frontend permission contracts', () => {
-  it('does not expose ALL or CUSTOM in ordinary scope choices', () => {
-    expect(STANDARD_SCOPES.map((item: any) => item.value)).not.toContain('ALL')
-    expect(STANDARD_SCOPES.map((item: any) => item.value)).not.toContain('CUSTOM')
-  })
   it('keeps active GET APIs returned by the page API options endpoint', () => {
     const items = [
       { id: 1, method: 'GET', isActive: true, statusLabel: '启用', action: 'read' },
@@ -65,13 +61,18 @@ describe('frontend permission contracts', () => {
       kind: 'ELEVATED_SCOPE',
       roleId: id,
       reason: 'review',
-      resource: 'order',
+      resource: 'file',
       expiresAt: new Date(Date.now() + 60000),
       scopeType: 'CUSTOM',
       targets: [],
     }
-    expect(() => approvalBody(form)).toThrow()
-    expect(approvalBody({ ...form, scopeType: 'ALL' }).payload.targets).toEqual([])
-    expect(() => approvalBody({ ...form, scopeType: 'ALL', expiresAt: null })).toThrow()
+    const metadata = {
+      kindMeta: { maxHours: 4 },
+      targetTypeOptions: [{ value: 'USER' }, { value: 'DEPARTMENT' }, { value: 'ORGANIZATION' }, { value: 'TENANT' }],
+      scopeTypeOptions: [{ value: 'CUSTOM' }, { value: 'ALL' }],
+    }
+    expect(() => approvalBody(form, metadata)).toThrow()
+    expect(approvalBody({ ...form, scopeType: 'ALL' }, metadata).payload.targets).toEqual([])
+    expect(() => approvalBody({ ...form, scopeType: 'ALL', expiresAt: null }, metadata)).toThrow()
   })
 })

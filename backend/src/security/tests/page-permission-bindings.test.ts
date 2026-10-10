@@ -15,7 +15,8 @@ describe('seeded page permission bindings', () => {
       'page.system.audit',
       'page.system.health',
       'page.system.ops-tickets',
-      'page.business.order-manage',
+      'page.system.file',
+      'page.business.file-upload',
     ]
     expect(Object.keys(PAGE_PERMISSION_BINDINGS).sort()).toEqual([...seededPages].sort())
   })
@@ -39,13 +40,7 @@ describe('seeded page permission bindings', () => {
     expect(pageApiCodes).not.toContain('system.role.grant')
     expect(pageApiCodes).not.toContain('system.data-scope.update')
     expect(pageApiCodes).not.toContain('system.audit.export')
-    expect(pageApiCodes).not.toContain('order.create')
-  })
-
-  it('binds business order management only to its read API', () => {
-    expect(PAGE_PERMISSION_BINDINGS['page.business.order-manage']).toEqual([
-      { type: 'PAGE_API', apiCode: 'order.read' },
-    ])
+    expect(pageApiCodes).not.toContain('file.upload.initiate')
   })
 
   it('binds role management data-scope reads explicitly', () => {

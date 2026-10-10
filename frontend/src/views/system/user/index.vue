@@ -8,10 +8,8 @@
           placeholder="账号/姓名"
           maxlength="64"
           @keyup.enter.native="search" />
-        <el-button v-permission="'system.user.read'" type="primary" @click="search">查询</el-button>
-        <el-button v-permission="'system.user.create'" type="success" @click="openCreate">
-          新增用户
-        </el-button>
+        <permission-button permission="system.user.read" type="primary" @click="search">查询</permission-button>
+        <permission-button permission="system.user.create" type="success" @click="openCreate">新增</permission-button>
       </div>
       <el-alert v-if="loadError" :title="loadError" type="error" :closable="false" />
       <el-table v-loading="loading" :data="users" border stripe>
@@ -41,37 +39,28 @@
         </el-table-column>
         <el-table-column label="操作" width="280" fixed="right">
           <template #default="scope">
-            <el-button v-permission="'system.user.update'" type="text" @click="openEdit(scope.row)">
-              编辑
-            </el-button>
-            <el-button
-              v-permission="'system.user.reset-password'"
+            <permission-button :row="scope.row" action="edit" type="text" @click="openEdit(scope.row)" />
+            <permission-button :row="scope.row" action="reset-password" type="text" @click="openReset(scope.row)" />
+            <permission-button
+              :row="scope.row"
+              action="grant"
               type="text"
-              @click="openReset(scope.row)">
-              重置密码
-            </el-button>
-            <el-button
+              :disabled="saving"
               v-if="canGrant"
+              @click="openGrants(scope.row)" />
+            <permission-button
+              :row="scope.row"
+              :action="scope.row.isActive ? 'disable' : 'enable'"
               type="text"
-              :disabled="!scope.row.isActive"
-              @click="openGrants(scope.row)">
-              分配角色
-            </el-button>
-            <el-button
-              v-permission="scope.row.isActive ? 'system.user.disable' : 'system.user.enable'"
-              type="text"
-              :disabled="saving || scope.row.isLocked"
+              :disabled="saving"
               :class="scope.row.isActive ? 'text-danger' : 'text-success'"
-              @click="changeStatus(scope.row)">
-              {{ scope.row.isActive ? '停用' : '启用' }}
-            </el-button>
-            <el-button
-              v-permission="'system.user.unlock'"
+              @click="changeStatus(scope.row)" />
+            <permission-button
+              :row="scope.row"
+              action="unlock"
               type="text"
-              :disabled="saving || !scope.row.isLocked"
-              @click="unlock(scope.row)">
-              解除锁定
-            </el-button>
+              :disabled="saving"
+              @click="unlock(scope.row)" />
           </template>
         </el-table-column>
       </el-table>
@@ -124,7 +113,7 @@
       </el-form>
       <span slot="footer">
         <el-button @click="resetVisible = false">取消</el-button>
-        <el-button type="primary" :loading="resetting" @click="submitReset"> 确认重置 </el-button>
+        <el-button type="primary" :loading="resetting" @click="submitReset"> 重置 </el-button>
       </span>
     </el-dialog>
     <user-role-assignment-dialog
@@ -196,17 +185,8 @@ export default {
     formatDate(value) {
       return dateFormat(value)
     },
-    statusLabel(status) {
-      return { ACTIVE: '启用', DISABLED: '停用', LOCKED: '锁定' }[status] || status || '未知'
-    },
-    roleStatusLabel(status) {
-      return { ACTIVE: '启用', DISABLED: '停用' }[status] || status || '未知'
-    },
     roleLabel(item) {
       return item?.role?.name
-    },
-    statusTagType(status) {
-      return { ACTIVE: 'success', DISABLED: 'info', LOCKED: 'danger' }[status] || 'warning'
     },
     can(code) {
       const codes = this.$store.getters.menu_list || []
@@ -356,7 +336,6 @@ export default {
 
 .toolbar {
   display: flex;
-  gap: 10px;
   margin-bottom: 16px;
 }
 

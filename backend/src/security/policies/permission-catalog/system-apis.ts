@@ -107,7 +107,7 @@ add('system.approval.review', 'POST', '/permission/approvals/:id/review', { role
 for (const [action, method, path, roleType, rolePolicy] of [
   ['create', 'POST', '/ops-tickets', 'SECURITY', OPS_TICKET_OPERATE_POLICY], ['update', 'PATCH', '/ops-tickets/:id', 'SECURITY', OPS_TICKET_OPERATE_POLICY],
   ['submit', 'POST', '/ops-tickets/:id/submit', 'SECURITY', OPS_TICKET_OPERATE_POLICY], ['read', 'GET', '/ops-tickets', 'SECURITY', OPS_TICKET_READ_POLICY],
-  ['detail', 'GET', '/ops-tickets/:id', 'SECURITY', OPS_TICKET_READ_POLICY], ['approve', 'POST', '/ops-tickets/:id/approve', 'SECURITY', OPS_TICKET_OPERATE_POLICY],
+  ['detail', 'GET', '/ops-tickets/:id', 'SECURITY', OPS_TICKET_READ_POLICY], ['options', 'GET', '/ops-tickets/options', 'SECURITY', OPS_TICKET_READ_POLICY], ['approve', 'POST', '/ops-tickets/:id/approve', 'SECURITY', OPS_TICKET_OPERATE_POLICY],
   ['execute', 'POST', '/ops-tickets/:id/execute', 'SECURITY', OPS_TICKET_OPERATE_POLICY], ['review', 'POST', '/ops-tickets/:id/review', 'AUDIT', OPS_TICKET_REVIEW_POLICY],
   ['cancel', 'POST', '/ops-tickets/:id/cancel', 'SECURITY', OPS_TICKET_OPERATE_POLICY],
 ] as const) add(`system.ops-ticket.${action}`, method, path, { roleType, rolePolicy, resource: 'system.ops-ticket', action })
@@ -124,21 +124,32 @@ for (const [action, method, path] of [['read', 'GET', '/permission/data-resource
   add(`system.data-resource.${action}`, method, path, { resource: 'system.data-resource', action })
 for (const [action, method, path] of [['read', 'GET', '/permission/roles/:roleId/data-scopes'], ['update', 'POST', '/permission/roles/:roleId/data-scopes'], ['revoke', 'PATCH', '/permission/roles/:roleId/data-scopes/:scopeId/revoke']] as const)
   add(`system.data-scope.${action}`, method, path, { resource: 'system.data-scope', action })
+for (const [code, method, path, action] of [
+  ['system.file.admin.read', 'GET', '/files', 'admin.read'],
+  ['system.file.admin.detail', 'GET', '/files/:fileId', 'admin.detail'],
+  ['system.file.admin.scan', 'POST', '/files/:fileId/rescan', 'admin.scan'],
+  ['system.file.admin.reject', 'POST', '/files/:fileId/reject', 'admin.reject'],
+  ['system.file.admin.delete', 'POST', '/files/:fileId/delete', 'admin.delete'],
+  ['system.file.admin.restore', 'POST', '/files/:fileId/restore', 'admin.restore'],
+] as const)
+  add(code, method, path, { rolePolicy: { type: 'ROLE_ALLOWLIST', roleTypes: ['SECURITY', 'SYSTEM'] }, resource: 'system.file', action })
 
 const SYSTEM_RISK_LEVELS: Record<string, RiskBaseline['riskLevel']> = Object.fromEntries([
   ...[
     'system.user.read', 'system.role.read', 'system.role.options', 'system.role.assignment-options',
     'system.approval.read', 'system.approval.detail', 'system.approval.target-options',
-    'system.ops-ticket.read', 'system.ops-ticket.detail', 'system.audit.read', 'system.audit.detail',
+    'system.ops-ticket.read', 'system.ops-ticket.options', 'system.ops-ticket.detail', 'system.audit.read', 'system.audit.detail',
     'system.audit.integrity', 'system.page.read', 'system.page.api.read', 'system.button.read',
     'system.api.read', 'system.api.options', 'system.api.references', 'system.field.read',
     'system.data-resource.read', 'system.page.api.options', 'system.button.options',
+    'system.file.admin.read',
   ].map((code) => [code, 'L0']),
-  ...['system.button.update', 'system.directory.create', 'system.directory.update', 'system.directory.delete', 'system.operation-policy.read'].map((code) => [code, 'L1']),
+  ...['system.button.update', 'system.directory.create', 'system.directory.update', 'system.directory.delete', 'system.operation-policy.read', 'system.file.admin.detail'].map((code) => [code, 'L1']),
   ...[
     'system.data-scope.read', 'system.data-scope.update', 'system.data-scope.revoke', 'system.page.enable',
     'system.page.disable', 'system.page.api.bind', 'system.page.update', 'system.user.create', 'system.user.update',
     'system.audit.export', 'system.health.read',
+    'system.file.admin.scan',
   ].map((code) => [code, 'L2']),
   ...[
     'system.approval.create', 'system.approval.approve', 'system.approval.execute', 'system.approval.review',
@@ -152,7 +163,8 @@ const SYSTEM_RISK_LEVELS: Record<string, RiskBaseline['riskLevel']> = Object.fro
     'system.field.create', 'system.field.update', 'system.field.enable', 'system.field.disable',
     'system.data-resource.create', 'system.data-resource.update', 'system.data-resource.enable',
     'system.data-resource.disable', 'system.user.grant', 'system.user.enable', 'system.user.disable',
-    'system.user.unlock', 'system.user.reset-password', 'system.user.mfa-reset',
+    'system.user.unlock', 'system.user.reset-password', 'system.user.mfa-reset', 'system.file.admin.reject',
+    'system.file.admin.delete', 'system.file.admin.restore',
   ].map((code) => [code, 'L3']),
 ])
 for (const definition of definitions) {

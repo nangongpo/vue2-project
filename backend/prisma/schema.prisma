@@ -83,13 +83,6 @@ enum PermissionType {
   FIELD
 }
 
-enum OrderStatus {
-  DRAFT
-  CONFIRMED
-  CANCELLED
-  COMPLETED
-}
-
 enum FieldRiskLevel {
   L0
   L1
@@ -149,6 +142,13 @@ enum SessionKind {
   AUTHENTICATED
 }
 
+enum UserTenantMembershipStatus {
+  ACTIVE
+  SUSPENDED
+  EXPIRED
+  REVOKED
+}
+
 model User {
   id                BigInt                        @id @default(autoincrement()) @db.UnsignedBigInt
   userId            String                        @unique @default(uuid()) @map("user_id") @db.Char(36)
@@ -178,37 +178,155 @@ model User {
   updatedAt         DateTime                      @updatedAt @map("updated_at")
   roles             UserRole[]
   sessions          Session[]
+  tenantMemberships UserTenantMembership[]
   audits            AuditLog[]                    @relation("AuditActor")
   elevatedTargets   RoleElevatedDataScopeTarget[] @relation("ElevatedUserTarget")
-  orders            Order[]
+  fileObjects       FileObject[]
 
   @@index([status])
   @@map("sys_user")
 }
 
-// 业务订单域：对外使用不可预测的订单编号，内部主键仅用于关联。
-model Order {
-  id             BigInt      @id @default(autoincrement()) @db.UnsignedBigInt
-  orderId        String      @unique @default(uuid()) @map("order_id") @db.Char(36)
-  orderNo        String      @unique @map("order_no") @db.VarChar(40)
-  tenantId       String?     @map("tenant_id") @db.Char(36)
-  ownerId        String      @map("owner_id") @db.Char(36)
-  departmentId   String?     @map("department_id") @db.Char(36)
-  organizationId String?     @map("organization_id") @db.Char(36)
-  customerName   String      @map("customer_name") @db.VarChar(128)
-  totalAmount    Decimal     @map("total_amount") @db.Decimal(18, 2)
-  currency       String      @default("CNY") @db.Char(3)
-  status         OrderStatus @default(DRAFT)
-  remark         String?     @db.VarChar(500)
-  createdBy      String      @map("created_by") @db.Char(36)
-  createdAt      DateTime    @default(now()) @map("created_at")
-  updatedAt      DateTime    @updatedAt @map("updated_at")
-  tenant         Tenant?     @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  owner          User        @relation(fields: [ownerId], references: [userId], onDelete: Restrict, onUpdate: Restrict)
+model FileObject {
+  id                String            @id @default(uuid()) @db.Char(36)
+  tenantId          String?           @map("tenant_id") @db.Char(36)
+  ownerUserId       String            @map("owner_user_id") @db.Char(36)
+  storageKey        String            @unique @map("storage_key") @db.VarChar(512)
+  originalName      String            @map("original_name") @db.VarChar(255)
+  safeName          String            @map("safe_name") @db.VarChar(255)
+  declaredMime      String?           @map("declared_mime") @db.VarChar(128)
+  detectedMime      String?           @map("detected_mime") @db.VarChar(128)
+  extension         String?           @db.VarChar(32)
+  size              BigInt            @db.UnsignedBigInt
+  sha256            String?           @db.Char(64)
+  status            FileObjectStatus  @default(QUARANTINED)
+  scanStatus        FileScanStatus    @default(PENDING) @map("scan_status")
+  scanDetail        String?           @map("scan_detail") @db.VarChar(512)
+  classification    String            @default("INTERNAL") @db.VarChar(32)
+  scanEngineVersion String?           @map("scan_engine_version") @db.VarChar(64)
+  policyVersion     String?           @map("policy_version") @db.VarChar(64)
+  deletedBy         String?           @map("deleted_by") @db.Char(36)
+  createdAt         DateTime          @default(now()) @map("created_at")
+  updatedAt         DateTime          @updatedAt @map("updated_at")
+  deletedAt         DateTime?         @map("deleted_at")
+  owner             User              @relation(fields: [ownerUserId], references: [userId], onDelete: Restrict, onUpdate: Restrict)
+  uploads           UploadSession[]
+  finalizeJobs      FileFinalizeJob[]
+  scanJobs          FileScanJob[]
+  bindings          FileBinding[]
 
   @@index([tenantId, status, createdAt])
-  @@index([ownerId, createdAt])
-  @@map("biz_order")
+  @@index([ownerUserId, createdAt])
+  @@map("sys_file_object")
+}
+
+model FileBinding {
+  id           String     @id @default(uuid()) @db.Char(36)
+  fileId       String     @map("file_id") @db.Char(36)
+  tenantId     String?    @map("tenant_id") @db.Char(36)
+  resourceType String     @map("resource_type") @db.VarChar(64)
+  resourceId   String     @map("resource_id") @db.VarChar(128)
+  fieldName    String?    @map("field_name") @db.VarChar(64)
+  visibility   String     @default("PRIVATE") @db.VarChar(32)
+  createdBy    String     @map("created_by") @db.Char(36)
+  createdAt    DateTime   @default(now()) @map("created_at")
+  file         FileObject @relation(fields: [fileId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([fileId, resourceType, resourceId, fieldName], map: "file_binding_file_resource_uq")
+  @@index([tenantId, resourceType, resourceId])
+  @@index([fileId, createdAt])
+  @@map("sys_file_binding")
+}
+
+model UploadSession {
+  id             String              @id @default(uuid()) @db.Char(36)
+  userId         String              @map("user_id") @db.Char(36)
+  tenantId       String?             @map("tenant_id") @db.Char(36)
+  fileId         String?             @map("file_id") @db.Char(36)
+  objectKey      String              @map("object_key") @db.VarChar(512)
+  fileName       String              @map("file_name") @db.VarChar(255)
+  declaredMime   String?             @map("declared_mime") @db.VarChar(128)
+  purpose        String              @db.VarChar(64)
+  resource       String?             @db.VarChar(128)
+  resourceType   String?             @map("resource_type") @db.VarChar(64)
+  resourceId     String?             @map("resource_id") @db.Char(36)
+  fieldName      String?             @map("field_name") @db.VarChar(64)
+  fileSize       BigInt              @map("file_size") @db.UnsignedBigInt
+  chunkSize      Int                 @map("chunk_size") @db.UnsignedInt
+  totalParts     Int                 @map("total_parts") @db.UnsignedInt
+  clientSha256   String?             @map("client_sha256") @db.Char(64)
+  idempotencyKey String?             @map("idempotency_key") @db.VarChar(128)
+  status         UploadSessionStatus @default(UPLOADING)
+  expiresAt      DateTime            @map("expires_at")
+  createdAt      DateTime            @default(now()) @map("created_at")
+  updatedAt      DateTime            @updatedAt @map("updated_at")
+  file           FileObject?         @relation(fields: [fileId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  parts          UploadPart[]
+  finalizeJob    FileFinalizeJob?
+
+  @@unique([userId, idempotencyKey], map: "sys_upload_session_user_id_idempotency_key_uq")
+  @@index([userId, status, expiresAt])
+  @@index([expiresAt])
+  @@map("sys_upload_session")
+}
+
+model UploadPart {
+  uploadSessionId String           @map("upload_session_id") @db.Char(36)
+  partNumber      Int              @map("part_number") @db.UnsignedInt
+  size            Int              @db.UnsignedInt
+  checksum        String           @db.Char(64)
+  status          UploadPartStatus @default(RECEIVED)
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+  uploadSession   UploadSession    @relation(fields: [uploadSessionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@id([uploadSessionId, partNumber])
+  @@map("sys_upload_part")
+}
+
+model FileFinalizeJob {
+  id          String        @id @default(uuid()) @db.Char(36)
+  fileId      String        @map("file_id") @db.Char(36)
+  uploadId    String        @unique @map("upload_id") @db.Char(36)
+  status      FileJobStatus @default(PENDING)
+  attempts    Int           @default(0) @db.UnsignedInt
+  maxAttempts Int           @default(5) @map("max_attempts") @db.UnsignedInt
+  nextRetryAt DateTime      @default(now()) @map("next_retry_at")
+  lockedAt    DateTime?     @map("locked_at")
+  lockedBy    String?       @map("locked_by") @db.VarChar(128)
+  startedAt   DateTime?     @map("started_at")
+  finishedAt  DateTime?     @map("finished_at")
+  lastError   String?       @map("last_error") @db.VarChar(512)
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+  file        FileObject    @relation(fields: [fileId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  upload      UploadSession @relation(fields: [uploadId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([status, nextRetryAt])
+  @@index([lockedAt])
+  @@map("sys_file_finalize_job")
+}
+
+model FileScanJob {
+  id          String        @id @default(uuid()) @db.Char(36)
+  fileId      String        @map("file_id") @db.Char(36)
+  status      FileJobStatus @default(PENDING)
+  attempts    Int           @default(0) @db.UnsignedInt
+  maxAttempts Int           @default(5) @map("max_attempts") @db.UnsignedInt
+  nextRetryAt DateTime      @default(now()) @map("next_retry_at")
+  lockedAt    DateTime?     @map("locked_at")
+  lockedBy    String?       @map("locked_by") @db.VarChar(128)
+  startedAt   DateTime?     @map("started_at")
+  finishedAt  DateTime?     @map("finished_at")
+  lastError   String?       @map("last_error") @db.VarChar(512)
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+  file        FileObject    @relation(fields: [fileId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([status, nextRetryAt])
+  @@index([fileId, createdAt])
+  @@index([lockedAt])
+  @@map("sys_file_scan_job")
 }
 
 model PasswordHistory {
@@ -491,9 +609,11 @@ model Session {
   revokedAt         DateTime?   @map("revoked_at")
   mfaVerifiedAt     DateTime?   @map("mfa_verified_at")
   reauthenticatedAt DateTime?   @map("reauthenticated_at")
+  activeTenantId    String?     @map("active_tenant_id") @db.Char(36)
   ip                String?     @db.VarChar(64)
   userAgent         String?     @map("user_agent") @db.VarChar(512)
   user              User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  activeTenant      Tenant?     @relation(fields: [activeTenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
 
   @@index([userId, revokedAt])
   @@index([expiresAt])
@@ -631,7 +751,6 @@ model OpsTicketExecution {
 // Protected master data: hierarchy links cannot cross a tenant boundary.
 model Tenant {
   elevatedTargets RoleElevatedDataScopeTarget[]
-  orders          Order[]
   id              String                        @id @default(uuid()) @db.Char(36)
   code            String                        @unique @db.VarChar(64)
   name            String                        @db.VarChar(128)
@@ -641,8 +760,30 @@ model Tenant {
   organizations   Organization[]
   departments     Department[]
   users           User[]
+  sessions        Session[]
+  userMemberships UserTenantMembership[]
 
   @@map("sys_tenant")
+}
+
+// 用户与租户的显式成员关系。User.tenantId 保留作为兼容字段，新的授权以本表和会话 activeTenantId 为准。
+model UserTenantMembership {
+  id         String                     @id @default(uuid()) @db.Char(36)
+  userId     BigInt                     @map("user_id") @db.UnsignedBigInt
+  tenantId   String                     @map("tenant_id") @db.Char(36)
+  status     UserTenantMembershipStatus @default(ACTIVE)
+  isDefault  Boolean                    @default(false) @map("is_default")
+  assignedAt DateTime                   @default(now()) @map("assigned_at")
+  expiresAt  DateTime?                  @map("expires_at")
+  createdAt  DateTime                   @default(now()) @map("created_at")
+  updatedAt  DateTime                   @updatedAt @map("updated_at")
+  user       User                       @relation(fields: [userId], references: [id], onDelete: Restrict)
+  tenant     Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, tenantId])
+  @@index([userId, status, expiresAt])
+  @@index([tenantId, status])
+  @@map("sys_user_tenant_membership")
 }
 
 model Organization {
@@ -710,6 +851,10 @@ enum ApprovalKind {
   ROLE_PERMISSION_REVOKE
   ELEVATED_REVOKE
   MFA_RESET
+  FILE_DELETE
+  FILE_REJECT
+  FILE_RESTORE
+  FILE_RESCAN
 }
 
 enum ApprovalStatus {
@@ -717,6 +862,45 @@ enum ApprovalStatus {
   APPROVED
   EXECUTED
   REVIEWED
+  CANCELLED
+}
+
+enum FileObjectStatus {
+  QUARANTINED
+  READY
+  REJECTED
+  DELETED
+}
+
+enum FileScanStatus {
+  PENDING
+  CLEAN
+  INFECTED
+  ERROR
+}
+
+enum UploadSessionStatus {
+  UPLOADING
+  FINALIZING
+  SCANNING
+  COMPLETED
+  FAILED
+  ABORTED
+  EXPIRED
+}
+
+enum UploadPartStatus {
+  RECEIVED
+  FAILED
+}
+
+enum FileJobStatus {
+  PENDING
+  RUNNING
+  SUCCEEDED
+  INFECTED
+  FAILED
+  DEAD_LETTER
   CANCELLED
 }
 

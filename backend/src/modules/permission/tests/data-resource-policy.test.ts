@@ -3,10 +3,10 @@ import { isBusinessDataResource } from '#app/modules/permission/policies/data-re
 
 describe('data-resource-policy', () => {
   it('accepts only resources explicitly registered by the business API catalog', () => {
-    expect(isBusinessDataResource('order')).toBe(true)
+    expect(isBusinessDataResource('file')).toBe(true)
   })
 
-  it.each(['customer', 'foo.bar', 'system.user', 'page.business.order-manage', ''])(
+  it.each(['customer', 'foo.bar', 'system.user', 'page.business.file-upload', ''])(
     'rejects an unregistered or management resource: %s',
     (resource) => {
       expect(isBusinessDataResource(resource)).toBe(false)

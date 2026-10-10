@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { of } from 'rxjs'
+import type { ExecutionContext } from '@nestjs/common'
 import { TraceIdInterceptor } from '#app/common/interceptors/trace-id.interceptor.js'
 
 describe('TraceIdInterceptor', () => {
@@ -13,7 +14,7 @@ describe('TraceIdInterceptor', () => {
         getRequest: () => request,
         getResponse: () => response,
       }),
-    } as any
+    } as unknown as ExecutionContext
 
     new TraceIdInterceptor().intercept(context, { handle: () => of('ok') }).subscribe()
 

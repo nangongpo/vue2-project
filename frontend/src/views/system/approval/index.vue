@@ -1,47 +1,52 @@
 <template>
   <div class="approval-page">
     <el-card shadow="never">
-      <el-alert title="申请 → 审批 → 执行 → 审计复核。申请人不能审批，审计复核人须独立于前三阶段。" type="info" :closable="false" />
-      <p>
-        所有提交操作要求五分钟内完成 MFA 和重新认证。<router-link to="/system/session">前往账号安全验证</router-link>
-      </p>
+      <div class="approval-security-notice">
+        <el-alert title="受控审批流程" description="申请 → 审批 → 执行 → 复核；申请人不得审批，复核人不得与前序阶段重复。提交前需在五分钟内完成 MFA 和重新认证。"
+          type="info" :closable="false" show-icon />
+      </div>
       <div class="toolbar">
         <el-select v-model="status" clearable placeholder="全部状态" @change="reset"><el-option
-            v-for="(label, value) in statuses" :key="value" :label="label" :value="value" /></el-select>
-        <el-button v-permission="'system.approval.read'" :disabled="loading" @click="reset">刷新</el-button>
+            v-for="statusOption in statusOptions" :key="statusOption.value" :label="statusOption.label" :value="statusOption.value" /></el-select>
+        <permission-button permission="system.approval.read" :disabled="loading" @click="reset">刷新</permission-button>
         <el-button v-if="canCreate" type="primary" @click="openCreate">新建申请</el-button>
       </div>
       <el-alert v-if="error" :title="error" type="error" :closable="false" />
       <el-table v-loading="loading" :data="items" border stripe>
-        <el-table-column label="申请编号" width="160">
+        <el-table-column label="申请编号" width="165">
           <template slot-scope="{ row }">{{ row.requestNo || row.id }}</template>
         </el-table-column>
         <el-table-column label="申请类型" width="120">
           <template slot-scope="{ row }">
-            {{ row.kindLabel || kindLabel(row.kind) }}
+            {{ row.kindLabel || '—' }}
+          </template>
+        </el-table-column>
+        <el-table-column label="申请人" width="120">
+          <template slot-scope="{ row }">
+            {{ row.applicant?.displayName || '—' }}
           </template>
         </el-table-column>
         <el-table-column prop="reason" label="申请原因" min-width="200" />
-        <el-table-column label="状态" width="100">
+        <el-table-column label="状态" width="140">
           <template slot-scope="{ row }">
-            {{ statuses[row.status]}}
-            <el-tag v-if="expired(row) && ['REQUESTED', 'APPROVED'].includes(row.status)" size="mini"
-              type="info">已过期</el-tag>
+            {{ row.statusLabel || '—' }}
+            <el-tag v-if="row.deadlineStatus && row.deadlineStatus !== 'ACTIVE'" size="mini"
+              type="info">{{ row.deadlineStatusLabel || '—' }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="到期时间" min-width="150">
+        <el-table-column label="到期时间" min-width="155">
           <template slot-scope="{ row }">{{ formatDate(row.expiresAt) }}</template>
         </el-table-column>
         <el-table-column label="操作" min-width="230"><template slot-scope="{ row }">
-            <el-button v-permission="'system.approval.detail'" type="text" @click="showDetail(row)">详情</el-button>
-            <el-button v-if="canAction(row, 'approve')" type="text" :disabled="saving"
-              @click="transition(row, 'approve')">审批</el-button>
-            <el-button v-if="canAction(row, 'execute')" type="text" :disabled="saving"
-              @click="transition(row, 'execute')">执行</el-button>
-            <el-button v-if="canAction(row, 'review')" type="text" :disabled="saving"
-              @click="transition(row, 'review')">审计复核</el-button>
-            <el-button v-if="canCancel(row)" type="text" class="text-danger" :disabled="saving"
-              @click="cancel(row)">撤回</el-button>
+            <permission-button permission="system.approval.detail" type="text" @click="showDetail(row)">详情</permission-button>
+            <permission-button :row="row" action="approve" type="text" :disabled="saving"
+              @click="transition(row, 'approve')" />
+            <permission-button :row="row" action="execute" type="text" :disabled="saving"
+              @click="transition(row, 'execute')" />
+            <permission-button :row="row" action="review" type="text" :disabled="saving"
+              @click="transition(row, 'review')" />
+            <permission-button :row="row" action="cancel" type="text" class="text-danger" :disabled="saving"
+              @click="cancel(row)" />
           </template></el-table-column>
       </el-table>
       <div class="toolbar pagination">
@@ -50,29 +55,42 @@
         <el-button :disabled="!nextCursor || loading" @click="next">下一页</el-button>
       </div>
     </el-card>
-    <el-dialog title="申请详情" :visible.sync="detailVisible" width="760px">
-      <div v-loading="detailLoading">
+    <el-dialog title="申请详情" :visible.sync="detailVisible" width="520px">
+      <div v-loading="detailLoading" class="approval-detail-panel">
         <el-alert v-if="detailError" :title="detailError" type="error" :closable="false" />
         <template v-if="detail">
           <el-descriptions class="approval-detail" :column="1" border>
             <el-descriptions-item label="编号">{{ detail.requestNo || detail.id }}</el-descriptions-item>
             <el-descriptions-item label="类型 / 状态">
-              {{ detail.kindLabel || kindLabel(detail.kind) }} / {{ statuses[detail.status]}}
+              {{ detail.kindLabel || '—' }} / {{ detail.statusLabel || '—' }}
+              <el-tag v-if="detail.deadlineStatus && detail.deadlineStatus !== 'ACTIVE'" size="mini" type="info">
+                {{ detail.deadlineStatusLabel || '—' }}
+              </el-tag>
             </el-descriptions-item>
-            <el-descriptions-item label="原因">{{ detail.reason }}</el-descriptions-item>
-            <el-descriptions-item label="到期">{{ formatDate(detail.expiresAt) }}</el-descriptions-item>
+            <el-descriptions-item label="到期时间">{{ formatDate(detail.expiresAt) }}</el-descriptions-item>
             <el-descriptions-item v-for="stage in stages" :key="stage.actor" :label="stage.label">{{
               formatActor(detail[stage.actor]) }} · {{ formatDate(detail[stage.time]) }}
               <p v-if="detail[stage.note]">{{ detail[stage.note] }}</p>
             </el-descriptions-item>
           </el-descriptions>
-          <h4>申请变更内容</h4>
-          <pre>{{ JSON.stringify(detail.payload, null, 2) }}</pre>
+          <el-collapse class="approval-payload-collapse">
+            <el-collapse-item name="payload">
+              <template slot="title">
+                <span class="summary-title">请求参数</span>
+                <span class="summary-hint">查看本次申请提交的参数</span>
+              </template>
+              <pre>{{ JSON.stringify(detail.payload, null, 2) }}</pre>
+            </el-collapse-item>
+          </el-collapse>
         </template>
+        <div v-else-if="!detailError" class="approval-detail-placeholder">
+          <i class="el-icon-loading"></i>
+          <span>正在加载详情…</span>
+        </div>
       </div>
     </el-dialog>
-    <el-dialog title="新建受控审批申请" :visible.sync="createVisible" width="720px" :close-on-click-modal="false">
-      <el-alert v-if="formError" :title="targetRefError ? '' : formError" type="error" :closable="false">
+    <el-dialog title="新建审批申请" :visible.sync="createVisible" width="520px" :close-on-click-modal="false">
+      <el-alert v-if="formError" class="approval-form-error" :title="targetRefError ? '' : formError" type="error" :closable="false" show-icon>
         <template v-if="targetRefError" slot="default">
           <span>{{ formError }}</span>
           <template v-if="targetRefError === 'BOTH'">
@@ -83,82 +101,39 @@
           </el-button>
         </template>
       </el-alert>
-      <el-form :model="form" label-width="115px">
-        <el-form-item label="申请类型"><el-select v-model="form.kind" @change="changeKind"><el-option v-for="kind in kinds" :key="kind.value"
-              :label="kind.label" :value="kind.value" /></el-select></el-form-item>
-        <el-form-item v-if="['ROLE_GRANT', 'ROLE_REVOKE', 'MFA_RESET'].includes(form.kind)" label="目标用户">
-          <el-select v-model="form.userRef" filterable remote clearable
-            @visible-change="targetVisible('USER', $event)" :remote-method="searchUsers"
-            :loading="targetOptionsLoading" placeholder="搜索并选择用户" class="target-select">
-            <el-option v-for="item in targetUsers" :key="item.targetRef"
-              :label="item.displayName + '（' + item.username + '）'" :value="item.targetRef" />
-          </el-select>
-        </el-form-item>
-        <el-form-item v-if="!['API_ROUTE_CHANGE', 'ELEVATED_REVOKE', 'MFA_RESET'].includes(form.kind)"
-          label="目标角色">
-          <el-select v-model="form.roleRef" filterable remote clearable
-            @visible-change="targetVisible('ROLE', $event)" :remote-method="searchRoles"
-            :loading="targetOptionsLoading" placeholder="搜索并选择角色" class="target-select">
-            <el-option v-for="item in targetRoles" :key="item.targetRef"
-              :label="item.name + '（' + item.roleType + '）'" :value="item.targetRef" />
-          </el-select>
-        </el-form-item>
-        <el-form-item v-if="form.kind === 'ROLE_STATUS'" label="目标状态">
-          <el-select v-model="form.status"><el-option label="停用" value="DISABLED" /></el-select>
-        </el-form-item>
-        <el-alert v-if="form.kind === 'MFA_RESET'" title="仅用于管理员认证器丢失等恢复场景。执行后会清空目标账号 MFA 并吊销其现有会话，目标用户需重新登录并绑定认证器。"
-          type="warning" :closable="false" />
-        <el-form-item v-if="['ROLE_PERMISSIONS', 'ROLE_PERMISSION_REVOKE'].includes(form.kind)"
-          label="权限 UUID"><el-input v-model.trim="form.permissionIds" type="textarea" :rows="4"
-            placeholder="每行一个 UUID，最多 200 个；只处理所列权限" /></el-form-item>
-        <el-form-item v-if="form.kind === 'ELEVATED_REVOKE'" label="授权范围 UUID">
-          <el-input v-model.trim="form.scopeId" placeholder="已审批的数据范围授权 UUID" />
-        </el-form-item>
-        <template v-if="form.kind === 'API_ROUTE_CHANGE'">
-          <el-alert title="必须是已注册的后端方法和路径，且该接口不能有有效角色授权。路由变更是永久配置变更，到期不会自动恢复。" type="warning" :closable="false" />
-          <el-form-item label="接口 UUID"><el-input v-model.trim="form.apiId" /></el-form-item>
-          <el-form-item label="新权限码"><el-input v-model.trim="form.code" maxlength="128" /></el-form-item>
-          <el-form-item label="新方法"><el-select v-model="form.method"><el-option v-for="method in methods" :key="method"
-                :label="method" :value="method" /></el-select></el-form-item>
-          <el-form-item label="新路径"><el-input v-model.trim="form.path" maxlength="255"
-              placeholder="/api/v1/orders/:id" /></el-form-item>
-        </template>
-        <template v-if="form.kind === 'ELEVATED_SCOPE'">
-          <el-form-item label="资源"><el-input v-model.trim="form.resource" maxlength="128"
-              placeholder="必须是有效权限中已存在的资源" /></el-form-item>
-          <el-form-item label="受控范围"><el-select v-model="form.scopeType"><el-option label="指定目标 CUSTOM"
-                value="CUSTOM" /><el-option label="全部 ALL" value="ALL" /></el-select></el-form-item>
-          <template v-if="form.scopeType === 'CUSTOM'">
-            <p>仅接受组织主数据中已存在的目标 UUID；服务端会核实目标和租户边界。</p>
-            <div v-for="(target, index) in form.targets" :key="index" class="toolbar">
-              <el-select v-model="target.targetType"><el-option v-for="type in targetTypes" :key="type" :label="type"
-                  :value="type" /></el-select><el-input v-model.trim="target.targetId"
-                placeholder="目标 UUID" /><el-button @click="form.targets.splice(index, 1)">移除</el-button>
-            </div>
-            <el-button :disabled="form.targets.length >= 200"
-              @click="form.targets.push({ targetType: 'USER', targetId: '' })">添加目标</el-button>
-          </template>
-        </template>
-        <el-form-item label="申请原因"><el-input v-model.trim="form.reason" type="textarea" maxlength="255"
-            show-word-limit /></el-form-item>
-        <el-form-item label="申请有效期">
-          <el-radio-group v-model="expiryPreset" size="small" @change="setExpiryPreset">
-            <el-radio-button v-for="hours in expiryPresets" :key="hours" :label="String(hours)">{{ hours }}小时</el-radio-button>
-            <el-radio-button label="custom">自定义</el-radio-button>
-          </el-radio-group>
-          <el-date-picker v-model="form.expiresAt" type="datetime" :disabled="expiryPreset !== 'custom'"
-            :picker-options="expiryPickerOptions" placeholder="请选择到期时间" />
-          <p class="expiry-hint">当前申请类型最长 {{ approvalMaxHours(form.kind) }} 小时；超过 24 小时需走长期授权流程。</p>
-          <el-alert
-            title="该时间同时作为审批、执行和临时授权的失效时间。"
-            type="warning"
-            :closable="false"
-            show-icon
-            class="expiry-alert"
-          />
-        </el-form-item>
-      </el-form>
-      <span slot="footer"><el-button @click="createVisible = false">取消</el-button><el-button type="primary"
+      <div v-if="!form.kind" class="approval-kind-selection">
+        <div class="approval-kind-title">请选择申请类型</div>
+        <div class="approval-kind-grid">
+          <button v-for="kind in kinds" :key="kind.value" type="button" class="approval-kind-card"
+            @click="selectKind(kind)">
+            <span class="approval-kind-label">{{ kind.label }}</span>
+            <span class="approval-kind-meta">最长 {{ kind.maxHours }} 小时</span>
+          </button>
+        </div>
+        <el-empty v-if="!kinds.length" description="当前账号没有可创建的审批类型" :image-size="80" />
+      </div>
+      <template v-else>
+        <div class="approval-kind-summary">
+          <div>
+            <span class="approval-kind-summary-label">申请类型</span>
+            <strong>{{ kindMeta.label || '—' }}</strong>
+          </div>
+          <el-button type="text" @click="changeKind">更改申请类型</el-button>
+        </div>
+        <div v-if="hasKindField('MFA_WARNING')" class="approval-form-notice approval-form-top-notice">
+          <el-alert title="用于管理员 MFA 丢失恢复。执行后需要重新登录并绑定 MFA。"
+            type="warning" :closable="false" show-icon />
+        </div>
+      <component :is="kindFormComponent" v-if="kindFormComponent" :value="form" :kind-meta="kindMeta"
+        :users="targetUsers" :roles="targetRoles" :loading="targetOptionsLoading" :methods="methods"
+        :permissions="permissionOptions" :permission-loading="permissionOptionsLoading"
+        :apis="apiOptions" :api-loading="apiOptionsLoading"
+        :metadata="{ scopeTypeOptions: scopeTypes, targetTypeOptions: targetTypes, maxTargets: 200 }"
+        @input="updateForm" @user-visible="targetVisible('USER', $event)"
+        @role-visible="targetVisible('ROLE', $event)" @search-users="searchUsers"
+        @search-roles="searchRoles" />
+      </template>
+      <span slot="footer"><el-button @click="createVisible = false">取消</el-button><el-button v-if="form.kind" type="primary"
           :disabled="!canCreate" :loading="saving" @click="submit">提交申请</el-button></span>
     </el-dialog>
   </div>
@@ -174,17 +149,40 @@ import {
   executeRequest,
   reviewRequest,
   cancelApprovalRequest,
+  getRolePermissionOptions,
+  getOperationApiOptions,
 } from '@/api/admin'
-import { APPROVAL_KINDS, approvalBody, approvalMaxHours } from './utils'
-import { HTTP_METHODS, requestReason } from '../permission/utils'
+import { approvalBody, buildApprovalPayload } from './utils'
+import { requestReason } from '../permission/utils'
 import { dateFormat } from '@/utils/date'
+import { hasAvailableAction } from '@/utils/available-action'
+import RoleGrantForm from './components/RoleGrantForm.vue'
+import RoleRevokeForm from './components/RoleRevokeForm.vue'
+import MfaResetForm from './components/MfaResetForm.vue'
+import RoleStatusForm from './components/RoleStatusForm.vue'
+import RolePermissionsForm from './components/RolePermissionsForm.vue'
+import RolePermissionRevokeForm from './components/RolePermissionRevokeForm.vue'
+import ApiRouteChangeForm from './components/ApiRouteChangeForm.vue'
+import ElevatedScopeForm from './components/ElevatedScopeForm.vue'
+import ElevatedRevokeForm from './components/ElevatedRevokeForm.vue'
+const KIND_FORM_COMPONENTS = {
+  ROLE_GRANT: RoleGrantForm,
+  ROLE_REVOKE: RoleRevokeForm,
+  MFA_RESET: MfaResetForm,
+  ROLE_STATUS: RoleStatusForm,
+  ROLE_PERMISSIONS: RolePermissionsForm,
+  ROLE_PERMISSION_REVOKE: RolePermissionRevokeForm,
+  API_ROUTE_CHANGE: ApiRouteChangeForm,
+  ELEVATED_SCOPE: ElevatedScopeForm,
+  ELEVATED_REVOKE: ElevatedRevokeForm,
+}
 const emptyForm = () => ({
-  kind: 'ROLE_GRANT',
+  kind: '',
   userRef: '',
   roleRef: '',
   status: 'DISABLED',
   scopeId: '',
-  permissionIds: '',
+  permissionIds: [],
   apiId: '',
   code: '',
   method: 'GET',
@@ -197,12 +195,14 @@ const emptyForm = () => ({
 })
 export default {
   name: 'SystemPermissionApproval',
+  components: KIND_FORM_COMPONENTS,
   data() {
     return {
-      kinds: APPROVAL_KINDS,
-      methods: HTTP_METHODS,
-      targetTypes: ['USER', 'DEPARTMENT', 'ORGANIZATION', 'TENANT'],
-      statuses: { REQUESTED: '待审批', APPROVED: '待执行', EXECUTED: '待复核', REVIEWED: '已复核', CANCELLED: '已撤回' },
+      kinds: [],
+      methods: [],
+      targetTypes: [],
+      scopeTypes: [],
+      statusOptions: [],
       items: [],
       status: '',
       cursor: undefined,
@@ -215,18 +215,21 @@ export default {
       createVisible: false,
       form: emptyForm(),
       formError: '',
-      expiryPreset: '2',
       targetUsers: [],
       targetRoles: [],
       targetOptionsLoading: false,
       targetRefError: '',
+      permissionOptions: [],
+      permissionOptionsLoading: false,
+      apiOptions: [],
+      apiOptionsLoading: false,
       detailVisible: false,
       detailLoading: false,
       detailError: '',
       detail: null,
       detailRequest: 0,
       stages: [
-        { label: '申请人', actor: 'applicant', time: 'createdAt' },
+        { label: '申请人', actor: 'applicant', time: 'createdAt', note: 'reason' },
         { label: '审批人', actor: 'approver', time: 'approvedAt', note: 'approvalNote' },
         { label: '执行人', actor: 'executor', time: 'executedAt', note: 'executionNote' },
         { label: '复核人', actor: 'reviewer', time: 'reviewedAt', note: 'reviewNote' },
@@ -234,31 +237,14 @@ export default {
     }
   },
   computed: {
-    expiryPresets() {
-      const max = approvalMaxHours(this.form.kind)
-      return [2, 8, 24].filter((hours) => hours <= max)
-    },
-    expiryPickerOptions() {
-      const max = approvalMaxHours(this.form.kind) * 60 * 60 * 1000
-      return {
-        disabledDate(date) {
-          const today = new Date()
-          today.setHours(0, 0, 0, 0)
-          const latest = new Date(Date.now() + max)
-          latest.setHours(0, 0, 0, 0)
-          return date < today || date > latest
-        },
-      }
-    },
     canCreate() {
-      return (
-        this.can('system.approval.create') &&
-        (this.can('system.role.grant') ||
-          this.can('system.role.disable') ||
-          this.can('system.role.enable') ||
-          this.can('system.role.revoke') ||
-          this.can('system.user.mfa-reset'))
-      )
+      return this.kinds.length > 0
+    },
+    kindMeta() {
+      return this.kinds.find((item) => item.value === this.form.kind) || {}
+    },
+    kindFormComponent() {
+      return KIND_FORM_COMPONENTS[this.form.kind] || null
     },
   },
   created() {
@@ -270,69 +256,10 @@ export default {
     },
     formatActor(actor) {
       if (!actor) return '未处理'
-      const roles = (actor.roles || []).map((role) => role.name || role.code).filter(Boolean).join('、')
-      return [actor.displayName || actor.userId || '未知用户', roles].filter(Boolean).join(' · ')
+      return actor.displayName || actor.userId || '未知用户'
     },
     can(code) {
       return (this.$store.getters.menu_list || []).includes(code)
-    },
-    kindLabel(kind) {
-      return this.kinds.find((item) => item.value === kind)?.label || kind
-    },
-    expired(row) {
-      return new Date(row.expiresAt).getTime() <= Date.now()
-    },
-    canAction(row, action) {
-      const ownId = this.$store.state.user.user_info.userId
-      const expected = { approve: 'REQUESTED', execute: 'APPROVED', review: 'EXECUTED' }[action]
-      const extra = {
-        approve: 'system.role.review',
-        execute: ['ROLE_REVOKE', 'ROLE_PERMISSION_REVOKE', 'ELEVATED_REVOKE'].includes(row.kind)
-          ? 'system.role.revoke'
-          : row.kind === 'ROLE_STATUS'
-            ? 'system.role.disable'
-          : row.kind === 'MFA_RESET'
-            ? 'system.user.mfa-reset'
-            : row.kind === 'API_CREATE'
-              ? 'system.api.create'
-              : row.kind === 'API_UPDATE'
-                ? 'system.api.update'
-                : ['API_ENABLE', 'API_DISABLE'].includes(row.kind)
-                  ? row.kind === 'API_ENABLE'
-                    ? 'system.api.enable'
-                    : 'system.api.disable'
-                  : row.kind === 'API_DELETE'
-                    ? 'system.api.delete'
-                    : ['PAGE_ENABLE', 'PAGE_DISABLE'].includes(row.kind)
-                      ? row.kind === 'PAGE_ENABLE'
-                        ? 'system.page.enable'
-                        : 'system.page.disable'
-                    : row.kind === 'PAGE_ROUTE_CHANGE'
-                      ? 'system.page.update'
-                      : 'system.role.grant',
-        review: 'system.audit.review',
-      }[action]
-      if (
-        !ownId ||
-        row.status !== expected ||
-        !this.can('system.approval.' + action) ||
-        !this.can(extra)
-      )
-        return false
-      if (action !== 'review' && this.expired(row)) return false
-      if (action === 'approve' && row.applicant?.userId === ownId) return false
-      if (action === 'review' && [row.applicant, row.approver, row.executor].some((actor) => actor?.userId === ownId))
-        return false
-      return row.payload?.userId !== ownId
-    },
-    canCancel(row) {
-      const ownId = this.$store.state.user.user_info.userId
-      return Boolean(
-        ownId &&
-          row.status === 'REQUESTED' &&
-          row.applicant?.userId === ownId &&
-          this.can('system.approval.cancel')
-      )
     },
     reset() {
       this.cursor = undefined
@@ -362,6 +289,12 @@ export default {
         const result = await getApprovals({ status: this.status || undefined, cursor: this.cursor })
         if (requestId === this.requestId) {
           this.items = result.items
+          this.statusOptions = result.meta?.statusOptions || this.statusOptions
+          this.kinds = result.meta?.kindOptions || this.kinds
+          this.methods = result.meta?.httpMethodOptions || this.methods
+          this.targetTypes = result.meta?.targetTypeOptions || this.targetTypes
+          this.scopeTypes = result.meta?.scopeTypeOptions || this.scopeTypes
+          if (!this.kinds.some((item) => item.value === this.form.kind)) this.form.kind = this.kinds[0]?.value || ''
           this.nextCursor = result.nextCursor
         }
       } catch (error) {
@@ -391,21 +324,34 @@ export default {
     },
     openCreate() {
       this.form = emptyForm()
-      this.expiryPreset = '2'
-      this.setExpiryPreset('2')
       this.formError = ''
+      this.targetRefError = ''
+      this.permissionOptions = []
+      this.apiOptions = []
       this.createVisible = true
     },
-    approvalMaxHours,
-    changeKind() {
-      this.resetTargetOptions()
-      this.expiryPreset = '2'
-      this.setExpiryPreset('2')
+    selectKind(kind) {
+      this.form = emptyForm()
+      this.form.kind = kind.value
+      this.formError = ''
+      this.targetRefError = ''
+      this.permissionOptions = []
+      if (this.hasKindField('PERMISSIONS')) this.loadPermissionOptions()
+      this.apiOptions = []
+      if (this.form.kind === 'API_ROUTE_CHANGE') this.loadApiOptions()
     },
-    setExpiryPreset(value) {
-      if (value === 'custom') return
-      const hours = Number(value)
-      if (Number.isFinite(hours)) this.form.expiresAt = new Date(Date.now() + hours * 60 * 60 * 1000)
+    hasKindField(field) {
+      return this.kindMeta.fields?.includes(field) || false
+    },
+    updateForm(value) {
+      this.form = { ...this.form, ...value }
+    },
+    changeKind() {
+      this.form = emptyForm()
+      this.resetTargetOptions()
+      this.formError = ''
+      this.permissionOptions = []
+      this.apiOptions = []
     },
     targetVisible(targetType, visible) {
       if (!visible || this.targetOptionsLoading) return
@@ -436,9 +382,31 @@ export default {
         if (targetType === 'USER') this.targetUsers = result.items || []
         else this.targetRoles = result.items || []
       } catch (error) {
-        this.formError = error.message || '受控目标加载失败'
+        this.formError = error.message || '目标加载失败'
       } finally {
         this.targetOptionsLoading = false
+      }
+    },
+    async loadPermissionOptions() {
+      this.permissionOptionsLoading = true
+      try {
+        const result = await getRolePermissionOptions()
+        this.permissionOptions = (result || []).filter((item) => item.isActive && item.id && item.code)
+      } catch (error) {
+        this.formError = error.message || '权限选项加载失败'
+      } finally {
+        this.permissionOptionsLoading = false
+      }
+    },
+    async loadApiOptions() {
+      this.apiOptionsLoading = true
+      try {
+        const result = await getOperationApiOptions()
+        this.apiOptions = (result || []).filter((item) => item.id && item.code && item.isActive !== false)
+      } catch (error) {
+        this.formError = error.message || '接口选项加载失败'
+      } finally {
+        this.apiOptionsLoading = false
       }
     },
     retryTargetSelection(targetType) {
@@ -466,26 +434,25 @@ export default {
     },
     async submit() {
       if (this.saving || !this.canCreate) return
+      const metadata = {
+        kindMeta: this.kindMeta,
+        httpMethodOptions: this.methods,
+        targetTypeOptions: this.targetTypes,
+        scopeTypeOptions: this.scopeTypes,
+      }
       let body
       try {
-        body = approvalBody(this.form)
+        body = approvalBody({ ...this.form, payload: buildApprovalPayload(this.form, metadata) }, metadata)
       } catch (error) {
         this.formError = error.message
         return
       }
-      if (
-        !(await this.$confirm(
-          '确认提交“' +
-          this.kindLabel(body.kind) +
-          '”申请？到期：' +
-          new Date(body.expiresAt).toLocaleString(),
-          '提交审批',
-          { type: 'warning' }
-        )
-          .then(() => true)
-          .catch(() => false))
-      )
-        return
+      const confirmed = await this.$confirm(
+        '确认提交“' + (this.kindMeta.label || body.kind) + '”申请？到期时间：' + new Date(body.expiresAt).toLocaleString(),
+        '提交审批',
+        { type: 'warning' }
+      ).then(() => true).catch(() => false)
+      if (!confirmed) return
       this.saving = true
       this.formError = ''
       try {
@@ -497,7 +464,7 @@ export default {
         const message = error.message || '提交失败，请重新认证后重试'
         if (/审批目标引用无效|已过期|已使用|重新选择/.test(message)) {
           this.targetRefError = this.targetRefType(body)
-          this.formError = '目标选择已失效，请重新选择目标后再提交。申请原因、期限等内容已保留。'
+          this.formError = '目标已失效，请重新选择后再提交。'
         } else {
           this.formError = message
         }
@@ -506,7 +473,7 @@ export default {
       }
     },
     async transition(row, action) {
-      if (this.saving || !this.canAction(row, action)) return
+      if (this.saving || !hasAvailableAction(row, action)) return
       const note = await requestReason(
         this,
         { approve: '审批通过', execute: '执行变更', review: '审计复核' }[action],
@@ -529,7 +496,7 @@ export default {
       }
     },
     async cancel(row) {
-      if (this.saving || !this.canCancel(row)) return
+      if (this.saving || !hasAvailableAction(row, 'cancel')) return
       const note = await requestReason(
         this,
         '撤回审批申请',
@@ -557,19 +524,152 @@ export default {
   padding: 20px;
 }
 
-.expiry-hint {
-  margin: 8px 0 0;
+.approval-security-notice {
+  margin-bottom: 16px;
+}
+
+.approval-security-notice .el-alert {
+  margin-bottom: 0;
+}
+
+.approval-form-error,
+.approval-form-notice {
+  margin-bottom: 16px;
+}
+
+.approval-form-error {
+  min-height: 40px;
+}
+
+.approval-detail-panel {
+  min-height: 450px;
+}
+
+.approval-detail-placeholder {
+  display: flex;
+  min-height: 450px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: #909399;
+}
+
+.summary-title {
+  color: #303133;
+  font-weight: 600;
+}
+
+.summary-hint {
+  margin-left: 12px;
   color: #909399;
   font-size: 12px;
+}
+
+.approval-payload-collapse {
+  margin-top: 12px;
+  margin-bottom: 16px;
+  border-top: 0;
+  border-bottom: 0;
+}
+
+.approval-payload-collapse >>> .el-collapse-item__header {
+  height: 36px;
+  padding: 0 4px;
+  border-top: 0;
+  border-bottom: 0;
+  line-height: 36px;
+}
+
+.approval-payload-collapse >>> .el-collapse-item__wrap {
+  border-bottom: 0;
+}
+
+.approval-payload-collapse >>> .el-collapse-item__content {
+  padding: 4px 0 0;
+}
+
+.approval-payload-collapse pre {
+  margin: 0;
+  padding: 8px 12px;
+}
+
+.approval-kind-selection {
+  min-height: 300px;
+  padding: 8px 4px 20px;
+}
+
+.approval-kind-title {
+  margin-bottom: 16px;
+  color: #303133;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.approval-kind-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.approval-kind-card {
+  display: flex;
+  min-height: 76px;
+  padding: 15px 16px;
+  border: 1px solid #dcdfe6;
+  border-radius: 4px;
+  background: #fff;
+  color: #303133;
+  cursor: pointer;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  text-align: left;
+  transition: border-color 0.2s, background-color 0.2s;
+}
+
+.approval-kind-card:hover,
+.approval-kind-card:focus {
+  border-color: #409eff;
+  background: #f5f9ff;
+  outline: none;
+}
+
+.approval-kind-label {
+  font-size: 14px;
+  font-weight: 600;
   line-height: 1.5;
 }
 
-.expiry-alert {
-  margin-top: 10px;
+.approval-kind-meta {
+  margin-top: 6px;
+  color: #909399;
+  font-size: 12px;
+}
+
+.approval-kind-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 42px;
+  margin-bottom: 16px;
+  padding: 8px 12px;
+  border: 1px solid #ebeef5;
+  border-radius: 4px;
+  background: #f8fafc;
+}
+
+.approval-kind-summary-label {
+  margin-right: 12px;
+  color: #909399;
+  font-size: 13px;
+}
+
+.approval-form-notice .el-alert {
+  margin-bottom: 0;
 }
 
 ::v-deep .approval-detail .el-descriptions-item__label {
-  width: 120px;
+  width: 90px;
 }
 
 .toolbar {
@@ -577,11 +677,6 @@ export default {
   gap: 10px;
   align-items: center;
   margin: 16px 0;
-}
-
-.target-select {
-  width: 420px;
-  max-width: 100%;
 }
 
 .pagination {

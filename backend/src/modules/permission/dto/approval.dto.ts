@@ -36,6 +36,10 @@ export const APPROVAL_KINDS = [
   'ROLE_PERMISSION_REVOKE',
   'ELEVATED_REVOKE',
   'MFA_RESET',
+  'FILE_DELETE',
+  'FILE_REJECT',
+  'FILE_RESTORE',
+  'FILE_RESCAN',
 ] as const satisfies readonly ApprovalKind[]
 export type ApprovalKindInput = ApprovalKind
 
@@ -65,6 +69,8 @@ export class ApprovalTargetOptionsQuery {
 export class RoleGrantPayload {
   @IsUUID() userId!: string
   @IsUUID() roleId!: string
+  /** 角色授权期限；不填写表示长期授权，不能复用审批单期限。 */
+  @IsOptional() @IsISO8601({ strict: true }) grantExpiresAt?: string | null
 }
 export class RoleStatusPayload {
   @IsUUID() roleId!: string
@@ -120,6 +126,9 @@ export class PageRouteChangePayload {
   @MaxLength(255)
   @Matches(/^[a-zA-Z0-9_/-]*$/)
   component?: string
+}
+export class FileActionPayload {
+  @IsUUID() fileId!: string
 }
 export class ScopeTarget {
   @IsIn(['USER', 'DEPARTMENT', 'ORGANIZATION', 'TENANT']) targetType!:
@@ -179,6 +188,11 @@ export function approvalPayload(kind: ApprovalKindInput, payload: unknown) {
       return approvalDto(PageStatusPayload, payload)
     case 'PAGE_ROUTE_CHANGE':
       return approvalDto(PageRouteChangePayload, payload)
+    case 'FILE_DELETE':
+    case 'FILE_REJECT':
+    case 'FILE_RESTORE':
+    case 'FILE_RESCAN':
+      return approvalDto(FileActionPayload, payload)
     case 'ELEVATED_SCOPE': {
       const data = approvalDto(ElevatedScopePayload, payload)
       data.targets = data.targets.map((target) => approvalDto(ScopeTarget, target))

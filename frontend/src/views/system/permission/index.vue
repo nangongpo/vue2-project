@@ -31,21 +31,21 @@
                 <el-tag v-else type="warning">目录</el-tag>
               </div>
               <div class="header-actions">
-                <el-button
+                <permission-button
                   v-if="isDirectory(selectedFunction)"
-                  v-permission="'system.page.create'"
+                  permission="system.page.create"
                   type="primary"
                   icon="el-icon-plus"
                   :disabled="!selectedFunction.isActive"
                   @click="openPage(selectedFunction.id)">
                   新增子页
-                </el-button>
-                <el-button
-                  v-permission="isDirectory(selectedFunction) ? 'system.directory.update' : 'system.page.update'"
+                </permission-button>
+                <permission-button
+                  :permission="isDirectory(selectedFunction) ? 'system.directory.update' : 'system.page.update'"
                   icon="el-icon-edit"
                   @click="openPage(null, selectedFunction)">
                   编辑
-                </el-button>
+                </permission-button>
               </div>
             </div>
             <el-descriptions class="page-detail" :column="3" border size="small">

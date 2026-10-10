@@ -84,7 +84,8 @@ describe('role/user authorization HTTP contracts', () => {
     expect(service.grants).toHaveBeenCalledWith(
       uuid,
       body,
-      expect.objectContaining({ internalId: 42n, traceId: 'trace', path: request.url })
+      expect.objectContaining({ internalId: 42n, traceId: 'trace', path: request.url }),
+      request.user
     )
   })
 

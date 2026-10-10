@@ -2,8 +2,8 @@
   <div class="page-container">
     <el-card shadow="never">
       <div class="toolbar">
-        <el-button v-permission="'system.role.create'" type="primary" @click="openForm()">新增角色</el-button>
-        <el-button v-permission="'system.role.read'" @click="loadRoles">刷新</el-button>
+        <permission-button permission="system.role.create" type="primary" @click="openForm()">新增</permission-button>
+        <permission-button permission="system.role.read" @click="loadRoles">刷新</permission-button>
       </div>
       <el-alert v-if="loadError" :title="loadError" type="error" :closable="false" />
       <el-table v-loading="loading" :data="roles" border stripe>
@@ -14,15 +14,14 @@
         <el-table-column label="状态" width="70"><template slot-scope="{ row }"><el-tag
               :type="row.isActive ? 'success' : 'info'">{{ row.statusLabel }}</el-tag></template></el-table-column>
         <el-table-column prop="userCount" label="用户数" width="80" />
-        <el-table-column label="操作" width="240" fixed="right"><template slot-scope="{ row }">
-            <el-button v-permission="'system.role.update'" type="text" :disabled="!row.capabilities?.canEdit" @click="openForm(row)">编辑</el-button>
-            <el-button v-if="canGrant" type="text" title="配置角色权限" :disabled="!row.capabilities?.canGrant"
-              @click="openGrants(row)">权限配置</el-button>
-            <el-button v-permission="row.isActive ? 'system.role.disable' : 'system.role.enable'" type="text" :disabled="saving" @click="changeStatus(row)">{{
-              row.isActive ? '停用' : '启用' }}</el-button>
-            <el-button v-permission="'system.data-scope.read'" type="text" @click="openScopes(row)">数据范围</el-button>
-            <el-button v-permission="'system.role.delete'" type="text" class="text-danger"
-              :disabled="saving || !row.capabilities?.canDelete || row.userCount > 0" @click="remove(row)">删除</el-button>
+        <el-table-column label="操作" width="200" fixed="right"><template slot-scope="{ row }">
+            <permission-button :row="row" action="edit" type="text" @click="openForm(row)" />
+            <permission-button :row="row" action="grant" type="text" @click="openGrants(row)" />
+            <permission-button :row="row" :action="row.isActive ? 'disable' : 'enable'" type="text"
+              :disabled="saving" :class="row.isActive ? 'text-danger' : 'text-success'" @click="changeStatus(row)" />
+            <permission-button :row="row" action="data-scope" type="text" @click="openScopes(row)" />
+            <permission-button :row="row" action="delete" type="text" class="text-danger"
+              :disabled="saving || row.userCount > 0" @click="remove(row)" />
           </template></el-table-column>
       </el-table>
     </el-card>

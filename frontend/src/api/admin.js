@@ -33,7 +33,8 @@ export const exportAuditLogs = (params) => axiosGet('/audit-logs/export', params
 export const getPageTree = () => axiosGet('/permission/pages/tree')
 export const getPageBaseApis = (id) => axiosGet(`/permission/pages/${id}/base-apis`)
 export const getPageButtons = (id) => axiosGet(`/permission/pages/${id}/buttons`)
-export const getPageBaseApiOptions = () => axiosGet('/permission/pages/base-apis/options')
+export const getPageBaseApiOptions = (pageId) =>
+  axiosGet('/permission/pages/base-apis/options', { pageId })
 export const getPermissionApis = (params = {}) => axiosGet('/permission/apis', params)
 export const getOperationApiOptions = () => axiosGet('/permission/api-options')
 export const getOperationActionOptions = () => axiosGet('/permission/buttons/action-options')
@@ -117,6 +118,7 @@ export const revokeRoleDataScope = (roleId, scopeId, reason) =>
   })
 
 export const getOpsTickets = (params = {}) => axiosGet('/ops-tickets', params)
+export const getOpsTicketOptions = () => axiosGet('/ops-tickets/options')
 export const getOpsTicket = (id) => axiosGet(`/ops-tickets/${id}`)
 export const createOpsTicket = (data) => axiosPost('/ops-tickets', data)
 export const updateOpsTicket = (id, data) =>

@@ -2,6 +2,8 @@
 
 本文档描述当前权限模块的职责边界、数据关系、请求流程和前后端接口。数据库字段以 [`prisma/schema.prisma`](../prisma/schema.prisma) 为准，权限目录以 [`src/security/policies/permission-catalog/`](../src/security/policies/permission-catalog/) 为准，初始化数据以 [`src/database/seed.ts`](../src/database/seed.ts) 和 [`src/database/page-permission-bindings.ts`](../src/database/page-permission-bindings.ts) 为准。
 
+本文档只负责授权架构、职责分离和数据范围判定。权限码命名以 [PERMISSION_CODE_STANDARD.md](PERMISSION_CODE_STANDARD.md) 为准；高危审批字段和状态以 [APPROVAL_CONTRACT.md](APPROVAL_CONTRACT.md) 为准；租户上下文以 [TENANCY_SECURITY.md](TENANCY_SECURITY.md) 为准。
+
 ## 一、设计目标
 
 权限系统把“能否进入页面”“页面能显示哪些操作”“操作能调用哪些接口”“能看到哪些字段”和“能访问哪些数据”拆成独立层次：
@@ -190,12 +192,12 @@ system.button.field.sort.write
 
 ### 6.2 数据范围资源
 
-`sys_data_resource` 只登记可配置角色数据范围的业务对象，例如 `order`、`customer`。它不承载页面、按钮、API 或字段权限。
+`sys_data_resource` 只登记可配置角色数据范围的业务对象，例如 `file`。它不承载页面、按钮、API 或字段权限。
 
 资源编码稳定且不可修改；资源名称和描述可修改；启用、停用使用明确路由：
 
 ```text
-GET   /permission/data-resources?resource=order
+GET   /permission/data-resources?resource=file
 POST  /permission/data-resources
 PATCH /permission/data-resources/:id
 PATCH /permission/data-resources/:id/enable

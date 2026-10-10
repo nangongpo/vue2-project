@@ -81,7 +81,7 @@
 </template>
 
 <script>
-import { createOpsTicket } from '@/api/admin'
+import { createOpsTicket, getOpsTicketOptions } from '@/api/admin'
 
 const blank = () => ({
   type: 'OTHER',
@@ -102,23 +102,11 @@ export default {
     const required = (message) => ({ required: true, whitespace: true, message, trigger: 'blur' })
     return {
       saving: false,
+      optionsLoading: false,
       form: blank(),
-      typeOptions: [
-        { value: 'MFA_RESET_EMERGENCY', label: 'MFA 应急重置' },
-        { value: 'DB_MANUAL_FIX', label: '数据库手工修复' },
-        { value: 'PERMISSION_RECOVERY', label: '权限恢复' },
-        { value: 'ACCOUNT_RECOVERY', label: '账户恢复' },
-        { value: 'OTHER', label: '其他' },
-      ],
-      riskOptions: ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'],
-      targetOptions: [
-        { value: 'USER', label: '用户' },
-        { value: 'ROLE', label: '角色' },
-        { value: 'PERMISSION', label: '权限' },
-        { value: 'DATABASE', label: '数据库' },
-        { value: 'SYSTEM', label: '系统' },
-        { value: 'OTHER', label: '其他' },
-      ],
+      typeOptions: [],
+      riskOptions: [],
+      targetOptions: [],
       rules: {
         type: required('请选择工单类型'),
         riskLevel: required('请选择风险等级'),
@@ -134,6 +122,19 @@ export default {
     }
   },
   methods: {
+    async loadOptions() {
+      this.optionsLoading = true
+      try {
+        const options = await getOpsTicketOptions()
+        this.typeOptions = options.typeOptions || []
+        this.riskOptions = options.riskOptions || []
+        this.targetOptions = options.targetTypeOptions || []
+      } catch (error) {
+        this.$message.error(error.message || '工单选项加载失败')
+      } finally {
+        this.optionsLoading = false
+      }
+    },
     async submit() {
       try {
         await this.$refs.form.validate()
@@ -154,6 +155,9 @@ export default {
         this.saving = false
       }
     },
+  },
+  created() {
+    this.loadOptions()
   },
 }
 </script>

@@ -29,4 +29,6 @@ export type AuthenticatedUser = {
   tenantId?: string | null
   departmentId?: string | null
   organizationId?: string | null
+  tenancyMode?: 'SINGLE' | 'MULTI'
+  availableTenants?: Array<{ id: string; code: string; name: string }>
 }

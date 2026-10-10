@@ -30,6 +30,7 @@ export type RiskContext = {
 }
 
 export type SecurityProofActor = {
+  mfaEnabled?: boolean
   mfaVerifiedAt?: Date | null
   reauthenticatedAt?: Date | null
 }
@@ -116,5 +117,6 @@ export function hasRecentSecurityProof(actor: SecurityProofActor, level: RiskLev
   if (!policy.requireMfa && !policy.requireReauth) return true
   const recent = (value?: Date | null) =>
     value instanceof Date && Number.isFinite(value.getTime()) && value.getTime() <= now.getTime() && now.getTime() - value.getTime() <= RISK_PROOF_TTL_MS
-  return recent(actor.mfaVerifiedAt) && recent(actor.reauthenticatedAt)
+  const mfaProofRequired = actor.mfaEnabled !== false
+  return recent(actor.reauthenticatedAt) && (!mfaProofRequired || recent(actor.mfaVerifiedAt))
 }

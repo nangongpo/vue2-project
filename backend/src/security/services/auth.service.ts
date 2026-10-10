@@ -147,7 +147,8 @@ export class AuthService {
         throw new UnauthorizedException('账号或密码错误')
     }
 
-    const loginUser = await this.toUser(user)
+    const initialTenantId = await this.initialTenantId(user.id)
+    const loginUser = await this.toUser(user, initialTenantId)
     const enrollRequired = loginUser.mfaRequired && !user.mfaEnabled
     const otpRequired = Boolean(user.mfaEnabled)
     const rawToken = randomBytes(32).toString('base64url')
@@ -202,6 +203,7 @@ export class AuthService {
                 id: sessionId,
                 userId: user.id,
                 kind: requiresPreAuth ? 'PRE_AUTH' : 'AUTHENTICATED',
+                activeTenantId: initialTenantId,
                 expiresAt: new Date(now.getTime() + ttl * 1000),
                 ip,
                 userAgent,
@@ -264,6 +266,7 @@ export class AuthService {
           id: this.hashToken(formalToken),
           userId: user.internalId,
           kind: 'AUTHENTICATED',
+          activeTenantId: current.activeTenantId,
           expiresAt: new Date(now.getTime() + expiresIn * 1000),
           ip: current.ip,
           userAgent: current.userAgent,
@@ -304,6 +307,7 @@ export class AuthService {
             },
           },
         },
+        activeTenant: true,
       },
     })
     const now = new Date()
@@ -324,13 +328,44 @@ export class AuthService {
       await this.prisma.session.update({ where: { id: session.id }, data: { revokedAt: now } })
       throw new UnauthorizedException('登录状态因闲置超时已失效')
     }
+    const activeTenantId = await this.sessionTenantId(session)
+    if (expectedKind === 'AUTHENTICATED' && !activeTenantId) throw new UnauthorizedException('当前会话未确定有效租户')
     await this.prisma.session.update({ where: { id: session.id }, data: { lastSeenAt: now } })
     return {
-      ...(await this.toUser(session.user)),
+      ...(await this.toUser(session.user, activeTenantId)),
       mfaVerifiedAt: session.mfaVerifiedAt,
       reauthenticatedAt: session.reauthenticatedAt,
       sessionExpiresAt: session.expiresAt,
     }
+  }
+
+  async listTenants(userId: bigint) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { id: true } })
+    if (!user) throw new UnauthorizedException('账号不存在')
+    const memberships = await this.prisma.userTenantMembership.findMany({
+      where: { userId, status: 'ACTIVE', OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }], tenant: { status: 'ACTIVE' } },
+      orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
+      select: { tenant: { select: { id: true, code: true, name: true } } },
+    })
+    const tenants = memberships.map(({ tenant }) => tenant)
+    return this.tenancyMode() === 'SINGLE' ? tenants.slice(0, 1) : tenants
+  }
+
+  async switchTenant(rawToken: string | undefined, userId: bigint, tenantId: string) {
+    if (!rawToken) throw new UnauthorizedException('登录状态不存在')
+    const now = new Date()
+    const session = await this.prisma.session.findFirst({
+      where: { id: this.hashToken(rawToken), userId, kind: 'AUTHENTICATED', revokedAt: null, expiresAt: { gt: now } },
+      select: { id: true },
+    })
+    if (!session) throw new UnauthorizedException('登录状态已失效')
+    const allowed = await this.prisma.userTenantMembership.findFirst({
+      where: { userId, tenantId, status: 'ACTIVE', OR: [{ expiresAt: null }, { expiresAt: { gt: now } }], tenant: { status: 'ACTIVE' } },
+      select: { id: true },
+    })
+    if (!allowed) throw new UnauthorizedException('无权切换到该租户')
+    await this.prisma.session.update({ where: { id: session.id }, data: { activeTenantId: tenantId, lastSeenAt: now } })
+    return this.authenticate(rawToken, 'AUTHENTICATED')
   }
 
   async logout(rawToken?: string) {
@@ -441,7 +476,7 @@ export class AuthService {
     return createHash('sha256').update(token).digest('hex')
   }
 
-  private async toUser(user: AuthUserRecord): Promise<AuthenticatedUser> {
+  private async toUser(user: AuthUserRecord, activeTenantId?: string | null): Promise<AuthenticatedUser> {
     const now = new Date()
     const roles = user.roles.filter(
       (binding) => !binding.revokedAt && (!binding.expiresAt || binding.expiresAt > now) && binding.role.status === 'ACTIVE'
@@ -548,9 +583,38 @@ export class AuthService {
         })),
       mfaEnabled: user.mfaEnabled,
       mfaRequired: adminTypes.size > 0,
-      tenantId: user.tenantId,
-      departmentId: user.departmentId,
-      organizationId: user.organizationId,
+      tenantId: activeTenantId ?? user.tenantId,
+      departmentId: activeTenantId && activeTenantId !== user.tenantId ? null : user.departmentId,
+      organizationId: activeTenantId && activeTenantId !== user.tenantId ? null : user.organizationId,
+      tenancyMode: this.tenancyMode(),
     }
+  }
+
+  private tenancyMode(): 'SINGLE' | 'MULTI' {
+    return process.env.TENANCY_MODE === 'MULTI' ? 'MULTI' : 'SINGLE'
+  }
+
+  private async initialTenantId(userId: bigint) {
+    if (!this.prisma.userTenantMembership) return null
+    const membership = await this.prisma.userTenantMembership.findFirst({
+      where: { userId, status: 'ACTIVE', OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }], tenant: { status: 'ACTIVE' } },
+      orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
+      select: { tenantId: true },
+    })
+    return membership?.tenantId || null
+  }
+
+  private async sessionTenantId(session: { activeTenantId?: string | null; activeTenant?: { id: string; status: string } | null; user: { id: bigint; tenantId?: string | null } }) {
+    const candidate = session.activeTenantId || null
+    if (!candidate) return null
+    if (session.activeTenantId && session.activeTenant && session.activeTenant.status !== 'ACTIVE') throw new UnauthorizedException('当前租户已停用')
+    if (this.prisma.userTenantMembership) {
+      const membership = await this.prisma.userTenantMembership.findFirst({
+        where: { userId: session.user.id, tenantId: candidate, status: 'ACTIVE', OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }], tenant: { status: 'ACTIVE' } },
+        select: { id: true },
+      })
+      if (!membership) throw new UnauthorizedException('当前租户成员关系已失效')
+    }
+    return candidate
   }
 }

@@ -21,11 +21,9 @@
           </el-select>
         </el-form-item>
         <el-form-item>
-          <el-button v-permission="'system.api.read'" type="primary" @click="search"
-            >查询</el-button
-          >
+          <permission-button permission="system.api.read" type="primary" @click="search">查询</permission-button>
           <el-button @click="reset">重置</el-button>
-          <el-button v-permission="'system.api.create'" @click="openForm()">新增接口</el-button>
+          <permission-button permission="system.api.create" @click="openForm()">新增接口</permission-button>
         </el-form-item>
       </el-form>
       <el-alert v-if="loadError" :title="loadError" type="error" :closable="false" />
@@ -54,29 +52,29 @@
         </el-table-column>
         <el-table-column label="操作" min-width="180" fixed="right">
           <template slot-scope="{ row }">
-            <el-button v-permission="'system.api.update'" type="text" @click="openForm(row)"
-              >编辑</el-button
+            <permission-button permission="system.api.update" type="text" @click="openForm(row)"
+              >编辑</permission-button
             >
-            <el-button
-              v-permission="row.isActive ? 'system.api.disable' : 'system.api.enable'"
+            <permission-button
+              :permission="row.isActive ? 'system.api.disable' : 'system.api.enable'"
               type="text"
               :disabled="saving"
               @click="changeStatus(row)"
-              >{{ row.isActive ? '停用' : '启用' }}</el-button
+              >{{ row.isActive ? '停用' : '启用' }}</permission-button
             >
-            <el-button
-              v-permission="'system.api.references'"
+            <permission-button
+              permission="system.api.references"
               type="text"
               @click="showReferences(row)"
-              >引用</el-button
+              >引用</permission-button
             >
-            <el-button
-              v-permission="'system.api.delete'"
+            <permission-button
+              permission="system.api.delete"
               type="text"
               class="text-danger"
               :disabled="saving || !can('system.api.references')"
               @click="showReferences(row, true)"
-              >删除</el-button
+              >删除</permission-button
             >
           </template>
         </el-table-column>
@@ -121,7 +119,7 @@
             v-model.trim="form.path"
             :disabled="!!editingId"
             maxlength="255"
-            placeholder="/api/v1/orders/:id"
+            placeholder="/api/v1/resource/:id"
         /></el-form-item>
         <el-form-item label="资源" prop="resource"
           ><el-input v-model.trim="form.resource" :disabled="!!editingId" maxlength="128"
@@ -170,14 +168,14 @@
       </div>
       <span slot="footer">
         <el-button @click="referencesVisible = false">关闭</el-button>
-        <el-button
+        <permission-button
           v-if="deleting"
-          v-permission="'system.api.delete'"
+          permission="system.api.delete"
           type="danger"
           :disabled="referenced || referencesLoading || !!referencesError"
           :loading="saving"
           @click="remove"
-          >确认删除</el-button
+          >确认删除</permission-button
         >
       </span>
     </el-dialog>

@@ -158,7 +158,7 @@ function harness() {
       update: vi.fn(async ({ data }) => ({ ...permission, ...data })),
     },
     dataResource: {
-      findFirst: vi.fn(async () => ({ id: uuid(40), code: 'orders', name: '订单' })),
+      findFirst: vi.fn(async () => ({ id: uuid(40), code: 'files', name: '文件' })),
     },
     roleElevatedDataScope: {
       create: vi.fn(async ({ data }) => (scope = { id: uuid(91), revokedAt: null, ...data })),
@@ -261,7 +261,7 @@ describe('high-risk revocation workflows', () => {
       h,
       input('ELEVATED_SCOPE', {
         roleId: uuid(20),
-        resource: 'order',
+        resource: 'file',
         scopeType: 'ALL',
         targets: [],
       })
@@ -286,7 +286,7 @@ describe('high-risk revocation workflows', () => {
       h.service.create(
         input('ELEVATED_SCOPE', {
           roleId: uuid(20),
-          resource: 'order',
+          resource: 'file',
           scopeType: 'CUSTOM',
           targets: [{ targetType: 'DEPARTMENT', targetId: uuid(52) }],
         }),
@@ -420,7 +420,7 @@ describe('approval authorization and validation', () => {
     expect(() =>
       approvalPayload('ELEVATED_SCOPE', {
         roleId: uuid(20),
-        resource: 'order',
+        resource: 'file',
         scopeType: 'CUSTOM',
         targets: [],
       })
@@ -428,7 +428,7 @@ describe('approval authorization and validation', () => {
     expect(() =>
       approvalPayload('ELEVATED_SCOPE', {
         roleId: uuid(20),
-        resource: 'order',
+        resource: 'file',
         scopeType: 'ALL',
         targets: [{ targetType: 'USER', targetId: uuid(10) }],
       })
@@ -436,7 +436,7 @@ describe('approval authorization and validation', () => {
     expect(() =>
       approvalPayload('ELEVATED_SCOPE', {
         roleId: uuid(20),
-        resource: 'order',
+        resource: 'file',
         scopeType: 'CUSTOM',
         targets: [{ targetType: 'USER', targetId: uuid(10), unexpected: true }],
       })
@@ -527,6 +527,56 @@ describe('approval state machine and transaction guarantees', () => {
       data: { status: 'REVIEWED' },
     })
   })
+  it('separates workflow status from deadline status and minimizes actor profiles', async () => {
+    const h = harness()
+    const { data } = await h.service.create(input(), actor())
+    await h.service.transition(data.id, 'approve', { note: 'approve' }, actor(2))
+    await h.service.transition(data.id, 'execute', { note: 'execute' }, actor(3))
+    const reviewed = await h.service.transition(data.id, 'review', { note: 'review' }, actor(4, 'AUDIT'))
+    h.request.expiresAt = new Date(Date.now() - 100)
+
+    expect(reviewed.data.status).toBe('REVIEWED')
+    const list = await h.service.list({}, actor(4, 'AUDIT'))
+    expect(list.data.items[0]).toMatchObject({
+      status: 'REVIEWED',
+      deadlineStatus: 'COMPLETED_AFTER_DEADLINE',
+      deadlineStatusLabel: '超期完成',
+      applicant: { displayName: null },
+    })
+    expect(list.data.items[0].applicant).not.toHaveProperty('roles')
+    expect(list.data.items[0]).not.toHaveProperty('statusPhase')
+    expect(list.data.items[0]).not.toHaveProperty('terminal')
+    expect(list.data.items[0]).not.toHaveProperty('createdAt')
+    expect(list.data.items[0]).not.toHaveProperty('updatedAt')
+
+    const detail = await h.service.detail(data.id, actor(4, 'AUDIT'))
+    expect(detail.data.applicant).toHaveProperty('userId', uuid(1))
+    expect(detail.data.applicant).not.toHaveProperty('roles')
+  })
+  it('sanitizes sensitive values in approval detail payloads', async () => {
+    const h = harness()
+    const { data } = await h.service.create(input(), actor())
+    h.request.payload = {
+      userId: uuid(10),
+      nested: {
+        password: 'plain-password',
+        token: 'secret-token',
+        displayName: 'visible value',
+      },
+    }
+
+    const detail = await h.service.detail(data.id, actor(4, 'AUDIT'))
+    const detailData = detail.data as typeof detail.data & { payload: unknown }
+
+    expect(detailData.payload).toEqual({
+      userId: uuid(10),
+      nested: {
+        password: '[REDACTED]',
+        token: '[REDACTED]',
+        displayName: 'visible value',
+      },
+    })
+  })
   it('rolls back both grant and state if the audit insert fails', async () => {
     const h = harness()
     const { data } = await h.service.create(input(), actor())
@@ -586,7 +636,7 @@ describe('approval target policies', () => {
   })
   it('denies cross-admin paths even when permission code and classification are misleading', async () => {
     const h = harness()
-    h.permission.code = 'orders.read'
+    h.permission.code = 'files.read'
     h.permission.path = '/api/v1/audit'
     await expect(h.service.create(input('ROLE_PERMISSIONS', { roleId: uuid(20), permissionIds: [uuid(30)] }), actor())).rejects.toThrow(
       '路径管理职责冲突'
@@ -669,13 +719,13 @@ describe('approval target policies', () => {
     const h = harness()
     h.tx.permission.findFirst.mockResolvedValue({ id: uuid(30) })
     const targets = scopeType === 'CUSTOM' ? [{ targetType: 'USER', targetId: uuid(10) }] : []
-    const { data } = await h.service.create(input('ELEVATED_SCOPE', { roleId: uuid(20), scopeType, resource: 'order', targets }), actor())
+    const { data } = await h.service.create(input('ELEVATED_SCOPE', { roleId: uuid(20), scopeType, resource: 'file', targets }), actor())
     await h.service.transition(data.id, 'approve', { note: 'approve' }, actor(2))
     await h.service.transition(data.id, 'execute', { note: 'execute' }, actor(3))
     expect(h.tx.roleElevatedDataScope.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         scopeType,
-        resource: 'order',
+        resource: 'file',
         approvalRef: data.id,
         expiresAt: data.expiresAt,
         targets: {
@@ -694,7 +744,7 @@ describe('approval target policies', () => {
         input('ELEVATED_SCOPE', {
           roleId: uuid(20),
           scopeType: 'CUSTOM',
-          resource: 'order',
+          resource: 'file',
           targets: [{ targetType: 'TENANT', targetId: uuid(50) }],
         }),
         actor()

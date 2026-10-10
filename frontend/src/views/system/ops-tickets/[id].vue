@@ -8,17 +8,17 @@
       <el-alert v-if="error" :title="error" type="error" :closable="false" />
       <template v-if="ticket">
         <div class="summary">
-          <el-tag :type="riskType(ticket.riskLevel)">{{ ticket.riskLevel }}</el-tag>
-          <el-tag>{{ labelOf(statusOptions, ticket.status) }}</el-tag>
+          <el-tag :type="ticket.riskTone || 'info'">{{ ticket.riskLabel || '—' }}</el-tag>
+          <el-tag>{{ ticket.statusLabel || '—' }}</el-tag>
           <span class="ticket-no">{{ ticket.ticketNo }}</span>
         </div>
         <el-descriptions :column="2" border size="small">
           <el-descriptions-item label="标题" :span="2">{{ ticket.title }}</el-descriptions-item>
           <el-descriptions-item label="类型">{{
-            labelOf(typeOptions, ticket.type)
+            ticket.typeLabel || '—'
           }}</el-descriptions-item>
           <el-descriptions-item label="目标"
-            >{{ ticket.targetType }} / {{ ticket.targetId || '—' }}</el-descriptions-item
+            >{{ ticket.targetTypeLabel || '—' }} / {{ ticket.targetId || '—' }}</el-descriptions-item
           >
           <el-descriptions-item label="申请人">{{ ticket.requestedBy }}</el-descriptions-item>
           <el-descriptions-item label="创建时间">{{ ticket.createdAt }}</el-descriptions-item>
@@ -42,59 +42,56 @@
           }}</el-descriptions-item>
         </el-descriptions>
         <div class="actions">
-          <el-button
-            v-if="ticket.status === 'DRAFT' && can('system.ops-ticket.create')"
+          <permission-button
+            :row="ticket"
+            action="submit"
             type="primary"
             :loading="saving"
             @click="submitTicket"
-            >提交确认</el-button
-          >
-          <el-button
-            v-if="ticket.status === 'SUBMITTED' && can('system.ops-ticket.approve')"
+          />
+          <permission-button
+            :row="ticket"
+            action="approve"
             :loading="saving"
             @click="transition('approve')"
-            >确认工单</el-button
-          >
-          <el-button
-            v-if="ticket.status === 'APPROVED' && can('system.ops-ticket.execute')"
+          />
+          <permission-button
+            :row="ticket"
+            action="execute"
             type="warning"
             :loading="saving"
             @click="transition('execute')"
-            >确认执行</el-button
-          >
-          <el-button
-            v-if="ticket.status === 'EXECUTED' && can('system.ops-ticket.execution.create')"
+          />
+          <permission-button
+            :row="ticket"
+            action="execution.create"
             :loading="saving"
             @click="executionVisible = true"
-            >回写执行记录</el-button
-          >
-          <el-button
-            v-if="ticket.status === 'EXECUTED' && can('system.ops-ticket.review')"
+          />
+          <permission-button
+            :row="ticket"
+            action="review"
             type="success"
             :loading="saving"
             @click="transition('review')"
-            >审计复核归档</el-button
-          >
-          <el-button
-            v-if="['DRAFT', 'SUBMITTED'].includes(ticket.status) && can('system.ops-ticket.cancel')"
+          />
+          <permission-button
+            :row="ticket"
+            action="cancel"
             type="danger"
             plain
             :loading="saving"
             @click="transition('cancel')"
-            >取消工单</el-button
-          >
-          <el-button
-            v-if="
-              !['REVIEWED', 'CANCELLED'].includes(ticket.status) &&
-              can('system.ops-ticket.evidence.create')
-            "
+          />
+          <permission-button
+            :row="ticket"
+            action="evidence.create"
             @click="evidenceVisible = true"
-            >追加证据</el-button
-          >
+          />
         </div>
         <el-divider>证据记录</el-divider>
         <el-table :data="ticket.evidence || []" border stripe empty-text="暂无证据">
-          <el-table-column prop="type" label="类型" width="180" /><el-table-column
+          <el-table-column prop="typeLabel" label="类型" width="180" /><el-table-column
             prop="name"
             label="名称"
             min-width="180" /><el-table-column
@@ -118,7 +115,7 @@
             prop="dbCurrentUser"
             label="数据库账号"
             min-width="160" /><el-table-column
-            prop="result"
+            prop="resultLabel"
             label="结果"
             width="100" /><el-table-column
             prop="traceId"
@@ -153,8 +150,9 @@
         /></el-form-item>
         <el-form-item label="结果"
           ><el-radio-group v-model="execution.result"
-            ><el-radio label="SUCCESS">成功</el-radio
-            ><el-radio label="FAILED">失败</el-radio></el-radio-group
+            ><el-radio v-for="item in executionResultOptions" :key="item.value" :label="item.value">{{
+              item.label
+            }}</el-radio></el-radio-group
           ></el-form-item
         ><el-form-item label="Trace ID"><el-input v-model.trim="execution.traceId" /></el-form-item>
         <el-form-item label="前快照 JSON"
@@ -178,10 +176,10 @@
         ><el-form-item label="类型"
           ><el-select v-model="evidence.type"
             ><el-option
-              v-for="item in evidenceTypes"
-              :key="item"
-              :label="item"
-              :value="item" /></el-select></el-form-item
+              v-for="item in evidenceTypeOptions"
+              :key="item.value"
+              :label="item.label"
+              :value="item.value" /></el-select></el-form-item
         ><el-form-item label="名称"
           ><el-input v-model.trim="evidence.name" maxlength="255" /></el-form-item
         ><el-form-item label="地址/摘要"
@@ -205,10 +203,12 @@ import {
   cancelOpsTicket,
   executeOpsTicket,
   getOpsTicket,
+  getOpsTicketOptions,
   reviewOpsTicket,
   submitOpsTicket,
 } from '@/api/admin'
 import { requestReason } from '../permission/utils'
+import { findAvailableAction } from '@/utils/available-action'
 
 export default {
   name: 'SystemOpsTicketDetail',
@@ -220,22 +220,8 @@ export default {
       ticket: null,
       evidenceVisible: false,
       executionVisible: false,
-      statusOptions: [
-        { value: 'DRAFT', label: '草稿' },
-        { value: 'SUBMITTED', label: '待确认' },
-        { value: 'APPROVED', label: '待执行' },
-        { value: 'EXECUTED', label: '待复核' },
-        { value: 'REVIEWED', label: '已归档' },
-        { value: 'CANCELLED', label: '已取消' },
-      ],
-      typeOptions: [
-        { value: 'MFA_RESET_EMERGENCY', label: 'MFA 应急重置' },
-        { value: 'DB_MANUAL_FIX', label: '数据库手工修复' },
-        { value: 'PERMISSION_RECOVERY', label: '权限恢复' },
-        { value: 'ACCOUNT_RECOVERY', label: '账户恢复' },
-        { value: 'OTHER', label: '其他' },
-      ],
-      evidenceTypes: ['APPROVAL_SCREENSHOT', 'EMAIL', 'CHAT', 'SQL_REVIEW', 'OTHER'],
+      evidenceTypeOptions: [],
+      executionResultOptions: [],
       evidence: { type: 'OTHER', name: '', uri: '', sha256: '' },
       execution: {
         ticketNo: '',
@@ -256,24 +242,17 @@ export default {
     this.load()
   },
   methods: {
-    can(code) {
-      return (this.$store.getters.menu_list || []).includes(code)
-    },
-    labelOf(options, value) {
-      return options.find((item) => item.value === value)?.label || value
-    },
-    riskType(value) {
-      return value === 'CRITICAL' || value === 'HIGH'
-        ? 'danger'
-        : value === 'MEDIUM'
-        ? 'warning'
-        : 'info'
-    },
     async load() {
       this.loading = true
       this.error = ''
       try {
-        this.ticket = await getOpsTicket(this.$route.params.id)
+        const [ticket, options] = await Promise.all([
+          getOpsTicket(this.$route.params.id),
+          getOpsTicketOptions(),
+        ])
+        this.ticket = ticket
+        this.evidenceTypeOptions = options.evidenceTypeOptions || []
+        this.executionResultOptions = options.executionResultOptions || []
         this.execution.ticketNo = this.ticket.ticketNo
       } catch (error) {
         this.error = error.message || '工单加载失败'
@@ -294,16 +273,9 @@ export default {
       }
     },
     async transition(action) {
-      const note = await requestReason(
-        this,
-        {
-          approve: '确认应急工单',
-          execute: '确认执行工单',
-          review: '审计复核工单',
-          cancel: '取消应急工单',
-        }[action],
-        '请填写处理意见'
-      )
+      const availableAction = findAvailableAction(this.ticket, action)
+      const actionTitle = typeof availableAction === 'object' ? availableAction.label : '确认操作'
+      const note = await requestReason(this, actionTitle || '确认操作', '请填写处理意见')
       if (!note) return
       this.saving = true
       try {

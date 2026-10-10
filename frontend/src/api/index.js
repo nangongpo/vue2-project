@@ -1,5 +1,79 @@
 import service, { notifyRequestError } from './http'
 
+const MUTATING_METHODS = new Set(['post', 'put', 'patch', 'delete'])
+
+// 幂等路由策略集中维护。新增接口时只需放入对应模式的 exact、prefixes 或 templates。
+// shortLock：仅防止并发执行；full：允许安全重试并重放成功响应；disabled：不使用通用幂等。
+const IDEMPOTENCY_ROUTE_POLICY = {
+  shortLock: {
+    exact: new Set(['/auth/login', '/auth/login/complete', '/auth/reauth', '/auth/session/renew']),
+    prefixes: ['/auth/mfa/'],
+    templates: [],
+  },
+  full: {
+    exact: new Set(['/auth/tenant', '/auth/password']),
+    prefixes: ['/users', '/roles', '/permission/', '/ops-tickets', '/files'],
+    templates: [],
+  },
+  disabled: {
+    exact: new Set(['/auth/logout']),
+    prefixes: ['/captcha/'],
+    templates: [
+      '/files/uploads/:uploadId/parts/:partNumber',
+      '/files/uploads/:uploadId/part-urls',
+    ],
+  },
+}
+
+function matchesPath(path, exact, prefixes, templates) {
+  if (exact.has(path)) return true
+  if (prefixes.some((prefix) => {
+    const pathPrefix = prefix.endsWith('/') ? prefix : `${prefix}/`
+    return path === prefix || path.startsWith(pathPrefix)
+  })) return true
+
+  if (templates.length === 0) return false
+  const pathSegments = path.slice(1).split('/')
+  return templates.some((template) => {
+    const templateSegments = template.slice(1).split('/')
+    if (pathSegments.length !== templateSegments.length) return false
+    return templateSegments.every((segment, index) => segment.startsWith(':') ? Boolean(pathSegments[index]) : segment === pathSegments[index])
+  })
+}
+
+function matchesRoute(path, routePolicy) {
+  return matchesPath(path, routePolicy.exact, routePolicy.prefixes, routePolicy.templates)
+}
+
+function resolveIdempotencyPolicy(path) {
+  if (matchesRoute(path, IDEMPOTENCY_ROUTE_POLICY.disabled)) return 'disabled'
+  if (matchesRoute(path, IDEMPOTENCY_ROUTE_POLICY.shortLock)) return 'shortLock'
+  if (matchesRoute(path, IDEMPOTENCY_ROUTE_POLICY.full)) return 'full'
+  return 'disabled'
+}
+
+/*
+ * 保留统一入口，避免请求发送逻辑感知具体的幂等模式；当前调用方只需要知道是否携带 Key。
+ */
+function requiresIdempotency(method, url) {
+  if (!MUTATING_METHODS.has(method)) return false
+  const path = url.split('?')[0]
+  return resolveIdempotencyPolicy(path) !== 'disabled'
+}
+
+function createIdempotencyKey() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID()
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    const bytes = new Uint8Array(16)
+    crypto.getRandomValues(bytes)
+    return Array.from(bytes, (value) => {
+      const hex = value.toString(16)
+      return hex.length === 1 ? `0${hex}` : hex
+    }).join('')
+  }
+  throw new Error('当前浏览器不支持安全随机数，无法发起幂等写请求')
+}
+
 function isQueryMethod(method) {
   return (
     method === 'get' ||
@@ -15,11 +89,18 @@ export function sendRequest({ url = '', method = 'get', params = {}, config = {}
   }
 
   const normalizedMethod = method.toLowerCase()
-  const { showNotify = true, ...axiosConfig } = config
+  const { showNotify = true, idempotency = true, idempotencyKey, ...axiosConfig } = config
   const requestConfig = {
     ...axiosConfig,
     method: normalizedMethod,
     url,
+  }
+
+  if (idempotency && requiresIdempotency(normalizedMethod, url)) {
+    requestConfig.headers = {
+      ...(axiosConfig.headers || {}),
+      'Idempotency-Key': idempotencyKey || createIdempotencyKey(),
+    }
   }
 
   if (isQueryMethod(normalizedMethod)) {

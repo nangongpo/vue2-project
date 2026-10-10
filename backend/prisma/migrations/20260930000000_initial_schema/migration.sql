@@ -28,28 +28,92 @@ CREATE TABLE `sys_user` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `biz_order` (
-    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    `order_id` CHAR(36) NOT NULL,
-    `order_no` VARCHAR(40) NOT NULL,
+CREATE TABLE `sys_file_object` (
+    `id` CHAR(36) NOT NULL,
     `tenant_id` CHAR(36) NULL,
-    `owner_id` CHAR(36) NOT NULL,
-    `department_id` CHAR(36) NULL,
-    `organization_id` CHAR(36) NULL,
-    `customer_name` VARCHAR(128) NOT NULL,
-    `total_amount` DECIMAL(18, 2) NOT NULL,
-    `currency` CHAR(3) NOT NULL DEFAULT 'CNY',
-    `status` ENUM('DRAFT', 'CONFIRMED', 'CANCELLED', 'COMPLETED') NOT NULL DEFAULT 'DRAFT',
-    `remark` VARCHAR(500) NULL,
+    `owner_user_id` CHAR(36) NOT NULL,
+    `storage_key` VARCHAR(512) NOT NULL,
+    `original_name` VARCHAR(255) NOT NULL,
+    `safe_name` VARCHAR(255) NOT NULL,
+    `declared_mime` VARCHAR(128) NULL,
+    `detected_mime` VARCHAR(128) NULL,
+    `extension` VARCHAR(32) NULL,
+    `size` BIGINT UNSIGNED NOT NULL,
+    `sha256` CHAR(64) NULL,
+    `status` ENUM('QUARANTINED', 'READY', 'REJECTED', 'DELETED') NOT NULL DEFAULT 'QUARANTINED',
+    `scan_status` ENUM('PENDING', 'CLEAN', 'INFECTED', 'ERROR') NOT NULL DEFAULT 'PENDING',
+    `scan_detail` VARCHAR(512) NULL,
+    `classification` VARCHAR(32) NOT NULL DEFAULT 'INTERNAL',
+    `scan_engine_version` VARCHAR(64) NULL,
+    `policy_version` VARCHAR(64) NULL,
+    `deleted_by` CHAR(36) NULL,
+    `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `updated_at` DATETIME(3) NOT NULL,
+    `deleted_at` DATETIME(3) NULL,
+
+    UNIQUE INDEX `sys_file_object_storage_key_key`(`storage_key`),
+    INDEX `sys_file_object_tenant_id_status_created_at_idx`(`tenant_id`, `status`, `created_at`),
+    INDEX `sys_file_object_owner_user_id_created_at_idx`(`owner_user_id`, `created_at`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
+CREATE TABLE `sys_file_binding` (
+    `id` CHAR(36) NOT NULL,
+    `file_id` CHAR(36) NOT NULL,
+    `tenant_id` CHAR(36) NULL,
+    `resource_type` VARCHAR(64) NOT NULL,
+    `resource_id` VARCHAR(128) NOT NULL,
+    `field_name` VARCHAR(64) NULL,
+    `visibility` VARCHAR(32) NOT NULL DEFAULT 'PRIVATE',
     `created_by` CHAR(36) NOT NULL,
+    `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+
+    INDEX `sys_file_binding_tenant_id_resource_type_resource_id_idx`(`tenant_id`, `resource_type`, `resource_id`),
+    INDEX `sys_file_binding_file_id_created_at_idx`(`file_id`, `created_at`),
+    UNIQUE INDEX `file_binding_file_resource_uq`(`file_id`, `resource_type`, `resource_id`, `field_name`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
+CREATE TABLE `sys_upload_session` (
+    `id` CHAR(36) NOT NULL,
+    `user_id` CHAR(36) NOT NULL,
+    `tenant_id` CHAR(36) NULL,
+    `file_id` CHAR(36) NULL,
+    `object_key` VARCHAR(512) NOT NULL,
+    `file_name` VARCHAR(255) NOT NULL,
+    `declared_mime` VARCHAR(128) NULL,
+    `purpose` VARCHAR(64) NOT NULL,
+    `resource` VARCHAR(128) NULL,
+    `resource_type` VARCHAR(64) NULL,
+    `resource_id` CHAR(36) NULL,
+    `field_name` VARCHAR(64) NULL,
+    `file_size` BIGINT UNSIGNED NOT NULL,
+    `chunk_size` INTEGER UNSIGNED NOT NULL,
+    `total_parts` INTEGER UNSIGNED NOT NULL,
+    `client_sha256` CHAR(64) NULL,
+    `status` ENUM('UPLOADING', 'VERIFYING', 'SCANNING', 'COMPLETED', 'FAILED', 'ABORTED', 'EXPIRED') NOT NULL DEFAULT 'UPLOADING',
+    `expires_at` DATETIME(3) NOT NULL,
     `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `updated_at` DATETIME(3) NOT NULL,
 
-    UNIQUE INDEX `biz_order_order_id_key`(`order_id`),
-    UNIQUE INDEX `biz_order_order_no_key`(`order_no`),
-    INDEX `biz_order_tenant_id_status_created_at_idx`(`tenant_id`, `status`, `created_at`),
-    INDEX `biz_order_owner_id_created_at_idx`(`owner_id`, `created_at`),
+    INDEX `sys_upload_session_user_id_status_expires_at_idx`(`user_id`, `status`, `expires_at`),
+    INDEX `sys_upload_session_expires_at_idx`(`expires_at`),
     PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
+CREATE TABLE `sys_upload_part` (
+    `upload_session_id` CHAR(36) NOT NULL,
+    `part_number` INTEGER UNSIGNED NOT NULL,
+    `size` INTEGER UNSIGNED NOT NULL,
+    `checksum` CHAR(64) NOT NULL,
+    `status` ENUM('RECEIVED', 'FAILED') NOT NULL DEFAULT 'RECEIVED',
+    `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `updated_at` DATETIME(3) NOT NULL,
+
+    PRIMARY KEY (`upload_session_id`, `part_number`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
@@ -495,7 +559,7 @@ CREATE TABLE `sys_department` (
 CREATE TABLE `sys_approval_request` (
     `id` CHAR(36) NOT NULL,
     `request_no` VARCHAR(20) NOT NULL,
-    `kind` ENUM('ROLE_GRANT', 'ROLE_STATUS', 'ROLE_PERMISSIONS', 'API_ROUTE_CHANGE', 'API_CREATE', 'API_UPDATE', 'API_ENABLE', 'API_DISABLE', 'API_DELETE', 'PAGE_ENABLE', 'PAGE_DISABLE', 'PAGE_ROUTE_CHANGE', 'ELEVATED_SCOPE', 'ROLE_REVOKE', 'ROLE_PERMISSION_REVOKE', 'ELEVATED_REVOKE', 'MFA_RESET') NOT NULL,
+    `kind` ENUM('ROLE_GRANT', 'ROLE_STATUS', 'ROLE_PERMISSIONS', 'API_ROUTE_CHANGE', 'API_CREATE', 'API_UPDATE', 'API_ENABLE', 'API_DISABLE', 'API_DELETE', 'PAGE_ENABLE', 'PAGE_DISABLE', 'PAGE_ROUTE_CHANGE', 'ELEVATED_SCOPE', 'ROLE_REVOKE', 'ROLE_PERMISSION_REVOKE', 'ELEVATED_REVOKE', 'MFA_RESET', 'FILE_DELETE', 'FILE_REJECT', 'FILE_RESTORE', 'FILE_RESCAN') NOT NULL,
     `status` ENUM('REQUESTED', 'APPROVED', 'EXECUTED', 'REVIEWED', 'CANCELLED') NOT NULL DEFAULT 'REQUESTED',
     `payload` JSON NOT NULL,
     `reason` VARCHAR(255) NOT NULL,
@@ -533,7 +597,7 @@ CREATE TABLE `sys_approval_target_ref` (
     `id` CHAR(36) NOT NULL,
     `token` CHAR(64) NOT NULL,
     `actor_user_id` CHAR(36) NOT NULL,
-    `kind` ENUM('ROLE_GRANT', 'ROLE_STATUS', 'ROLE_PERMISSIONS', 'API_ROUTE_CHANGE', 'API_CREATE', 'API_UPDATE', 'API_ENABLE', 'API_DISABLE', 'API_DELETE', 'PAGE_ENABLE', 'PAGE_DISABLE', 'PAGE_ROUTE_CHANGE', 'ELEVATED_SCOPE', 'ROLE_REVOKE', 'ROLE_PERMISSION_REVOKE', 'ELEVATED_REVOKE', 'MFA_RESET') NOT NULL,
+    `kind` ENUM('ROLE_GRANT', 'ROLE_STATUS', 'ROLE_PERMISSIONS', 'API_ROUTE_CHANGE', 'API_CREATE', 'API_UPDATE', 'API_ENABLE', 'API_DISABLE', 'API_DELETE', 'PAGE_ENABLE', 'PAGE_DISABLE', 'PAGE_ROUTE_CHANGE', 'ELEVATED_SCOPE', 'ROLE_REVOKE', 'ROLE_PERMISSION_REVOKE', 'ELEVATED_REVOKE', 'MFA_RESET', 'FILE_DELETE', 'FILE_REJECT', 'FILE_RESTORE', 'FILE_RESCAN') NOT NULL,
     `target_type` VARCHAR(16) NOT NULL,
     `target_id` CHAR(36) NOT NULL,
     `expires_at` DATETIME(3) NOT NULL,
@@ -556,10 +620,16 @@ ALTER TABLE `sys_user` ADD CONSTRAINT `sys_user_organization_id_tenant_id_fkey` 
 ALTER TABLE `sys_user` ADD CONSTRAINT `sys_user_department_id_tenant_id_organization_id_fkey` FOREIGN KEY (`department_id`, `tenant_id`, `organization_id`) REFERENCES `sys_department`(`id`, `tenant_id`, `organization_id`) ON DELETE RESTRICT ON UPDATE RESTRICT;
 
 -- AddForeignKey
-ALTER TABLE `biz_order` ADD CONSTRAINT `biz_order_tenant_id_fkey` FOREIGN KEY (`tenant_id`) REFERENCES `sys_tenant`(`id`) ON DELETE RESTRICT ON UPDATE RESTRICT;
+ALTER TABLE `sys_file_object` ADD CONSTRAINT `sys_file_object_owner_user_id_fkey` FOREIGN KEY (`owner_user_id`) REFERENCES `sys_user`(`user_id`) ON DELETE RESTRICT ON UPDATE RESTRICT;
 
 -- AddForeignKey
-ALTER TABLE `biz_order` ADD CONSTRAINT `biz_order_owner_id_fkey` FOREIGN KEY (`owner_id`) REFERENCES `sys_user`(`user_id`) ON DELETE RESTRICT ON UPDATE RESTRICT;
+ALTER TABLE `sys_file_binding` ADD CONSTRAINT `sys_file_binding_file_id_fkey` FOREIGN KEY (`file_id`) REFERENCES `sys_file_object`(`id`) ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- AddForeignKey
+ALTER TABLE `sys_upload_session` ADD CONSTRAINT `sys_upload_session_file_id_fkey` FOREIGN KEY (`file_id`) REFERENCES `sys_file_object`(`id`) ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- AddForeignKey
+ALTER TABLE `sys_upload_part` ADD CONSTRAINT `sys_upload_part_upload_session_id_fkey` FOREIGN KEY (`upload_session_id`) REFERENCES `sys_upload_session`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE `sys_password_history` ADD CONSTRAINT `sys_password_history_user_id_fkey` FOREIGN KEY (`user_id`) REFERENCES `sys_user`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;

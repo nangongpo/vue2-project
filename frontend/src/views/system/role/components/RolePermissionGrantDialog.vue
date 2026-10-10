@@ -10,7 +10,7 @@
       <div class="role-summary">
         <strong>{{ role ? role.name : '—' }}</strong>
         <el-tag v-if="role" size="mini" :type="role.isActive ? 'success' : 'info'">
-          {{ role.statusLabel || '未知状态' }}
+          {{ role.statusLabel || '—' }}
         </el-tag>
       </div>
       <el-alert v-if="error" :title="error" type="error" :closable="false" />
@@ -48,7 +48,7 @@
         :disabled="blocked || loading"
         :loading="saving"
         @click="submit">
-        确认授权变更
+        保存
       </el-button>
     </span>
   </el-dialog>
@@ -57,6 +57,7 @@
 <script>
 import { getRoleGrants, getRolePermissionOptions, updateRoleGrants } from '@/api/admin'
 import { grantChanges, requiredText } from '@/views/system/permission/utils'
+import { hasAvailableAction } from '@/utils/available-action'
 
 export default {
   name: 'RolePermissionGrantDialog',
@@ -104,7 +105,7 @@ export default {
       this.form = { selection: { PAGE: [], BUTTON: [], API: [] }, reason: '', expiresAt: null }
       try {
         if (!this.role || !this.role.isActive) throw new Error('仅启用的业务角色可授权')
-        if (!this.role.capabilities?.canGrant) throw new Error('管理角色不能通过普通授权变更')
+        if (!hasAvailableAction(this.role, 'grant')) throw new Error('管理角色不能通过普通授权变更')
         const [permissions, grants] = await Promise.all([
           getRolePermissionOptions(),
           getRoleGrants(this.role.roleId),

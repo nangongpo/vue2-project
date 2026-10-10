@@ -17,7 +17,6 @@ export {
   OpsTargetType,
   OpsTicketStatus,
   OpsTicketType,
-  OrderStatus,
   PageNodeType,
   PermissionStatus,
   PermissionType,

@@ -5,6 +5,7 @@ import { apiButtonLabel } from '#app/common/constants/api-name-labels.js'
 import {
   allApiDefinitions,
   allowedRoleTypesForPermission,
+  BUSINESS_RESOURCE_CODES,
   PAGE_PERMISSION_ROLE_POLICIES,
   roleAllowsPermission,
 } from '#app/security/policies/permission-catalog/index.js'
@@ -103,6 +104,15 @@ const pages = [
     nodeType: PageNodeType.PAGE,
   },
   {
+    code: 'page.system.file',
+    name: '文件管理',
+    route: '/system/file',
+    icon: 'platform-manage',
+    type: 'SECURITY',
+    parentCode: 'system',
+    nodeType: PageNodeType.PAGE,
+  },
+  {
     code: 'business',
     name: '业务管理',
     route: '/business',
@@ -112,13 +122,13 @@ const pages = [
     nodeType: PageNodeType.DIRECTORY,
   },
   {
-    code: 'page.business.order-manage',
-    name: '订单管理',
-    route: '/business/order-manage',
+    code: 'page.business.file-upload',
+    name: '文件上传',
+    route: '/business/file-upload',
     icon: 'nested',
     type: 'BUSINESS',
     parentCode: 'business',
-    component: 'business/order-manage/index',
+    component: 'business/file-upload/index',
     nodeType: PageNodeType.PAGE,
   },
 ] as const
@@ -165,28 +175,24 @@ try {
   )
   await prisma.$transaction(
     async (tx) => {
-      await tx.permission.updateMany({
-        where: {
-          code: {
-            in: [
-              '*',
-              'system.permission.manage',
-              'system.operation-policy.manage',
-              'system.operation-policy.create',
-              'system.operation-policy.activate',
-              'system.operation-policy.status',
-              'system.api.status',
-              'button.system.api.status',
-              'system.button.status',
-              'system.field.status',
-              'system.data-resource.status',
-              'system.user.status',
-              'system.role.status',
-            ],
+      const dataResourceNames: Record<string, string> = {
+        file: '文件',
+      }
+      for (const resource of BUSINESS_RESOURCE_CODES) {
+        await tx.dataResource.upsert({
+          where: { code: resource },
+          create: {
+            code: resource,
+            name: dataResourceNames[resource] || `业务资源：${resource}`,
+            description: `业务接口资源 ${resource} 的数据范围对象`,
           },
-        },
-        data: { status: 'DISABLED' },
-      })
+          update: {
+            name: dataResourceNames[resource] || `业务资源：${resource}`,
+            description: `业务接口资源 ${resource} 的数据范围对象`,
+            status: 'ACTIVE',
+          },
+        })
+      }
       const permissions: Array<{ id: string; code: string }> = []
       const pageNodes = new Map<string, { id: string }>()
       for (const entry of allApiDefinitions()) {
@@ -472,12 +478,18 @@ try {
           where: { id: permission.id },
           include: { roleTypes: { select: { roleType: true } } },
         })
-        // Seed is the materialization boundary: catalog-only entries have no
-        // relation before this pass, so resolve them from the code-owned
-        // declaration once, then make runtime authorization database-only.
+        // Resolve every permission from the complete database record. This is
+        // important for newly created FIELD permissions: the compact in-memory
+        // permission list only contains id/code and cannot resolve its field
+        // resource policy correctly.
         const roleTypes = persistedPermission.roleTypes.length
           ? allowedRoleTypesForPermission(persistedPermission)
-          : allowedRoleTypesForPermission(permission)
+          : allowedRoleTypesForPermission({
+              code: persistedPermission.code,
+              type: persistedPermission.type,
+              resource: persistedPermission.resource,
+              action: persistedPermission.action,
+            })
         await tx.permissionRoleType.deleteMany({
           where: {
             permissionId: permission.id,
@@ -497,6 +509,12 @@ try {
       const seededPermissions = await tx.permission.findMany({
         where: { id: { in: uniquePermissions.map((permission) => permission.id) } },
         include: { roleTypes: { select: { roleType: true } } },
+      })
+      const defaultTenant = await tx.tenant.upsert({
+        where: { code: process.env.DEFAULT_TENANT_CODE || 'default-tenant' },
+        create: { code: process.env.DEFAULT_TENANT_CODE || 'default-tenant', name: process.env.DEFAULT_TENANT_NAME || '默认租户', status: 'ACTIVE' },
+        update: { name: process.env.DEFAULT_TENANT_NAME || '默认租户', status: 'ACTIVE' },
+        select: { id: true },
       })
       for (const type of ['BUSINESS', 'SECURITY', 'SYSTEM', 'AUDIT'] as const) {
         const role = await tx.role.upsert({
@@ -537,8 +555,14 @@ try {
               username: account.username!,
               password: account.hash,
               displayName: account.username!,
+              tenantId: defaultTenant.id,
             },
-            update: {},
+            update: { tenantId: defaultTenant.id },
+          })
+          await tx.userTenantMembership.upsert({
+            where: { userId_tenantId: { userId: user.id, tenantId: defaultTenant.id } },
+            create: { userId: user.id, tenantId: defaultTenant.id, status: 'ACTIVE', isDefault: true },
+            update: { status: 'ACTIVE', isDefault: true, expiresAt: null },
           })
           const conflicting = await tx.userRole.findFirst({
             where: {

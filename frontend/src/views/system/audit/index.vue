@@ -26,8 +26,8 @@
           end-placeholder="结束时间"
           value-format="yyyy-MM-ddTHH:mm:ss.SSSZ" />
         <el-button type="primary" @click="search">查询</el-button>
-        <el-button v-permission="'system.audit.export'" :loading="exporting" @click="exportLogs"
-          >导出</el-button
+        <permission-button permission="system.audit.export" :loading="exporting" @click="exportLogs"
+          >导出</permission-button
         >
       </div>
       <el-table v-loading="loading" :data="logs" border stripe>
@@ -63,12 +63,12 @@
         <el-table-column prop="ip" label="来源IP" width="140" />
         <el-table-column label="详情" width="90" fixed="right">
           <template slot-scope="scope">
-            <el-button
-              v-permission="'system.audit.detail'"
+            <permission-button
+              permission="system.audit.detail"
               type="text"
               @click="showDetail(scope.row)">
               查看详情
-            </el-button>
+            </permission-button>
           </template>
         </el-table-column>
       </el-table>

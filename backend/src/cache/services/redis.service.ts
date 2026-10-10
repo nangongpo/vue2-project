@@ -56,6 +56,16 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  async setIfAbsent(key: string, value: string, ttlSeconds: number) {
+    if (!this.client) return null
+    try {
+      return (await this.client.set(key, value, 'EX', ttlSeconds, 'NX')) === 'OK'
+    } catch (error) {
+      console.error('[redis] conditional set failed:', (error as Error).message)
+      return null
+    }
+  }
+
   async acquireLock(key: string, value: string, ttlSeconds: number) {
     if (!this.client) return null
     try {

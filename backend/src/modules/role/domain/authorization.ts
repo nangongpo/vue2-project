@@ -8,6 +8,7 @@ import { sanitizeAuditDetail } from '#app/audit/utils/audit-sanitizer.js'
 
 export type Actor = {
   internalId: bigint
+  tenantId?: string | null
   traceId?: string
   ip?: string
   userAgent?: string
@@ -15,7 +16,7 @@ export type Actor = {
   path?: string
 }
 export type ActorRequest = {
-  user: { internalId: bigint }
+  user: { internalId: bigint; tenantId?: string | null }
   traceId?: string
   ip?: string
   method?: string
@@ -24,6 +25,7 @@ export type ActorRequest = {
 }
 export const actorFrom = (request: ActorRequest): Actor => ({
   internalId: request.user.internalId,
+  tenantId: request.user.tenantId,
   traceId: request.traceId,
   ip: request.ip,
   userAgent: request.headers['user-agent'],
@@ -86,6 +88,19 @@ export function ordinaryPermission(permission: PermissionPolicy) {
   )
 }
 
+/** 高危角色只能通过受控审批流程变更。 */
+export function requiresControlledRoleApproval(role: {
+  roleType: string
+  permissions: Array<{ permission: PermissionPolicy }>
+  elevatedDataScopes: Array<unknown>
+}) {
+  return (
+    role.roleType !== 'BUSINESS' ||
+    role.permissions.some((grant) => !ordinaryPermission(grant.permission)) ||
+    role.elevatedDataScopes.length > 0
+  )
+}
+
 export async function requireActor(tx: Prisma.TransactionClient, actor: Actor) {
   if (!actor || typeof actor.internalId !== 'bigint') throw new UnauthorizedException('缺少操作者身份')
   const user = await tx.user.findUnique({
@@ -144,11 +159,7 @@ export async function ordinaryRole(tx: Prisma.TransactionClient, id: bigint) {
       elevatedDataScopes: { where: { revokedAt: null } },
     },
   })
-  if (
-    role.roleType !== 'BUSINESS' ||
-    role.permissions.some((grant) => !ordinaryPermission(grant.permission)) ||
-    role.elevatedDataScopes.length
-  )
+  if (requiresControlledRoleApproval(role))
     throw new ForbiddenException('高危角色需要受控审批流程')
   return role
 }

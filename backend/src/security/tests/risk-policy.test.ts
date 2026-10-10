@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { resolveRiskDecision } from '#app/security/policies/risk-policy.js'
+import { hasRecentSecurityProof, resolveRiskDecision } from '#app/security/policies/risk-policy.js'
 
 describe('risk policy resolution', () => {
   it('resolves risk only from the exact code-owned operation catalog', () => {
@@ -20,8 +20,9 @@ describe('risk policy resolution', () => {
     expect(resolveRiskDecision('system.directory.update').riskLevel).toBe('L1')
     expect(resolveRiskDecision('system.directory.delete').riskLevel).toBe('L1')
     expect(resolveRiskDecision('system.session.revoke').riskLevel).toBe('L2')
-    expect(resolveRiskDecision('order.update').riskLevel).toBe('L2')
-    for (const code of ['system.page.read.copy', 'system.user.read-any', 'order.read-all', 'unknown.resource.update'])
+    expect(resolveRiskDecision('file.upload.initiate').riskLevel).toBe('L2')
+    expect(resolveRiskDecision('file.upload.part').riskLevel).toBe('L0')
+    for (const code of ['system.page.read.copy', 'system.user.read-any', 'file.read-all', 'unknown.resource.update'])
       expect(() => resolveRiskDecision(code)).toThrow()
   })
 
@@ -41,7 +42,7 @@ describe('risk policy resolution', () => {
   })
 
   it('only raises controls when contextual risk is higher', () => {
-    const decision = resolveRiskDecision('order.read', {
+    const decision = resolveRiskDecision('file.upload.status', {
       fieldRiskLevels: ['L3'],
       targetRiskLevel: 'L2',
     })
@@ -50,5 +51,28 @@ describe('risk policy resolution', () => {
     expect(decision.requireReauth).toBe(true)
     expect(decision.requireApproval).toBe(true)
     expect(decision.auditRequired).toBe(true)
+  })
+
+  it('accepts password reauthentication as the complete step-up for accounts without MFA', () => {
+    const now = new Date()
+    expect(hasRecentSecurityProof({
+      mfaEnabled: false,
+      mfaVerifiedAt: null,
+      reauthenticatedAt: now,
+    }, 'L2', now)).toBe(true)
+  })
+
+  it('requires both MFA and reauthentication when MFA is enabled', () => {
+    const now = new Date()
+    expect(hasRecentSecurityProof({
+      mfaEnabled: true,
+      mfaVerifiedAt: null,
+      reauthenticatedAt: now,
+    }, 'L2', now)).toBe(false)
+    expect(hasRecentSecurityProof({
+      mfaEnabled: true,
+      mfaVerifiedAt: now,
+      reauthenticatedAt: now,
+    }, 'L2', now)).toBe(true)
   })
 })

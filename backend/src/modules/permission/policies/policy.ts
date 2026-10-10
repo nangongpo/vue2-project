@@ -24,7 +24,7 @@ const COMPONENT_PATH_PATTERN = /^[a-zA-Z][a-zA-Z0-9_-]*(?:\/[a-zA-Z][a-zA-Z0-9_-
 
 export function canonicalPagePath(path: string) {
   if (!PAGE_ROUTE_PATTERN.test(path))
-    throw new BadRequestException('前端路由必须使用 /order 形式，只允许字母、数字、下划线和短横线')
+    throw new BadRequestException('前端路由必须使用 /resource 形式，只允许字母、数字、下划线和短横线')
   return path.replace(/\/$/, '')
 }
 

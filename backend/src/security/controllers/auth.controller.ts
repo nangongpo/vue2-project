@@ -1,5 +1,5 @@
 import { BadRequestException, Body, Controller, Delete, Get, HttpCode, HttpStatus, Inject, Param, PipeTransform, Post, Req, Res, UseGuards } from '@nestjs/common'
-import { IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator'
+import { IsOptional, IsString, IsUUID, Matches, MaxLength, MinLength } from 'class-validator'
 import { FastifyReply, FastifyRequest } from 'fastify'
 import {
   AuthService,
@@ -11,7 +11,6 @@ import {
 import { AuthGuard } from '#app/security/guards/auth.guard.js'
 import { API_CODE } from '#app/common/constants/api-code.js'
 import { AuditAction } from '#app/audit/decorators/audit.decorator.js'
-import { Idempotent } from '#app/security/decorators/idempotency.decorator.js'
 import { assertSameOrigin } from '#app/security/policies/csrf.js'
 import { SecurityOperation } from '#app/security/decorators/operation.decorator.js'
 import { USER_STATUS_LABELS } from '#app/common/constants/enum-labels.js'
@@ -63,6 +62,11 @@ class CompleteLoginDto {
   otp!: string
 }
 
+class SwitchTenantDto {
+  @IsUUID()
+  tenantId!: string
+}
+
 class SessionIdPipe implements PipeTransform<string, string> {
   transform(value: string) {
     if (!/^[a-f0-9]{64}$/.test(value)) throw new BadRequestException('会话标识无效')
@@ -76,7 +80,6 @@ export class AuthController {
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  @Idempotent({ scope: 'auth.login' })
   @AuditAction('auth.login')
   async login(@Body() body: LoginDto, @Req() request: FastifyRequest, @Res({ passthrough: true }) response: FastifyReply) {
     assertSameOrigin(request)
@@ -140,6 +143,23 @@ export class AuthController {
     return this.auth
       .listSessions(user.internalId, request.cookies?.[SESSION_COOKIE])
       .then((data) => ({ code: API_CODE.SUCCESS, message: 'success', data }))
+  }
+
+  @Get('tenants')
+  @UseGuards(AuthGuard)
+  async tenants(@Req() request: FastifyRequest) {
+    const user = (request as FastifyRequest & { user: { internalId: bigint } }).user
+    return { code: API_CODE.SUCCESS, message: 'success', data: await this.auth.listTenants(user.internalId) }
+  }
+
+  @Post('tenant')
+  @UseGuards(AuthGuard)
+  @AuditAction('auth.tenant.switch')
+  async switchTenant(@Body() body: SwitchTenantDto, @Req() request: FastifyRequest) {
+    assertSameOrigin(request)
+    const user = (request as FastifyRequest & { user: { internalId: bigint } }).user
+    const current = await this.auth.switchTenant(request.cookies?.[SESSION_COOKIE], user.internalId, body.tenantId)
+    return { code: API_CODE.SUCCESS, message: 'success', data: { tenantId: current.tenantId, tenancyMode: current.tenancyMode } }
   }
 
   @Delete('sessions/:id')

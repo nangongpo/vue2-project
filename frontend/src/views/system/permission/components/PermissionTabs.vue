@@ -36,14 +36,14 @@
                 :label="api.method + ' ' + api.path"
                 :value="api.id" />
             </el-select>
-            <el-button
-              v-permission="'system.page.api.bind'"
+            <permission-button
+              permission="system.page.api.bind"
               type="primary"
               :disabled="!optionsReady || !pageApiSelection"
               :loading="saving"
               @click="bindPageApi">
               绑定接口
-            </el-button>
+            </permission-button>
             <div class="permission-panel-summary">
               <span>已绑定接口</span>
               <span class="muted">{{ boundPageApis.length }} 个</span>
@@ -89,14 +89,14 @@
             </el-table-column>
             <el-table-column label="操作" width="90">
               <template slot-scope="{ row }">
-                <el-button
-                  v-permission="'system.page.api.bind'"
+                <permission-button
+                  permission="system.page.api.bind"
                   type="text"
                   class="text-danger"
                   :disabled="saving"
                   @click="unbindPageApi(row)">
                   解绑
-                </el-button>
+                </permission-button>
               </template>
             </el-table-column>
           </el-table>
@@ -121,13 +121,13 @@
             </el-button>
           </div>
           <div class="permission-panel-toolbar">
-            <el-button
-              v-permission="'system.button.create'"
+            <permission-button
+              permission="system.button.create"
               type="primary"
               icon="el-icon-plus"
               @click="openButton()">
               新增按钮
-            </el-button>
+            </permission-button>
             <el-input
               :value="buttonKeyword"
               clearable
@@ -191,26 +191,26 @@
             </el-table-column>
             <el-table-column label="操作" width="160" fixed="right">
               <template slot-scope="{ row }">
-                <el-button
-                  v-permission="'system.button.update'"
+                <permission-button
+                  permission="system.button.update"
                   type="text"
                   @click="openButton(row)"
-                  >编辑</el-button
+                  >编辑</permission-button
                 >
-                <el-button
-                  v-permission="'system.button.api.bind'"
+                <permission-button
+                  permission="system.button.api.bind"
                   type="text"
                   @click="openBinding(row)"
-                  >绑定接口</el-button
+                  >绑定接口</permission-button
                 >
-                <el-button
-                  v-permission="row.isActive ? 'system.button.disable' : 'system.button.enable'"
+                <permission-button
+                  :permission="row.isActive ? 'system.button.disable' : 'system.button.enable'"
                   type="text"
                   :class="{ 'text-danger': row.isActive }"
                   :disabled="saving"
                   @click="changeStatus('button', row)">
                   {{ row.isActive ? '停用' : '启用' }}
-                </el-button>
+                </permission-button>
               </template>
             </el-table-column>
           </el-table>
@@ -232,12 +232,12 @@
             >
           </div>
           <div class="permission-panel-toolbar">
-            <el-button
-              v-permission="'system.field.create'"
+            <permission-button
+              permission="system.field.create"
               type="primary"
               icon="el-icon-plus"
               @click="openDataField()"
-              >新增字段</el-button
+              >新增字段</permission-button
             >
             <el-input
               class="data-field-search"
@@ -298,20 +298,20 @@
             </el-table-column>
             <el-table-column label="操作" width="100" fixed="right">
               <template slot-scope="{ row }">
-                <el-button
-                  v-permission="'system.field.update'"
+                <permission-button
+                  permission="system.field.update"
                   type="text"
                   :disabled="saving"
                   @click="openDataField(row)"
-                  >编辑</el-button
+                  >编辑</permission-button
                 >
-                <el-button
-                  v-permission="row.isActive ? 'system.field.disable' : 'system.field.enable'"
+                <permission-button
+                  :permission="row.isActive ? 'system.field.disable' : 'system.field.enable'"
                   type="text"
                   :class="{ 'text-danger': row.isActive }"
                   :disabled="saving"
                   @click="changeDataFieldStatus(row)"
-                  >{{ row.isActive ? '停用' : '启用' }}</el-button
+                  >{{ row.isActive ? '停用' : '启用' }}</permission-button
                 >
               </template>
             </el-table-column>
@@ -331,13 +331,13 @@
             <el-button icon="el-icon-refresh" :loading="dataResourcesLoading" @click="loadResourceData(true)">刷新</el-button>
           </div>
           <div class="permission-panel-toolbar">
-            <el-button
-              v-permission="'system.data-resource.create'"
+            <permission-button
+              permission="system.data-resource.create"
               type="primary"
               icon="el-icon-plus"
               @click="openDataResource()">
               登记资源
-            </el-button>
+            </permission-button>
             <el-input
               v-model="dataResourceKeyword"
               class="data-resource-search"
@@ -365,15 +365,15 @@
             </el-table-column>
             <el-table-column label="操作" width="130" fixed="right">
               <template slot-scope="{ row }">
-                <el-button v-permission="'system.data-resource.update'" type="text" @click="openDataResource(row)">编辑</el-button>
-                <el-button
-                  v-permission="row.isActive ? 'system.data-resource.disable' : 'system.data-resource.enable'"
+                <permission-button permission="system.data-resource.update" type="text" @click="openDataResource(row)">编辑</permission-button>
+                <permission-button
+                  :permission="row.isActive ? 'system.data-resource.disable' : 'system.data-resource.enable'"
                   type="text"
                   :class="{ 'text-danger': row.isActive }"
                   :disabled="saving"
                   @click="changeDataResourceStatus(row)">
                   {{ row.isActive ? '停用' : '启用' }}
-                </el-button>
+                </permission-button>
               </template>
             </el-table-column>
           </el-table>
@@ -384,6 +384,7 @@
 </template>
 
 <script>
+
 export default {
   name: 'PermissionTabs',
   inject: {

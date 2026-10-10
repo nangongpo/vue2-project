@@ -16,6 +16,7 @@ import { DataFieldSecurityInterceptor } from '#app/common/interceptors/data-fiel
 import { PrismaService } from '#app/database/prisma.service.js'
 import { FieldSecurityInterceptor } from '#app/common/interceptors/field-security.interceptor.js'
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger'
+import { RedisService } from '#app/cache/services/redis.service.js'
 
 try {
   loadEnvFile()
@@ -40,6 +41,7 @@ const env = Joi.object({
   SESSION_MAX_CONCURRENT: Joi.number().integer().min(1).max(100).default(3),
   SESSION_IDLE_TTL_SECONDS: Joi.number().integer().min(300).max(86400).default(1800),
   PREAUTH_TTL_SECONDS: Joi.number().integer().min(60).max(900).default(300),
+  TENANCY_MODE: Joi.string().valid('SINGLE', 'MULTI').default('SINGLE'),
   API_RATE_LIMIT: Joi.number().integer().min(1).max(10000).default(120),
   API_RATE_WINDOW_SECONDS: Joi.number().integer().min(1).max(3600).default(60),
   LOGIN_FAILURE_LIMIT: Joi.number().integer().min(1).max(20).default(5),
@@ -72,6 +74,14 @@ const env = Joi.object({
   CSRF_ALLOWED_ORIGINS: Joi.string().allow('').default(''),
   PUBLIC_HTTPS_ORIGIN: Joi.string().allow('').default(''),
   TRUST_PROXY: Joi.boolean().truthy('true').falsy('false').default(false),
+  FILE_STORAGE_ROOT: Joi.string().min(1).default('.data/uploads'),
+  DEFAULT_TENANT_CODE: Joi.string().pattern(/^[a-z][a-z0-9-]{1,63}$/).default('default-tenant'),
+  DEFAULT_TENANT_NAME: Joi.string().min(1).max(128).default('默认租户'),
+  FILE_UPLOAD_MAX_CHUNK_BYTES: Joi.number().integer().min(5 * 1024 * 1024).max(64 * 1024 * 1024).default(64 * 1024 * 1024),
+  CLAMAV_SOCKET_PATH: Joi.string().allow('').default('/run/clamav/clamd.ctl'),
+  CLAMAV_HOST: Joi.string().hostname().default('127.0.0.1'),
+  CLAMAV_PORT: Joi.number().integer().port().default(3310),
+  CLAMAV_TIMEOUT_MS: Joi.number().integer().min(1000).max(600000).default(120000),
   LOG_LEVEL: Joi.string().valid('fatal', 'error', 'warn', 'info', 'debug', 'trace').default('info'),
 })
   .unknown(true)
@@ -132,9 +142,19 @@ const enableCsp = env.value.ENABLE_CSP
 const publicHttpsOrigin = env.value.PUBLIC_HTTPS_ORIGIN
 
 async function bootstrap() {
+  const fastifyAdapter = new FastifyAdapter({
+    logger: false,
+    trustProxy: env.value.TRUST_PROXY,
+    bodyLimit: env.value.FILE_UPLOAD_MAX_CHUNK_BYTES,
+  })
+  // 分片上传使用原始二进制流。Fastify 默认只注册 JSON 等解析器，
+  // 未注册 octet-stream 时会在控制器执行前返回 415。
+  fastifyAdapter.getInstance().addContentTypeParser('application/octet-stream', (request, payload, done) => {
+    done(null, payload)
+  })
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
-    new FastifyAdapter({ logger: false, trustProxy: env.value.TRUST_PROXY })
+    fastifyAdapter
   )
 
   await app.register(fastifyCookie)
@@ -269,7 +289,7 @@ async function bootstrap() {
   app.useGlobalInterceptors(new TraceIdInterceptor())
   app.useGlobalInterceptors(new FieldSecurityInterceptor(new Reflector()))
   app.useGlobalInterceptors(new DataFieldSecurityInterceptor(new Reflector(), app.get(PrismaService)))
-  app.useGlobalInterceptors(new ApiResponseInterceptor())
+  app.useGlobalInterceptors(new ApiResponseInterceptor(app.get(RedisService)))
   app.useGlobalFilters(new ApiExceptionFilter(app.get(AuditService)))
 
   const port = Number(process.env.PORT || 3000)

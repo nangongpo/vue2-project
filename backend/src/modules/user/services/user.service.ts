@@ -12,18 +12,22 @@ import { PasswordService } from '#app/security/services/password.service.js'
 import { PasswordPolicyService } from '#app/security/services/password-policy.service.js'
 import { API_CODE } from '#app/common/constants/api-code.js'
 import { ENABLEMENT_STATUS_LABELS, USER_STATUS_LABELS } from '#app/common/constants/enum-labels.js'
+import { availableAction } from '#app/common/constants/api-name-labels.js'
 import { normalizePagination, paginationData } from '#app/common/pagination.js'
 import {
   activeGrant,
   audit,
   grantInput,
   ordinaryRole,
+  requiresControlledRoleApproval,
   rejectFields,
   requireActor,
   requireReason,
   serializable,
 } from '#app/modules/role/domain/authorization.js'
 import type { Actor } from '#app/modules/role/domain/authorization.js'
+import type { ApprovalActor } from '#app/modules/permission/services/approval.service.js'
+import { ApprovalService } from '#app/modules/permission/services/approval.service.js'
 
 const userSelect = {
   userId: true,
@@ -35,9 +39,11 @@ const userSelect = {
 } as const
 
 function userView(user: { status: UserStatus; [key: string]: unknown }) {
-  const { status, ...rest } = user
+  const { userId, username, displayName, status } = user
   return {
-    ...rest,
+    userId,
+    username,
+    displayName,
     statusLabel: USER_STATUS_LABELS[status],
     isActive: status === UserStatus.ACTIVE,
     isLocked: status === UserStatus.LOCKED,
@@ -46,12 +52,17 @@ function userView(user: { status: UserStatus; [key: string]: unknown }) {
 
 @Injectable()
 export class UserService {
-  constructor(private readonly prisma: PrismaService, private readonly passwords: PasswordService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly passwords: PasswordService,
+    private readonly approvals?: ApprovalService
+  ) {}
 
-  async page(query: { keyword?: string; status?: UserStatus; page?: number; pageSize?: number }) {
+  async page(query: { keyword?: string; status?: UserStatus; page?: number; pageSize?: number }, permissions: string[] = [], actor?: Actor) {
     const pagination = normalizePagination(query)
     const { page, pageSize } = pagination
     const where: Prisma.UserWhereInput = {
+      ...(actor?.tenantId ? { tenantId: actor.tenantId } : {}),
       ...(query.status ? { status: query.status } : {}),
       ...(query.keyword
         ? {
@@ -97,6 +108,14 @@ export class UserService {
         statusLabel: USER_STATUS_LABELS[effectiveStatus],
         isActive: effectiveStatus === 'ACTIVE',
         isLocked,
+        availableActions: [
+          permissions.includes('system.user.update') ? availableAction('edit', 'system.user.update') : null,
+          permissions.includes('system.user.reset-password') ? availableAction('reset-password', 'system.user.reset-password') : null,
+          effectiveStatus === 'ACTIVE' && permissions.includes('system.user.grant') ? availableAction('grant', 'system.user.grant') : null,
+          effectiveStatus === 'ACTIVE' && permissions.includes('system.user.disable') ? availableAction('disable', 'system.user.disable') : null,
+          effectiveStatus === 'DISABLED' && permissions.includes('system.user.enable') ? availableAction('enable', 'system.user.enable') : null,
+          isLocked && permissions.includes('system.user.unlock') ? availableAction('unlock', 'system.user.unlock') : null,
+        ].filter(Boolean),
         failedLogins: item.failedLogins,
         lastLoginAt: item.lastLoginAt,
         createdAt: item.createdAt,
@@ -120,14 +139,20 @@ export class UserService {
   }
 
   async create(input: { username: string; password: string; displayName: string }, actor: Actor) {
-    rejectFields(input, ['roleIds', 'status', 'roleType', 'permissionIds'])
+    rejectFields(input, ['roleIds', 'status', 'roleType', 'permissionIds', 'tenantId', 'organizationId', 'departmentId'])
     try {
       const password = await this.passwords.hash(input.password)
       const user = await this.prisma.$transaction(async (tx) => {
         await requireActor(tx, actor)
+        if (!actor.tenantId) throw new ForbiddenException('当前会话未确定有效租户')
+        const tenant = await tx.tenant.findUnique({ where: { id: actor.tenantId }, select: { id: true, status: true } })
+        if (!tenant || tenant.status !== 'ACTIVE') throw new ForbiddenException('默认租户未初始化或未启用')
         const created = await tx.user.create({
-          data: { username: input.username, password, displayName: input.displayName },
-          select: userSelect,
+          data: { username: input.username, password, displayName: input.displayName, tenantId: tenant.id },
+          select: { id: true, ...userSelect },
+        })
+        await tx.userTenantMembership.create({
+          data: { userId: created.id, tenantId: tenant.id, status: 'ACTIVE', isDefault: true },
         })
         await audit(tx, actor, 'system.user.create', created.userId, null, created)
         return created
@@ -186,8 +211,45 @@ export class UserService {
     return { code: API_CODE.SUCCESS, message: 'success', data: null }
   }
 
-  async roles(id: string, input: { roleIds: string[]; reason: string; expiresAt?: string }, actor: Actor) {
+  async roles(
+    id: string,
+    input: { roleIds: string[]; reason: string; expiresAt?: string },
+    actor: Actor,
+    approvalActor?: ApprovalActor
+  ) {
     const expiresAt = grantInput(input.roleIds, input.reason, input.expiresAt)
+    if (this.approvals && approvalActor && input.roleIds.length === 1) {
+      const roles = await this.prisma.role.findMany({
+        where: { roleId: { in: input.roleIds }, status: 'ACTIVE' },
+        include: {
+          permissions: {
+            where: { revokedAt: null },
+            include: { permission: { include: { roleTypes: { select: { roleType: true } } } } },
+          },
+          elevatedDataScopes: { where: { revokedAt: null } },
+        },
+      })
+      const highRisk = roles.some(requiresControlledRoleApproval)
+      if (highRisk) {
+        return this.approvals.createInternal(
+          'ROLE_GRANT',
+          {
+            userId: id,
+            roleId: input.roleIds[0],
+            grantExpiresAt: input.expiresAt || null,
+          },
+          input.reason,
+          approvalActor,
+          {
+            traceId: actor.traceId,
+            ip: actor.ip,
+            method: actor.method,
+            path: actor.path,
+            userAgent: actor.userAgent,
+          }
+        )
+      }
+    }
     await this.prisma.$transaction(async (tx) => {
       const actorId = await requireActor(tx, actor)
       const user = await tx.user.findUnique({

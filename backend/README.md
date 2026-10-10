@@ -69,14 +69,15 @@ GET /docs-json      # OpenAPI JSON
 
 ## 文档
 
-详细配置、权限设计和验证记录统一放在 [`docs/`](docs/)：
+详细配置、权限设计和安全运行手册统一放在 [`docs/`](docs/)：
 
 - [`CONFIGURATION.md`](docs/CONFIGURATION.md)：环境变量和生产配置。
+- [`API_DESIGN.md`](docs/API_DESIGN.md)：HTTP 接口设计规范。
+- [`ERROR_CODES.md`](docs/ERROR_CODES.md)：错误码和错误响应规范。
 - [`DATABASE_OPERATIONS.md`](docs/DATABASE_OPERATIONS.md)：数据库脚本安全规范、开发迁移和生产发布流程。
 - [`PERMISSION_DESIGN.md`](docs/PERMISSION_DESIGN.md)：权限体系、ER 图和安全边界。
 - [`REQUIREMENTS.md`](docs/REQUIREMENTS.md)：权限需求与接口约束。
 - [`APPROVAL_CONTRACT.md`](docs/APPROVAL_CONTRACT.md)：审批接口和数据契约。
-- [`VERIFICATION.md`](docs/VERIFICATION.md)：验证结果和可复现命令。
 
 ## 构建、测试和检查
 

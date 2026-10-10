@@ -6,14 +6,14 @@ import './styles/global.scss'
 
 import './icons/index.js'
 import './permission.js'
-import permissionDirective from './directives/permission.js'
+import PermissionButton from './components/PermissionButton.vue'
 // 消息提示单独注册， 其余组件由 unplugin-vue-components 按需导入
 import ElementUI from './plugins/element.js'
 
 Vue.use(ElementUI, {
   size: 'mini',
 })
-Vue.use(permissionDirective)
+Vue.component(PermissionButton.name, PermissionButton)
 
 // Loading、Message、MessageBox、Notification 等服务由 AppMain 异步加载。
 // import EasyTable from './plugins/easytable.js'

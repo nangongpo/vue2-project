@@ -15,9 +15,9 @@
     </div>
 
     <el-alert
-      :title="overallTitle"
-      :description="overallDescription"
-      :type="overallAlertType"
+      :title="statusMeta?.statusLabel || '—'"
+      :description="statusMeta?.statusDescription || '—'"
+      :type="statusMeta?.statusTone || 'info'"
       :closable="false"
       show-icon
       class="overall-alert" />
@@ -26,7 +26,7 @@
       <el-card v-for="service in services" :key="service.name" class="service-card" shadow="hover">
         <div class="service-card-header">
           <div class="service-name">{{ serviceLabel(service.name) }}</div>
-          <el-tag :type="tagType(service.status)" size="small">{{ statusLabel(service.status) }}</el-tag>
+          <el-tag :type="service.statusTone || 'info'" size="small">{{ service.statusLabel || '—' }}</el-tag>
         </div>
         <div class="service-latency">
           {{ service.latencyMs === null ? '—' : `${service.latencyMs} ms` }}
@@ -44,7 +44,7 @@
         </el-table-column>
         <el-table-column label="状态" width="120">
           <template slot-scope="scope">
-            <el-tag :type="tagType(scope.row.status)" size="small">{{ statusLabel(scope.row.status) }}</el-tag>
+            <el-tag :type="scope.row.statusTone || 'info'" size="small">{{ scope.row.statusLabel || '—' }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="延迟" width="120">
@@ -73,25 +73,10 @@ export default {
       overallStatus: 'unknown',
       checkedAt: '',
       services: [],
+      statusMeta: null,
     }
   },
   computed: {
-    overallTitle() {
-      return { ok: '系统运行正常', degraded: '系统部分降级', unavailable: '系统不可用', unknown: '尚未检查系统状态' }[
-        this.overallStatus
-      ]
-    },
-    overallDescription() {
-      return {
-        ok: '所有关键服务均可用。',
-        degraded: '部分依赖服务异常，部分功能可能受到影响。',
-        unavailable: '关键服务异常，请根据服务明细和 traceId 排查。',
-        unknown: '正在等待第一次检查。',
-      }[this.overallStatus]
-    },
-    overallAlertType() {
-      return { ok: 'success', degraded: 'warning', unavailable: 'error', unknown: 'info' }[this.overallStatus]
-    },
   },
   created() {
     this.loadStatus()
@@ -106,10 +91,12 @@ export default {
       try {
         const result = await getSystemStatus()
         this.overallStatus = result.status || 'unknown'
+        this.statusMeta = result
         this.checkedAt = result.checkedAt || ''
         this.services = Array.isArray(result.services) ? result.services : []
       } catch (error) {
         this.overallStatus = 'unavailable'
+        this.statusMeta = null
         this.services = []
         this.$message.error(error.message || '系统状态检查失败')
       } finally {
@@ -126,12 +113,6 @@ export default {
     },
     serviceLabel(name) {
       return { mysql: 'MySQL', redis: 'Redis', 'captcha-service': 'captcha-service' }[name] || name
-    },
-    statusLabel(status) {
-      return { ok: '正常', unavailable: '不可用', unknown: '未知' }[status] || '未知'
-    },
-    tagType(status) {
-      return { ok: 'success', unavailable: 'danger', unknown: 'info' }[status] || 'info'
     },
     formatTime(value) {
       return value ? dayjs(value).format('YYYY-MM-DD HH:mm:ss') : '—'

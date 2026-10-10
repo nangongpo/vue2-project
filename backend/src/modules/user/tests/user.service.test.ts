@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common'
 import { UserService } from '#app/modules/user/services/user.service.js'
 
-const actor = { internalId: 1n }
+const actor = { internalId: 1n, tenantId: 'tenant-1' }
 const uuid = '550e8400-e29b-41d4-a716-446655440000'
 const target = {
   id: 2n,
@@ -34,6 +34,12 @@ function createPrisma() {
           Promise.resolve(where.id === 1n ? { userId: uuid, status: 'ACTIVE', expiresAt: null } : target)
         ),
       update: vi.fn().mockResolvedValue(target),
+    },
+    tenant: {
+      findUnique: vi.fn().mockResolvedValue({ id: 'tenant-1', status: 'ACTIVE' }),
+    },
+    userTenantMembership: {
+      create: vi.fn(),
     },
     role: {
       findMany: vi.fn().mockResolvedValue([role]),

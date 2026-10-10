@@ -78,12 +78,12 @@
       </el-form>
       <span slot="footer">
         <el-button @click="pageVisible = false">取消</el-button>
-        <el-button
-          v-permission="editingPage ? (pageForm.nodeType === 'DIRECTORY' ? 'system.directory.update' : 'system.page.update') : (creatingDirectory ? 'system.directory.create' : 'system.page.create')"
+        <permission-button
+          :permission="editingPage ? (pageForm.nodeType === 'DIRECTORY' ? 'system.directory.update' : 'system.page.update') : (creatingDirectory ? 'system.directory.create' : 'system.page.create')"
           type="primary"
           :loading="saving"
           @click="validateAndSubmit('pageForm', 'submit-page')"
-          >保存</el-button
+          >保存</permission-button
         >
       </span>
     </el-dialog>
@@ -144,13 +144,13 @@
       </el-form>
       <span slot="footer">
         <el-button @click="buttonVisible = false">取消</el-button>
-        <el-button
-          v-permission="editingButton ? 'system.button.update' : 'system.button.create'"
+        <permission-button
+          :permission="editingButton ? 'system.button.update' : 'system.button.create'"
           type="primary"
           :loading="saving"
           @click="validateAndSubmit('buttonForm', 'submit-button')">
           保存
-        </el-button>
+        </permission-button>
       </span>
     </el-dialog>
 
@@ -191,13 +191,13 @@
       </el-form>
       <div slot="footer">
         <el-button @click="bindingVisibleProxy = false">取消</el-button>
-        <el-button
-          v-permission="'system.button.api.bind'"
+        <permission-button
+          permission="system.button.api.bind"
           type="primary"
           :disabled="!optionsReady"
           :loading="saving"
           @click="saveBindings('button')"
-          >保存绑定</el-button
+          >保存绑定</permission-button
         >
       </div>
     </el-dialog>
@@ -259,6 +259,7 @@
 </template>
 
 <script>
+
 export default {
   name: 'PermissionDialogs',
   inject: {

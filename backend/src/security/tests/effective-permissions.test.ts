@@ -4,11 +4,11 @@ import { effectivePermissions } from '#app/security/services/effective-permissio
 type Grant = Parameters<typeof effectivePermissions>[0][number]
 const grant = (id: string, type: string, extra: Partial<Grant> = {}): Grant => ({
   id,
-  code: `orders.${id}`,
+  code: `files.${id}`,
   type,
   status: 'ACTIVE',
   method: type === 'API' ? 'GET' : null,
-  path: type === 'API' ? `/api/v1/orders/${id}` : null,
+  path: type === 'API' ? `/api/v1/files/${id}` : null,
   ...extra,
 })
 const grants = [
@@ -20,12 +20,12 @@ const grants = [
 ]
 const pages = [
   { id: 'root-page', parentId: null, permissionId: 'root', status: 'ACTIVE' },
-  { id: 'orders-page', parentId: 'root-page', permissionId: 'page', status: 'ACTIVE' },
+  { id: 'files-page', parentId: 'root-page', permissionId: 'page', status: 'ACTIVE' },
 ]
 const buttons = [
-  { id: 'save-button', functionId: 'orders-page', permissionId: 'button', status: 'ACTIVE' },
+  { id: 'save-button', functionId: 'files-page', permissionId: 'button', status: 'ACTIVE' },
 ]
-const pageApis = [{ functionId: 'orders-page', apiId: 'read' }]
+const pageApis = [{ functionId: 'files-page', apiId: 'read' }]
 const buttonApis = [{ buttonId: 'save-button', apiId: 'write' }]
 const resolve = (selected = grants, pageRows = pages, buttonRows = buttons) =>
   effectivePermissions(selected, pageRows, buttonRows, pageApis, buttonApis).map((p) => p.id)
@@ -64,7 +64,7 @@ describe('effectivePermissions', () => {
     }
   )
 
-  it.each(['root-page', 'orders-page'])(
+  it.each(['root-page', 'files-page'])(
     'disabled page %s blocks its descendants despite active permission records',
     (id) => {
       expect(
@@ -109,7 +109,7 @@ describe('effectivePermissions', () => {
     expect(
       resolve(
         grants,
-        pages.map((p) => (p.id === 'root-page' ? { ...p, parentId: 'orders-page' } : p))
+        pages.map((p) => (p.id === 'root-page' ? { ...p, parentId: 'files-page' } : p))
       )
     ).toEqual([])
   })

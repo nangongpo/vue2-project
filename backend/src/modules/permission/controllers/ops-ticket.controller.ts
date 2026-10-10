@@ -38,14 +38,19 @@ export class OpsTicketController {
   @Get()
   @RequirePermissions('system.ops-ticket.read')
   @DataFieldSecurity('system.ops-ticket')
-  list(@Query() query: OpsTicketQueryDto) {
-    return this.service.list(query)
+  list(@Query() query: OpsTicketQueryDto, @Req() request: ActorRequest) {
+    return this.service.list(query, actorFrom(request))
+  }
+  @Get('options')
+  @RequirePermissions('system.ops-ticket.options')
+  options() {
+    return this.service.options()
   }
   @Get(':id')
   @RequirePermissions('system.ops-ticket.detail')
   @DataFieldSecurity('system.ops-ticket')
-  detail(@Param('id', ParseUUIDPipe) id: string) {
-    return this.service.detail(id)
+  detail(@Param('id', ParseUUIDPipe) id: string, @Req() request: ActorRequest) {
+    return this.service.detail(id, actorFrom(request))
   }
   @Patch(':id')
   @RequirePermissions('system.ops-ticket.update')

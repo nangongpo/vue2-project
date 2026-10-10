@@ -12,6 +12,16 @@ import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto'
 import { PrismaService } from '#app/database/prisma.service.js'
 import { normalizePagination, paginationData } from '#app/common/pagination.js'
 import { API_CODE } from '#app/common/constants/api-code.js'
+import {
+  OPS_TICKET_EVIDENCE_TYPE_LABELS,
+  OPS_TICKET_EXECUTION_RESULT_LABELS,
+  OPS_TICKET_RISK_LABELS,
+  OPS_TICKET_RISK_TONES,
+  OPS_TICKET_STATUS_LABELS,
+  OPS_TICKET_TARGET_TYPE_LABELS,
+  OPS_TICKET_TYPE_LABELS,
+} from '#app/common/constants/enum-labels.js'
+import { availableAction } from '#app/common/constants/api-name-labels.js'
 import type { Actor } from '#app/modules/role/domain/authorization.js'
 import type {
   CreateOpsTicketDto,
@@ -26,6 +36,13 @@ import { sanitizeAuditDetail } from '#app/audit/utils/audit-sanitizer.js'
 
 const serializable = { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
 const securityTypes = new Set<OpsTicketType>(['MFA_RESET_EMERGENCY', 'PERMISSION_RECOVERY', 'ACCOUNT_RECOVERY'])
+
+type OpsTicketWithRelations = Prisma.OpsTicketGetPayload<{
+  include: { evidence: true; executions: true }
+}>
+
+const optionList = (labels: Record<string, string>) =>
+  Object.entries(labels).map(([value, label]) => ({ value, label }))
 
 const canonicalize = (value: unknown): unknown => {
   if (Array.isArray(value)) return value.map(canonicalize)
@@ -56,7 +73,7 @@ export class OpsTicketService {
     }, serializable)
   }
 
-  async list(query: OpsTicketQueryDto) {
+  async list(query: OpsTicketQueryDto, actor: Actor) {
     const { page, pageSize } = normalizePagination(query)
     const where: Prisma.OpsTicketWhereInput = {
       ...(query.status ? { status: query.status } : {}),
@@ -73,10 +90,32 @@ export class OpsTicketService {
         include: { evidence: true, executions: true },
       }),
     ])
-    return this.ok(paginationData(items, total, { page, pageSize }))
+    const decorated = await this.decorate(items, actor)
+    return this.ok({
+      ...paginationData(decorated, total, { page, pageSize }),
+      meta: {
+        statusOptions: Object.entries(OPS_TICKET_STATUS_LABELS).map(([value, label]) => ({ value, label })),
+        typeOptions: Object.entries(OPS_TICKET_TYPE_LABELS).map(([value, label]) => ({ value, label })),
+        riskOptions: optionList(OPS_TICKET_RISK_LABELS),
+        targetTypeOptions: optionList(OPS_TICKET_TARGET_TYPE_LABELS),
+        evidenceTypeOptions: optionList(OPS_TICKET_EVIDENCE_TYPE_LABELS),
+        executionResultOptions: optionList(OPS_TICKET_EXECUTION_RESULT_LABELS),
+      },
+    })
   }
 
-  async detail(id: string) {
+  async options() {
+    return this.ok({
+      statusOptions: optionList(OPS_TICKET_STATUS_LABELS),
+      typeOptions: optionList(OPS_TICKET_TYPE_LABELS),
+      riskOptions: optionList(OPS_TICKET_RISK_LABELS),
+      targetTypeOptions: optionList(OPS_TICKET_TARGET_TYPE_LABELS),
+      evidenceTypeOptions: optionList(OPS_TICKET_EVIDENCE_TYPE_LABELS),
+      executionResultOptions: optionList(OPS_TICKET_EXECUTION_RESULT_LABELS),
+    })
+  }
+
+  async detail(id: string, actor: Actor) {
     const ticket = await this.prisma.opsTicket.findUnique({
       where: { id },
       include: {
@@ -85,7 +124,65 @@ export class OpsTicketService {
       },
     })
     if (!ticket) throw new NotFoundException('工单不存在')
-    return this.ok(ticket)
+    return this.ok((await this.decorate([ticket], actor))[0])
+  }
+
+  private async decorate(items: OpsTicketWithRelations[], actor: Actor) {
+    const context = await this.permissionSet(actor)
+    return items.map((item) => ({
+      ...item,
+      typeLabel: OPS_TICKET_TYPE_LABELS[item.type] || '—',
+      statusLabel: OPS_TICKET_STATUS_LABELS[item.status] || '—',
+      riskLabel: OPS_TICKET_RISK_LABELS[item.riskLevel] || '—',
+      riskTone: OPS_TICKET_RISK_TONES[item.riskLevel] || 'info',
+      targetTypeLabel: OPS_TICKET_TARGET_TYPE_LABELS[item.targetType] || '—',
+      evidence: Array.isArray(item.evidence)
+        ? item.evidence.map((evidence) => ({
+            ...evidence,
+            typeLabel: OPS_TICKET_EVIDENCE_TYPE_LABELS[evidence.type] || '—',
+          }))
+        : item.evidence,
+      executions: Array.isArray(item.executions)
+        ? item.executions.map((execution) => ({
+            ...execution,
+            resultLabel: OPS_TICKET_EXECUTION_RESULT_LABELS[execution.result] || '—',
+          }))
+        : item.executions,
+      statusPhase: ['REVIEWED', 'CANCELLED', 'REJECTED'].includes(item.status) ? 'CLOSED' : item.status,
+      terminal: ['REVIEWED', 'CANCELLED', 'REJECTED'].includes(item.status),
+      availableActions: this.availableActions(item, context.userId, context.permissions),
+    }))
+  }
+
+  private async permissionSet(actor: Actor) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: actor.internalId },
+      select: {
+        userId: true,
+        roles: {
+          where: { revokedAt: null, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }], role: { status: 'ACTIVE' } },
+          select: { role: { select: { permissions: { where: { revokedAt: null, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }], permission: { status: 'ACTIVE' } }, select: { permission: { select: { code: true } } } } } } },
+        },
+      },
+    })
+    return {
+      userId: user?.userId || '',
+      permissions: new Set((user?.roles || []).flatMap(({ role }) => role.permissions.map(({ permission }) => permission.code))),
+    }
+  }
+
+  private availableActions(item: OpsTicketWithRelations, actorUserId: string, permissions: Set<string>) {
+    const can = (code: string) => permissions.has(code)
+    const own = (id?: string | null) => !!id && id.toLowerCase() === actorUserId.toLowerCase()
+    const actions = [] as ReturnType<typeof availableAction>[]
+    if (item.status === 'DRAFT' && own(item.requestedBy) && can('system.ops-ticket.submit')) actions.push(availableAction('submit', 'system.ops-ticket.submit'))
+    if (item.status === 'SUBMITTED' && !own(item.requestedBy) && can('system.ops-ticket.approve')) actions.push(availableAction('approve', 'system.ops-ticket.approve'))
+    if (item.status === 'APPROVED' && ![item.requestedBy, item.approvedBy].some(own) && can('system.ops-ticket.execute')) actions.push(availableAction('execute', 'system.ops-ticket.execute'))
+    if (item.status === 'EXECUTED' && can('system.ops-ticket.execution.create')) actions.push(availableAction('execution.create', 'system.ops-ticket.execution.create'))
+    if (item.status === 'EXECUTED' && ![item.requestedBy, item.approvedBy, item.executedBy].some(own) && can('system.ops-ticket.review')) actions.push(availableAction('review', 'system.ops-ticket.review'))
+    if (['DRAFT', 'SUBMITTED'].includes(item.status) && own(item.requestedBy) && can('system.ops-ticket.cancel')) actions.push(availableAction('cancel', 'system.ops-ticket.cancel'))
+    if (!['REVIEWED', 'CANCELLED', 'REJECTED'].includes(item.status) && can('system.ops-ticket.evidence.create')) actions.push(availableAction('evidence.create', 'system.ops-ticket.evidence.create'))
+    return actions
   }
 
   async patch(id: string, input: PatchOpsTicketDto, actor: Actor) {

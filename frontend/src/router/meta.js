@@ -21,15 +21,9 @@ export default {
     name: 'business-info',
     icon: 'nested',
   },
-  '/business/order-manage': {
-    title: '订单管理',
-    name: 'order-manage',
-    icon: 'nested',
-  },
-  '/business/test': {
-    layout: false,
-    title: '测试',
-    name: 'business-test',
+  '/business/file-upload': {
+    title: '文件上传',
+    name: 'business-file-upload',
     icon: 'nested',
   },
   // 业务路由：不写 requiresAuth 默认或者显式声明为 true，都需要登录后动态加载
@@ -53,6 +47,10 @@ export default {
   '/system/session': {
     title: '账号安全',
     name: 'session-info',
+  },
+  '/system/file': {
+    title: '文件管理',
+    name: 'system-file-management',
   },
   '/system/permission': {
     title: '权限管理',

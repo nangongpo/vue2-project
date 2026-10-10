@@ -1,14 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import { of, lastValueFrom } from 'rxjs'
+import type { ExecutionContext } from '@nestjs/common'
 import { ApiResponseInterceptor } from '#app/common/interceptors/api-response.interceptor.js'
 
 describe('ApiResponseInterceptor', () => {
   const context = (statusCode = 200) =>
     ({
       switchToHttp: () => ({
+        getRequest: () => ({}),
         getResponse: () => ({ statusCode }),
       }),
-    }) as any
+    }) as unknown as ExecutionContext
 
   it('wraps an unwrapped successful value', async () => {
     const result = await lastValueFrom(new ApiResponseInterceptor().intercept(context(), { handle: () => of({ id: '1' }) }))

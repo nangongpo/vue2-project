@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { PrismaService } from '#app/database/prisma.service.js'
 import { RedisService } from '#app/cache/services/redis.service.js'
+import { HEALTH_STATUS_LABELS, HEALTH_STATUS_TONES } from '#app/common/constants/enum-labels.js'
 
 @Injectable()
 export class SystemHealthService {
@@ -28,10 +29,18 @@ export class SystemHealthService {
         ? 'unavailable'
         : 'degraded'
       : 'ok'
+    const statusLabel = HEALTH_STATUS_LABELS[status] || HEALTH_STATUS_LABELS.unknown
     return {
       status,
+      statusLabel,
+      statusTone: HEALTH_STATUS_TONES[status] || HEALTH_STATUS_TONES.unknown,
+      statusDescription: status === 'ok' ? '所有关键服务均可用。' : status === 'degraded' ? '部分依赖服务异常，部分功能可能受到影响。' : '关键服务异常，请根据服务明细和 traceId 排查。',
       checkedAt,
-      services,
+      services: services.map((service) => ({
+        ...service,
+        statusLabel: HEALTH_STATUS_LABELS[service.status] || HEALTH_STATUS_LABELS.unknown,
+        statusTone: HEALTH_STATUS_TONES[service.status] || HEALTH_STATUS_TONES.unknown,
+      })),
     }
   }
 

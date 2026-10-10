@@ -1,6 +1,6 @@
-// Read-only verification of the current database schema.
-// This script does not create databases, run migrations, seed data, or change rows.
-import { readFileSync } from 'node:fs'
+// Read-only verification of generic database integrity.
+// This script does not infer application tables or fields from migration files.
+// It does not create databases, run migrations, seed data, or change rows.
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { loadEnvFile } from 'node:process'
@@ -15,69 +15,71 @@ try {
 
 if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is required')
 
-const migrationPath = resolve(backendRoot, 'prisma/migrations/20260930000000_initial_schema/migration.sql')
-const migrationSql = readFileSync(migrationPath, 'utf8')
-const expected = new Map()
-
-for (const match of migrationSql.matchAll(/CREATE TABLE `([^`]+)` \(\n([\s\S]*?)\n\) DEFAULT CHARACTER SET/g)) {
-  const [, tableName, body] = match
-  const columns = new Set()
-  for (const line of body.split('\n')) {
-    const column = line.match(/^\s+`([^`]+)`\s/)
-    if (column) columns.add(column[1])
-  }
-  expected.set(tableName, columns)
-}
-
 const db = new PrismaClient()
 
 try {
-  const rows = await db.$queryRawUnsafe(`
-    SELECT table_name, column_name
+  const migrationFailures = await db.$queryRawUnsafe(`
+    SELECT migration_name, started_at, finished_at, rolled_back_at
+    FROM _prisma_migrations
+    WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL
+  `)
+
+  const tablesWithoutPrimaryKey = await db.$queryRawUnsafe(`
+    SELECT tables.table_name
+    FROM information_schema.tables AS tables
+    LEFT JOIN information_schema.table_constraints AS pk
+      ON pk.table_schema = tables.table_schema
+     AND pk.table_name = tables.table_name
+     AND pk.constraint_type = 'PRIMARY KEY'
+    WHERE tables.table_schema = DATABASE()
+      AND tables.table_type = 'BASE TABLE'
+      AND pk.table_name IS NULL
+  `)
+
+  const invalidIdentifiers = await db.$queryRawUnsafe(`
+    SELECT 'TABLE' AS object_type, table_name, table_name AS object_name
+    FROM information_schema.tables
+    WHERE table_schema = DATABASE()
+      AND table_type = 'BASE TABLE'
+      AND (table_name COLLATE utf8_bin REGEXP '[A-Z]' OR CHAR_LENGTH(table_name) > 64)
+    UNION ALL
+    SELECT 'COLUMN' AS object_type, table_name, column_name AS object_name
     FROM information_schema.columns
     WHERE table_schema = DATABASE()
-  `)
-  const actual = new Map()
-  for (const row of rows) {
-    const tableName = row.table_name ?? row.TABLE_NAME
-    const columnName = row.column_name ?? row.COLUMN_NAME
-    if (!actual.has(tableName)) actual.set(tableName, new Set())
-    actual.get(tableName).add(columnName)
-  }
-
-  const missingTables = [...expected.keys()].filter((table) => !actual.has(table))
-  const missingColumns = []
-  for (const [table, columns] of expected) {
-    for (const column of columns) {
-      if (!actual.get(table)?.has(column)) missingColumns.push(`${table}.${column}`)
-    }
-  }
-  const camelColumns = []
-  for (const [table, columns] of actual) {
-    for (const column of columns) {
-      if (/[A-Z]/.test(column)) camelColumns.push(`${table}.${column}`)
-    }
-  }
-  const missingUpdatedAt = [...expected.entries()]
-    .filter(([, columns]) => columns.has('updated_at'))
-    .filter(([table]) => !actual.get(table)?.has('updated_at'))
-    .map(([table]) => table)
-
-  const primaryKeyRows = await db.$queryRawUnsafe(`
-    SELECT DISTINCT table_name
-    FROM information_schema.table_constraints
+      AND (column_name COLLATE utf8_bin REGEXP '[A-Z]' OR CHAR_LENGTH(column_name) > 64)
+    UNION ALL
+    SELECT 'INDEX' AS object_type, table_name, index_name AS object_name
+    FROM information_schema.statistics
     WHERE table_schema = DATABASE()
-      AND constraint_type = 'PRIMARY KEY'
+      AND (index_name COLLATE utf8_bin REGEXP '[A-Z]' OR CHAR_LENGTH(index_name) > 64)
   `)
-  const primaryKeyTables = new Set(primaryKeyRows.map((row) => row.table_name ?? row.TABLE_NAME))
-  const missingPrimaryKeys = [...expected.keys()].filter((table) => !primaryKeyTables.has(table))
+
+  const invalidForeignKeys = await db.$queryRawUnsafe(`
+    SELECT constraint_name, table_name, column_name, referenced_table_name, referenced_column_name
+    FROM information_schema.key_column_usage AS kcu
+    WHERE table_schema = DATABASE()
+      AND referenced_table_name IS NOT NULL
+      AND (
+        referenced_table_name NOT IN (
+          SELECT table_name
+          FROM information_schema.tables
+          WHERE table_schema = DATABASE()
+        )
+        OR NOT EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = DATABASE()
+            AND table_name = kcu.referenced_table_name
+            AND column_name = kcu.referenced_column_name
+        )
+      )
+  `)
 
   const failures = [
-    ...missingTables.map((item) => `missing table: ${item}`),
-    ...missingColumns.map((item) => `missing column: ${item}`),
-    ...camelColumns.map((item) => `camel-case column: ${item}`),
-    ...missingUpdatedAt.map((item) => `missing updated_at: ${item}`),
-    ...missingPrimaryKeys.map((item) => `missing primary key: ${item}`),
+    ...migrationFailures.map((row) => `migration not completed: ${row.migration_name}`),
+    ...tablesWithoutPrimaryKey.map((row) => `table without primary key: ${row.table_name}`),
+    ...invalidIdentifiers.map((row) => `${row.object_type} has invalid identifier: ${row.table_name}.${row.object_name}`),
+    ...invalidForeignKeys.map((row) => `invalid foreign key: ${row.table_name}.${row.column_name}`),
   ]
 
   if (failures.length) {
@@ -85,7 +87,7 @@ try {
     for (const failure of failures) console.error(`- ${failure}`)
     process.exitCode = 1
   } else {
-    console.log(`PASS: ${expected.size} tables, required columns, snake_case physical names, updated_at fields, and primary keys are intact.`)
+    console.log('PASS: migration state, primary keys, identifiers, and foreign-key references are valid.')
   }
 } finally {
   await db.$disconnect()

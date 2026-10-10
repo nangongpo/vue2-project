@@ -66,6 +66,6 @@ import { DataResourceService } from '#app/modules/permission/services/data-resou
       inject: [PrismaService],
     },
   ],
-  exports: [DataScopeService],
+  exports: [ApprovalService, DataScopeService],
 })
 export class PermissionModule {}

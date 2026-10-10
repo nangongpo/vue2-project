@@ -1,15 +1,15 @@
 <template>
   <aside class="page-panel">
     <div class="page-panel-head">
-      <el-button
-        v-permission="'system.directory.create'"
+      <permission-button
+        permission="system.directory.create"
         type="primary"
         class="create-page"
         @click="$emit('create')"
-        >新增目录</el-button
+        >新增目录</permission-button
       >
-      <el-button
-        v-permission="'system.page.read'"
+      <permission-button
+        permission="system.page.read"
         class="refresh-button"
         icon="el-icon-refresh"
         title="刷新"
@@ -45,17 +45,17 @@
           class="tree-node-meta tree-directory-meta"
           @click.stop
         >
-          <el-button
+          <permission-button
           v-if="data.isActive"
-            v-permission="'system.page.create'"
+            permission="system.page.create"
             type="text"
             class="tree-directory-link"
             @click="$emit('create-page', data)"
           >
             新增子页
-          </el-button>
-          <el-button
-            v-permission="'system.directory.delete'"
+          </permission-button>
+          <permission-button
+            permission="system.directory.delete"
             type="text"
             class="tree-inline-action tree-inline-action-danger"
             icon="el-icon-delete"
@@ -69,18 +69,18 @@
           </el-tag>
         </span>
         <span v-if="data.nodeType !== 'DIRECTORY'" class="tree-node-actions" @click.stop>
-          <el-button
+          <permission-button
             v-if="data.nodeType !== 'DIRECTORY'"
-            v-permission="data.isActive ? 'system.page.disable' : 'system.page.enable'"
+            :permission="data.isActive ? 'system.page.disable' : 'system.page.enable'"
             type="text"
             class="tree-inline-action"
             :icon="data.isActive ? 'el-icon-video-pause' : 'el-icon-video-play'"
             :title="data.isActive ? '停用页面' : '启用页面'"
             @click="$emit('toggle-status', data)"
           />
-          <el-button
+          <permission-button
             v-if="data.nodeType !== 'DIRECTORY'"
-            v-permission="'system.page.delete'"
+            permission="system.page.delete"
             type="text"
             class="tree-inline-action tree-inline-action-danger"
             icon="el-icon-delete"
@@ -94,6 +94,7 @@
 </template>
 
 <script>
+
 export default {
   name: 'PermissionPageTreePanel',
   props: {

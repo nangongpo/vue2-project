@@ -3,7 +3,7 @@ export const MANAGEMENT_RESOURCES = new Set([
   'system.page', 'system.page.api', 'system.button', 'system.button.api',
   'system.api', 'system.audit', 'system.approval', 'system.data-scope',
   'system.data-resource', 'system.field', 'system.ops-ticket',
-  'system.operation-policy', 'system.session', 'system.config', 'system.runtime',
+  'system.operation-policy', 'system.session', 'system.config', 'system.runtime', 'system.file',
 ])
 
 export const MANAGEMENT_RESOURCE_ALIASES = new Set([

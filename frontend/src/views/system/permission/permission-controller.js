@@ -102,6 +102,7 @@ export default {
         { value: 'L3', label: 'L3 · 高风险' },
       ],
       pageOptionsReady: false,
+      pageOptionsPageId: null,
       pageOptionsLoading: false,
       buttonOptionsReady: false,
       buttonOptionsLoading: false,
@@ -317,6 +318,10 @@ export default {
       )
     },
     selectedResource() {
+      const resources = boundApis(this.selectedFunction)
+        .map((api) => api.resource)
+        .filter(Boolean)
+      if (resources.length) return resources[0]
       const resource = this.selectedFunction?.code?.replace(/^page\./, '') || ''
       return resource === 'system.ops-tickets' ? 'system.ops-ticket' : resource
     },
@@ -396,14 +401,16 @@ export default {
       })
     },
     async loadPageApiOptions(force = false) {
-      if ((!force && this.pageOptionsReady) || this.pageOptionsLoading) return
+      if ((!force && this.pageOptionsReady && this.pageOptionsPageId === this.selectedId) || this.pageOptionsLoading) return
       if (!this.can('system.page.api.options')) return
       this.pageOptionsLoading = true
       try {
-        this.pageApisOptions = activeApis(await getPageBaseApiOptions())
+        this.pageApisOptions = activeApis(await getPageBaseApiOptions(this.selectedId))
+        this.pageOptionsPageId = this.selectedId
         this.pageOptionsReady = true
       } catch {
         this.pageApisOptions = []
+        this.pageOptionsPageId = null
         this.loadError = this.loadError || '页面接口选项加载失败，请刷新重试。'
       } finally {
         this.pageOptionsLoading = false
@@ -506,6 +513,7 @@ export default {
       this.ensureTabData(name)
     },
     async loadDataFields(force = false) {
+      if (!this.selectedFunction?.apis) await this.loadPageBindings()
       if (!this.can('system.field.read') || !this.selectedResource) {
         this.dataFields = []
         return
@@ -526,6 +534,7 @@ export default {
       return this.loadDataFields(force)
     },
     async loadDataResources(force = false) {
+      if (!this.selectedFunction?.apis) await this.loadPageBindings()
       if (!this.can('system.data-resource.read') || !this.selectedResource) {
         this.dataResources = []
         this.dataResourcesResource = ''

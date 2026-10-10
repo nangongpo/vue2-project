@@ -4,6 +4,7 @@ import {
   Delete,
   Get,
   Inject,
+  HttpCode,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -29,6 +30,7 @@ import { DataFieldSecurity } from '#app/common/decorators/data-field-security.de
 import { RoleService } from '#app/modules/role/services/role.service.js'
 import { actorFrom } from '#app/modules/role/domain/authorization.js'
 import type { ActorRequest } from '#app/modules/role/domain/authorization.js'
+import type { ApprovalActor } from '#app/modules/permission/services/approval.service.js'
 
 export class CreateRoleDto {
   /** 角色名称。 */
@@ -64,8 +66,8 @@ export class RoleController {
   @Get()
   @RequirePermissions('system.role.read')
   @DataFieldSecurity('system.role')
-  list() {
-    return this.roles.list()
+  list(@Req() request: ActorRequest) {
+    return this.roles.list((request.user as { permissions?: string[] }).permissions || [])
   }
 
   @Get('permission-options')
@@ -107,7 +109,7 @@ export class RoleController {
   // security administrator before the request could reach the risk flow.
   @RequirePermissions('system.role.grant')
   grants(@Param('id', ParseUUIDPipe) id: string, @Body() body: GrantPermissionsDto, @Req() request: ActorRequest) {
-    return this.roles.grants(id, body, actorFrom(request))
+    return this.roles.grants(id, body, actorFrom(request), request.user as unknown as ApprovalActor)
   }
 
   @Patch(':id/enable')
@@ -123,6 +125,7 @@ export class RoleController {
   }
 
   @Delete(':id')
+  @HttpCode(204)
   @RequirePermissions('system.role.delete')
   remove(@Param('id', ParseUUIDPipe) id: string, @Req() request: ActorRequest) {
     return this.roles.remove(id, actorFrom(request))

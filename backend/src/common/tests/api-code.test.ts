@@ -16,6 +16,7 @@ describe('API code contract', () => {
 
   it.each([
     [HttpStatus.BAD_REQUEST, API_CODE.INVALID_PARAMS],
+    [HttpStatus.UNSUPPORTED_MEDIA_TYPE, API_CODE.INVALID_PARAMS],
     [HttpStatus.UNAUTHORIZED, API_CODE.UNAUTHORIZED],
     [HttpStatus.FORBIDDEN, API_CODE.FORBIDDEN],
     [HttpStatus.NOT_FOUND, API_CODE.NOT_FOUND],

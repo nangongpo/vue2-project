@@ -2,8 +2,8 @@ import {
   Body,
   Controller,
   Delete,
-  Get,
   HttpCode,
+  Get,
   Inject,
   Param,
   ParseUUIDPipe,
@@ -43,6 +43,9 @@ class ApiQuery extends PaginationQueryDto {
   @IsOptional() @IsString() @MaxLength(128) keyword?: string
   @IsOptional() @IsIn(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']) method?: string
   @IsOptional() @IsIn(['ACTIVE', 'DISABLED']) status?: 'ACTIVE' | 'DISABLED'
+}
+class PageApiOptionsQueryDto {
+  @IsUUID() pageId!: string
 }
 class ApiMetadata {
   @IsOptional() @IsString() @MinLength(1) @MaxLength(128) name?: string
@@ -131,8 +134,8 @@ export class PermissionController {
   }
   @Get('pages/base-apis/options')
   @RequirePermissions('system.page.api.options')
-  pageBaseApiOptions() {
-    return this.service.pageApiOptions()
+  pageBaseApiOptions(@Query() query: PageApiOptionsQueryDto) {
+    return this.service.pageApiOptions(query.pageId)
   }
   @Get('pages/:pageId/buttons')
   @RequirePermissions('system.button.read')
@@ -156,6 +159,7 @@ export class PermissionController {
     return this.service.createDirectory(body, req)
   }
   @Delete('directories/:id')
+  @HttpCode(204)
   @RequirePermissions('system.directory.delete')
   deleteDirectory(@Param('id', ParseUUIDPipe) id: string, @Req() req: MutationContext) {
     return this.service.deleteDirectory(id, req)
@@ -199,6 +203,7 @@ export class PermissionController {
     return this.service.updateFunction(id, body, req)
   }
   @Delete('pages/:id')
+  @HttpCode(204)
   @RequirePermissions('system.page.delete')
   deleteFunction(@Param('id', ParseUUIDPipe) id: string, @Req() req: MutationContext) {
     return this.service.deleteFunction(id, req)
@@ -333,6 +338,7 @@ export class PermissionController {
     return this.service.references(id)
   }
   @Delete('apis/:id')
+  @HttpCode(204)
   @HttpCode(202)
   @RequirePermissions('system.api.delete')
   async deleteApi(@Param('id', ParseUUIDPipe) id: string, @Req() req: MutationContext) {

@@ -40,7 +40,7 @@ describe('OperationPolicyService', () => {
 
   it('fails closed for an unregistered business operation', async () => {
     const { service } = makeService()
-    await expect(service.resolve('order.refund')).rejects.toBeInstanceOf(ForbiddenException)
+    await expect(service.resolve('file.refund')).rejects.toBeInstanceOf(ForbiddenException)
   })
 
   it('rejects an active policy that lowers a built-in control', async () => {

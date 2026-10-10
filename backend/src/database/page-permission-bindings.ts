@@ -12,7 +12,8 @@ export type SeedPageCode =
   | 'page.system.audit'
   | 'page.system.health'
   | 'page.system.ops-tickets'
-  | 'page.business.order-manage'
+  | 'page.system.file'
+  | 'page.business.file-upload'
 
 export type PagePermissionBinding =
   | { type: 'PAGE_API'; apiCode: ApiDefinition['code'] }
@@ -123,6 +124,7 @@ export const PAGE_PERMISSION_BINDINGS: Readonly<Record<SeedPageCode, readonly Pa
   'page.system.health': [pageApi('system.health.read')],
   'page.system.ops-tickets': [
     pageApi('system.ops-ticket.read'),
+    pageApi('system.ops-ticket.options'),
     pageApi('system.ops-ticket.detail'),
     buttonApi('system.ops-ticket.create', 'create'),
     buttonApi('system.ops-ticket.update', 'update'),
@@ -134,5 +136,20 @@ export const PAGE_PERMISSION_BINDINGS: Readonly<Record<SeedPageCode, readonly Pa
     buttonApi('system.ops-ticket.evidence.create', 'create'),
     buttonApi('system.ops-ticket.execution.create', 'create'),
   ],
-  'page.business.order-manage': [pageApi('order.read')],
+  'page.system.file': [
+    pageApi('system.file.admin.read'),
+    pageApi('system.file.admin.detail'),
+    buttonApi('system.file.admin.scan', 'scan'),
+    buttonApi('system.file.admin.reject', 'reject'),
+    buttonApi('system.file.admin.delete', 'delete'),
+    buttonApi('system.file.admin.restore', 'restore'),
+  ],
+  'page.business.file-upload': [
+    pageApi('file.upload.read'),
+    buttonApi('file.upload.initiate', 'upload'),
+    buttonApi('file.upload.part', 'upload-part'),
+    buttonApi('file.upload.status', 'upload-status'),
+    buttonApi('file.upload.complete', 'complete'),
+    buttonApi('file.upload.abort', 'abort'),
+  ],
 }

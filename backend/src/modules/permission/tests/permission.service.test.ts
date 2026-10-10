@@ -13,21 +13,21 @@ const req: MutationContext = {
 }
 const api = {
   id: 'read',
-  code: 'order.read',
-  name: 'Read orders',
+  code: 'system.user.read',
+  name: 'Read users',
   type: 'API',
   status: 'ACTIVE',
   method: 'GET',
-  path: '/api/v1/orders',
-  resource: 'order',
+  path: '/api/v1/users',
+  resource: 'system.user',
   action: 'read',
   roleTypes: [{ roleType: 'BUSINESS' }],
 }
 const page = {
   id: 'page',
-  code: 'page.order',
-  name: 'Orders',
-  route: '/orders',
+  code: 'page.file',
+  name: 'Files',
+  route: '/files',
   parentId: null as string | null,
   permissionId: 'page-permission',
   status: 'ACTIVE',
@@ -233,12 +233,12 @@ describe('PermissionService security boundaries', () => {
     await expect(
       f.service.createApi(
         {
-          code: 'order.create',
+          code: 'file.upload.initiate',
           name: 'Create',
           method: 'POST',
-          path: '/api/v1/orders',
-          resource: 'order',
-          action: 'create',
+          path: '/api/v1/files/uploads/initiate',
+          resource: 'file',
+          action: 'upload.initiate',
         },
         req
       )
@@ -291,7 +291,7 @@ describe('PermissionService security boundaries', () => {
     const error = { code: 'P2002', meta: { target } }
     if (target === 'route') {
       f.tx.systemFunction.create.mockRejectedValue(error)
-      await expect(f.service.createFunction({ code: 'page.new', name: 'New', route: '/orders', component: 'orders/index' }, req)).rejects.toBeInstanceOf(
+      await expect(f.service.createFunction({ code: 'page.new', name: 'New', route: '/files', component: 'files/index' }, req)).rejects.toBeInstanceOf(
         ConflictException
       )
       expect(f.state().apis).toEqual([api])
@@ -300,11 +300,11 @@ describe('PermissionService security boundaries', () => {
       await expect(
         f.service.createApi(
           {
-            code: 'order.new',
+            code: 'file.new',
             name: 'New',
             method: 'GET',
-            path: '/api/v1/orders',
-            resource: 'order',
+            path: '/api/v1/files',
+            resource: 'file',
             action: 'read',
           },
           req
@@ -328,16 +328,16 @@ describe('PermissionService security boundaries', () => {
     })
     await f.service.createFunction(
       {
-        name: '订单管理',
-        route: '/order-manage',
-        component: 'business/order-manage/index',
+        name: '文件上传',
+        route: '/file-upload',
+        component: 'business/file-upload/index',
         parentId: 'business-directory',
       },
       req
     )
     expect(f.state().pages.at(-1)).toMatchObject({
-      route: '/business/order-manage',
-      code: 'page.business.order-manage',
+      route: '/business/file-upload',
+      code: 'page.business.file-upload',
     })
   })
 
@@ -376,8 +376,8 @@ describe('PermissionService security boundaries', () => {
 
   it.each([
     { method: 'ALL' },
-    { path: '/api/v1/orders/*' },
-    { path: '/api/v1/orders?all=true' },
+    { path: '/api/v1/files/*' },
+    { path: '/api/v1/files?all=true' },
     { path: '/api/v1/%75sers' },
     { code: '*' },
     { code: 'system.permission.manage' },
@@ -388,11 +388,11 @@ describe('PermissionService security boundaries', () => {
     await expect(
       f.service.createApi(
         {
-          code: 'order.new',
+          code: 'file.new',
           name: 'New',
           method: 'GET',
-          path: '/api/v1/orders',
-          resource: 'order',
+          path: '/api/v1/files',
+          resource: 'file',
           action: 'read',
           ...override,
         },

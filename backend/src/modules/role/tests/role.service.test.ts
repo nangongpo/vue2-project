@@ -7,12 +7,12 @@ const actor = { internalId: 1n, traceId: 'trace' }
 const uuid = '550e8400-e29b-41d4-a716-446655440000'
 const permission = {
   id: uuid,
-  code: 'business.order.read',
-  resource: 'order',
+  code: 'business.file.read',
+  resource: 'file',
   roleTypes: [{ roleType: 'BUSINESS' }],
   type: 'API',
   method: 'GET',
-  path: '/api/v1/orders',
+  path: '/api/v1/files',
   status: 'ACTIVE',
 }
 const role = {
@@ -155,7 +155,7 @@ describe('RoleService', () => {
     { resource: 'users' },
     { code: 'system.audit.export' },
     { path: '/api/v1/roles/:id/grants' },
-    { path: '/orders/*' },
+    { path: '/files/*' },
     { method: 'ALL' },
   ])('rejects protected or invalid grant %j', async (override) => {
     const { tx, service } = fixture()
@@ -225,8 +225,8 @@ describe('RoleService', () => {
   it('allows business approval pages and APIs while rejecting permission-management APIs', () => {
     expect(
       ordinaryPermission({
-        code: 'page.sales.order-manage',
-        resource: '/sales/order-manage',
+        code: 'page.sales.file-manage',
+        resource: '/sales/file-manage',
         type: 'PAGE',
         method: null,
         path: null,

@@ -1,9 +1,12 @@
 import { SetMetadata } from '@nestjs/common'
 
 export type DataFieldSecurityResource =
+  | 'file'
+  | 'file.upload'
   | 'system.api'
   | 'system.approval'
   | 'system.audit'
+  | 'system.file'
   | 'system.health'
   | 'system.ops-ticket'
   | 'system.role'

@@ -9,7 +9,7 @@
     <div class="role-summary">
       <strong>{{ role ? role.name : '—' }}</strong>
       <el-tag v-if="role" size="mini" :type="role.isActive ? 'success' : 'info'">
-        {{ role.statusLabel || '未知状态' }}
+        {{ role.statusLabel || '—' }}
       </el-tag>
     </div>
 
@@ -18,23 +18,23 @@
     <div v-if="!isBusinessRole" class="scope-gate approval-gate">
       <div class="scope-gate-title">该角色不能直接变更数据范围</div>
       <div class="scope-gate-text">系统、安全、审计管理员角色须通过受控审批流程变更。</div>
-      <el-button type="primary" @click="goApproval">前往授权审批</el-button>
+      <el-button type="primary" @click="goApproval">去审批</el-button>
     </div>
 
     <div v-else-if="!scopeLoaded" class="scope-gate">
       <div class="scope-gate-title">查看数据范围需要安全验证</div>
       <div class="scope-gate-text">需要安全管理员权限，并完成 5 分钟内的 MFA 和重新认证。</div>
-      <el-button v-permission="'system.data-scope.read'" type="primary" :loading="loading" @click="load">
+      <permission-button permission="system.data-scope.read" type="primary" :loading="loading" @click="load">
         验证并查看
-      </el-button>
+      </permission-button>
     </div>
 
     <template v-else>
       <div class="scope-toolbar">
         <span class="scope-count">已配置 {{ scopes.length }} 项</span>
-        <el-button v-permission="'system.data-scope.read'" size="mini" :disabled="loading || saving" @click="load">
+        <permission-button permission="system.data-scope.read" size="mini" :disabled="loading || saving" @click="load">
           刷新
-        </el-button>
+        </permission-button>
       </div>
       <el-table v-loading="loading" :data="scopes" border class="scope-table">
         <el-table-column label="数据对象" min-width="160">
@@ -44,7 +44,7 @@
           </template>
         </el-table-column>
         <el-table-column label="范围" min-width="140">
-          <template slot-scope="{ row }">{{ scopeLabel(row.scopeType) }}</template>
+          <template slot-scope="{ row }">{{ scopeLabel(row) }}</template>
         </el-table-column>
         <el-table-column label="到期" min-width="170">
           <template slot-scope="{ row }">{{ row.expiresAt || '无到期时间' }}</template>
@@ -56,13 +56,13 @@
         </el-table-column>
         <el-table-column label="操作" width="70">
           <template slot-scope="{ row }">
-            <el-button
-              v-permission="'system.data-scope.revoke'"
+            <permission-button
+              permission="system.data-scope.revoke"
               type="text"
               :disabled="!!row.revokedAt || saving || !role || !role.isActive"
               @click="revoke(row)">
               撤销
-            </el-button>
+            </permission-button>
           </template>
         </el-table-column>
       </el-table>
@@ -102,10 +102,10 @@
 
     <span slot="footer">
       <el-button :disabled="saving" @click="close">关闭</el-button>
-      <el-button v-if="scopeLoaded && isBusinessRole" v-permission="'system.data-scope.update'" type="primary" :loading="saving"
+      <permission-button v-if="scopeLoaded && isBusinessRole" permission="system.data-scope.update" type="primary" :loading="saving"
         :disabled="loading || !role || !role.isActive" @click="grant">
-        新增数据范围
-      </el-button>
+        保存
+      </permission-button>
     </span>
   </el-dialog>
 </template>
@@ -117,8 +117,8 @@ import {
   grantRoleDataScope,
   revokeRoleDataScope,
 } from '@/api/admin'
-import { STANDARD_SCOPES } from '@/views/system/approval/utils'
 import { requiredText, requestReason } from '@/views/system/permission/utils'
+import { hasAvailableAction } from '@/utils/available-action'
 
 export default {
   name: 'RoleDataScopeDialog',
@@ -130,7 +130,7 @@ export default {
       error: '',
       scopes: [],
       scopeLoaded: false,
-      options: STANDARD_SCOPES,
+      options: [],
       resourceOptions: [],
       form: { resource: '', scopeType: 'SELF', reason: '', expiresAt: null },
       rules: {
@@ -149,7 +149,7 @@ export default {
   },
   computed: {
     isBusinessRole() {
-      return !!this.role?.capabilities?.canManageDataScope
+      return hasAvailableAction(this.role, 'data-scope')
     },
   },
   methods: {
@@ -171,8 +171,8 @@ export default {
     expired(scope) {
       return scope.expiresAt && new Date(scope.expiresAt) <= new Date()
     },
-    scopeLabel(type) {
-      return this.options.find((scope) => scope.value === type)?.label || type
+    scopeLabel(scope) {
+      return scope?.scopeTypeLabel || this.options.find((item) => item.value === scope?.scopeType)?.label || '—'
     },
     goApproval() {
       this.close()
@@ -191,6 +191,7 @@ export default {
         const result = await getRoleDataScopes(roleId)
         if (this.role?.roleId === roleId) {
           this.scopes = result.dataScopes || []
+          this.options = result.meta?.scopeTypeOptions || []
           await this.loadResourceOptions()
           this.scopeLoaded = true
         }
@@ -217,7 +218,7 @@ export default {
         return
       }
       if (!(await this.$confirm(
-        `为“${this.role.name}”新增“${this.form.resource}”的“${this.scopeLabel(this.form.scopeType)}”范围，确认执行？`,
+        `为“${this.role.name}”新增“${this.form.resource}”的“${this.scopeLabel({ scopeType: this.form.scopeType })}”范围，确认执行？`,
         '确认新增',
         { type: 'warning' }
       ).then(() => true).catch(() => false))) return
@@ -243,7 +244,7 @@ export default {
       const reason = await requestReason(
         this,
         '撤销数据范围',
-        `确认撤销“${scope.resource}”的“${this.scopeLabel(scope.scopeType)}”范围？请填写原因。`
+        `确认撤销“${scope.resource}”的“${this.scopeLabel(scope)}”范围？请填写原因。`
       )
       if (!reason) return
       this.saving = true

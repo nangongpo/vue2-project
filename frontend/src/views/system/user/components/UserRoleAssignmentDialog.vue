@@ -18,7 +18,7 @@
         <el-form-item label="授权账号">
           <strong>{{ user ? user.displayName || user.username : '—' }}</strong>
           <el-tag v-if="user" :type="user.isLocked ? 'danger' : user.isActive ? 'success' : 'info'">
-            {{ user.statusLabel || '未知状态' }}
+            {{ user.statusLabel || '—' }}
           </el-tag>
         </el-form-item>
         <el-form-item label="当前角色">
@@ -115,9 +115,6 @@ export default {
     },
   },
   methods: {
-    userStatusLabel(status) {
-      return { ACTIVE: '启用', DISABLED: '停用', LOCKED: '锁定' }[status] || status || '未知'
-    },
     close() {
       if (!this.saving) this.$emit('update:visible', false)
     },
@@ -199,11 +196,17 @@ export default {
       this.saving = true
       this.error = ''
       try {
-        await updateUserRoles(this.user.userId, {
+        const result = await updateUserRoles(this.user.userId, {
           roleIds: this.form.roleIds,
           reason: this.form.reason,
           ...(expiresAt ? { expiresAt: expiresAt.toISOString() } : {}),
         })
+        if (result?.kind === 'ROLE_GRANT' && result?.status === 'REQUESTED') {
+          this.$message.success('高危角色申请已提交，请进入受控审批流程继续处理')
+          this.$emit('update:visible', false)
+          this.$router.push({ path: '/system/approval', query: { status: 'REQUESTED' } })
+          return
+        }
         this.$message.success('用户角色已更新')
         this.$emit('update:visible', false)
         this.$emit('saved')

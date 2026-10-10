@@ -26,11 +26,13 @@ import {
 } from 'class-validator'
 import { AuthGuard } from '#app/security/guards/auth.guard.js'
 import { RequirePermissions } from '#app/security/decorators/permission.decorator.js'
+import { SecurityOperation } from '#app/security/decorators/operation.decorator.js'
 import { DataFieldSecurity } from '#app/common/decorators/data-field-security.decorator.js'
 import { UserService } from '#app/modules/user/services/user.service.js'
 import { actorFrom } from '#app/modules/role/domain/authorization.js'
 import type { ActorRequest } from '#app/modules/role/domain/authorization.js'
 import { PaginationQueryDto } from '#app/common/dto/pagination.dto.js'
+import type { ApprovalActor } from '#app/modules/permission/services/approval.service.js'
 
 export class CreateUserDto {
   /** 登录账号。 */
@@ -76,8 +78,8 @@ export class UserController {
   @Get()
   @RequirePermissions('system.user.read')
   @DataFieldSecurity('system.user')
-  page(@Query() query: UserQueryDto) {
-    return this.users.page(query)
+  page(@Query() query: UserQueryDto, @Req() request: ActorRequest) {
+    return this.users.page(query, (request.user as { permissions?: string[] }).permissions || [], actorFrom(request))
   }
 
   @Post()
@@ -100,12 +102,13 @@ export class UserController {
 
   @Patch(':id/roles')
   @RequirePermissions('system.user.grant')
+  @SecurityOperation('system.user.grant')
   roles(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() body: AssignRolesDto,
     @Req() request: ActorRequest
   ) {
-    return this.users.roles(id, body, actorFrom(request))
+    return this.users.roles(id, body, actorFrom(request), request.user as unknown as ApprovalActor)
   }
 
   @Patch(':id/enable')

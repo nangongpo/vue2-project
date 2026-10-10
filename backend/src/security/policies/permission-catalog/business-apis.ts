@@ -27,35 +27,38 @@ const BUSINESS_WRITE_RISK: RiskBaseline = {
   auditRequired: true,
 }
 
+// 分片写入属于已通过 initiate 建立并绑定到当前用户的上传会话续传操作。
+// 分片接口仍执行登录态、接口权限、会话归属、状态和大小校验，但不应让大文件的每一片重复触发 L2 验证。
+const BUSINESS_UPLOAD_PART_RISK: RiskBaseline = {
+  riskLevel: 'L0',
+  requireMfa: false,
+  requireReauth: false,
+  requireApproval: false,
+  requireDualControl: false,
+  auditRequired: true,
+}
+
 const BUSINESS_API_SPECS = {
-  'order.read': { method: 'GET', path: '/orders', resource: 'order', action: 'read', riskBaseline: BUSINESS_READ_RISK },
-  'order.create': {
-    method: 'POST',
-    path: '/orders',
-    resource: 'order',
-    action: 'create',
-    riskBaseline: BUSINESS_WRITE_RISK,
+  'file.upload.read': {
+    method: 'GET', path: '/files/uploads/mine', resource: 'file', action: 'read', riskBaseline: BUSINESS_READ_RISK,
   },
-  'order.update': {
-    method: 'PATCH',
-    path: '/orders/:id',
-    resource: 'order',
-    action: 'update',
-    riskBaseline: BUSINESS_WRITE_RISK,
+  'file.upload.initiate': {
+    method: 'POST', path: '/files/uploads/initiate', resource: 'file', action: 'upload.initiate', riskBaseline: BUSINESS_WRITE_RISK,
   },
-  'order.confirm': {
-    method: 'POST',
-    path: '/orders/:id/confirm',
-    resource: 'order',
-    action: 'confirm',
-    riskBaseline: BUSINESS_WRITE_RISK,
+  'file.upload.part': {
+    method: 'PUT', path: '/files/uploads/:uploadId/parts/:partNumber', resource: 'file', action: 'upload.part', riskBaseline: BUSINESS_UPLOAD_PART_RISK,
   },
-  'order.cancel': {
-    method: 'POST',
-    path: '/orders/:id/cancel',
-    resource: 'order',
-    action: 'cancel',
-    riskBaseline: BUSINESS_WRITE_RISK,
+  'file.upload.status': {
+    method: 'GET', path: '/files/uploads/:uploadId/status', resource: 'file', action: 'upload.status', riskBaseline: BUSINESS_READ_RISK,
+  },
+  'file.upload.complete': {
+    method: 'POST', path: '/files/uploads/:uploadId/complete', resource: 'file', action: 'upload.complete', riskBaseline: BUSINESS_WRITE_RISK,
+  },
+  'file.upload.abort': {
+    method: 'POST', path: '/files/uploads/:uploadId/abort', resource: 'file', action: 'upload.abort', riskBaseline: BUSINESS_WRITE_RISK,
+  },
+  'file.download': {
+    method: 'GET', path: '/files/:fileId/download-url', resource: 'file', action: 'download', riskBaseline: BUSINESS_READ_RISK,
   },
 } as const satisfies Record<string, BusinessApiSpec>
 

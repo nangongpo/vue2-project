@@ -56,7 +56,7 @@ import { OperationPolicyController } from '#app/security/controllers/operation-p
     },
     {
       provide: APP_GUARD,
-      useFactory: (redis: RedisService) => new IdempotencyGuard(redis, new Reflector()),
+      useFactory: (redis: RedisService) => new IdempotencyGuard(redis),
       inject: [RedisService],
     },
   ],

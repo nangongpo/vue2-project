@@ -88,6 +88,9 @@ function buttonCodeFromPage(pageCode: string, actionKey: string) {
   const resourceCode = pageCode.replace(/^page\./, '').replace(/^directory\./, '')
   return `button.${resourceCode}.${actionKey}`
 }
+function isBusinessPageCode(code: string) {
+  return code.startsWith('page.business.')
+}
 const apiSelect = {
   id: true,
   code: true,
@@ -99,6 +102,7 @@ const apiSelect = {
   status: true,
   type: true,
 } as const
+const PAGE_API_ACTIONS = ['read', 'list', 'detail', 'init', 'options', 'references', 'grants.read']
 
 /** Enablement status is an internal enum; responses expose only safe presentation fields. */
 function toApiView(value: unknown): unknown {
@@ -187,14 +191,23 @@ export class PermissionService {
     })))
   }
   async listPageBaseApis(pageId: string) {
-    const page = await this.prisma.systemFunction.findUnique({ where: { id: pageId }, select: { id: true } })
+    const page = await this.prisma.systemFunction.findUnique({
+      where: { id: pageId },
+      select: { id: true, code: true, nodeType: true },
+    })
     if (!page) throw new NotFoundException('页面不存在')
+    if (page.nodeType === PageNodeType.DIRECTORY) throw new BadRequestException('目录节点不能查询页面基础接口')
     const bindings = await this.prisma.functionApi.findMany({
       where: { functionId: pageId },
       orderBy: { api: { code: 'asc' } },
       select: { api: { select: apiSelect } },
     })
-    return ok(toApiView(bindings.map(({ api }) => api)))
+    const visibleBindings = bindings.filter(({ api }) => {
+      const isSystemApi = SYSTEM_API_CODES.has(api.code)
+      const sameScope = isBusinessPageCode(page.code) ? !isSystemApi : isSystemApi
+      return sameScope && PAGE_API_ACTIONS.includes(api.action)
+    })
+    return ok(toApiView(visibleBindings.map(({ api }) => api)))
   }
   async listApis(
     query: {
@@ -245,19 +258,40 @@ export class PermissionService {
   operationActionOptions() {
     return ok(OPERATION_ACTION_OPTIONS)
   }
-  async pageApiOptions() {
+  async pageApiOptions(pageId: string) {
+    const page = await this.prisma.systemFunction.findUnique({
+      where: { id: pageId },
+      select: {
+        id: true,
+        nodeType: true,
+        code: true,
+        permission: { select: { roleTypes: { select: { roleType: true } } } },
+      },
+    })
+    if (!page) throw new NotFoundException('页面不存在')
+    if (page.nodeType === PageNodeType.DIRECTORY) throw new BadRequestException('目录节点不能查询页面基础接口')
+    const isBusinessPage =
+      isBusinessPageCode(page.code) || page.permission?.roleTypes.some((item) => item.roleType === 'BUSINESS')
+    const systemApiCodes = [...SYSTEM_API_CODES]
     const items = await this.prisma.permission.findMany({
       where: {
         type: 'API',
         status: 'ACTIVE',
         method: 'GET',
-        code: { notIn: RETIRED_CODES },
+        action: { in: PAGE_API_ACTIONS },
+        code: isBusinessPage
+          ? { notIn: [...RETIRED_CODES, ...systemApiCodes] }
+          : { in: systemApiCodes },
       },
       orderBy: { code: 'asc' },
       select: apiSelect,
     })
     return ok(
-      toApiView(items.map((item) => ({ ...item, isSystemBuiltin: SYSTEM_API_CODES.has(item.code) })))
+      toApiView(items.map((item) => ({
+        ...item,
+        isSystemBuiltin: SYSTEM_API_CODES.has(item.code),
+        scope: SYSTEM_API_CODES.has(item.code) ? 'SYSTEM' : 'BUSINESS',
+      })))
     )
   }
   async createApi(
@@ -601,9 +635,11 @@ export class PermissionService {
   }
   private async mapApis(kind: 'page' | 'button', id: string, apiIds: string[], req: MutationContext) {
     return this.change(req, kind === 'page' ? 'system.page.api.bind' : 'system.button.api.bind', async (tx) => {
+      let pageCode: string | undefined
       if (kind === 'page') {
         const page = await this.page(tx, id, true)
         if (page.nodeType === PageNodeType.DIRECTORY) throw new BadRequestException('目录节点不能绑定页面基础接口')
+        pageCode = page.code
       } else {
         const button = await tx.functionButton.findUnique({ where: { id } })
         if (!button || button.status !== 'ACTIVE') throw new NotFoundException('按钮不存在或已停用')
@@ -613,11 +649,17 @@ export class PermissionService {
         kind === 'page'
           ? await tx.functionApi.findMany({ where: { functionId: id } })
           : await tx.buttonApi.findMany({ where: { buttonId: id } })
-      await this.bind(tx, kind, id, apiIds)
+      await this.bind(tx, kind, id, apiIds, pageCode)
       return { before, after: { id, apiIds } }
     })
   }
-  private async bind(tx: Prisma.TransactionClient, kind: 'page' | 'button', id: string, apiIds: string[]) {
+  private async bind(
+    tx: Prisma.TransactionClient,
+    kind: 'page' | 'button',
+    id: string,
+    apiIds: string[],
+    pageCode?: string
+  ) {
     const ids = [...new Set(apiIds)]
     const apis = await tx.permission.findMany({
       where: { id: { in: ids }, type: 'API', status: 'ACTIVE', code: { notIn: RETIRED_CODES } },
@@ -627,10 +669,15 @@ export class PermissionService {
       kind === 'page' &&
       apis.some(
         (api) =>
-          api.method !== 'GET' || !['read', 'list', 'detail', 'init', 'options', 'references'].includes(api.action)
+          api.method !== 'GET' || !PAGE_API_ACTIONS.includes(api.action as (typeof PAGE_API_ACTIONS)[number])
       )
     )
       throw new BadRequestException('页面基础接口只能绑定查询接口，写入、导出与审批必须绑定按钮')
+    if (kind === 'page' && pageCode) {
+      const businessPage = isBusinessPageCode(pageCode)
+      const hasWrongScope = apis.some((api) => SYSTEM_API_CODES.has(api.code) === businessPage)
+      if (hasWrongScope) throw new BadRequestException('页面基础接口只能绑定同一安全域的接口')
+    }
     if (kind === 'page') {
       await tx.functionApi.deleteMany({ where: { functionId: id } })
       if (ids.length) await tx.functionApi.createMany({ data: ids.map((apiId) => ({ functionId: id, apiId })) })

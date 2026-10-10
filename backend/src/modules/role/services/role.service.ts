@@ -4,11 +4,13 @@ import { randomBytes } from 'node:crypto'
 import { PrismaService } from '#app/database/prisma.service.js'
 import { API_CODE } from '#app/common/constants/api-code.js'
 import { ENABLEMENT_STATUS_LABELS, ROLE_TYPE_LABELS } from '#app/common/constants/enum-labels.js'
+import { availableAction } from '#app/common/constants/api-name-labels.js'
 import {
   audit,
   grantInput,
   ordinaryPermission,
   ordinaryRole,
+  requiresControlledRoleApproval,
   preventOwnRoleChange,
   rejectFields,
   requireActor,
@@ -16,11 +18,16 @@ import {
   serializable,
 } from '#app/modules/role/domain/authorization.js'
 import type { Actor } from '#app/modules/role/domain/authorization.js'
+import type { ApprovalActor } from '#app/modules/permission/services/approval.service.js'
+import { ApprovalService } from '#app/modules/permission/services/approval.service.js'
 
 function roleView(role: { status: 'ACTIVE' | 'DISABLED'; [key: string]: unknown }) {
-  const { status, ...rest } = role
+  const { roleId, name, description, roleType, status } = role
   return {
-    ...rest,
+    roleId,
+    name,
+    description,
+    roleTypeLabel: roleType ? ROLE_TYPE_LABELS[roleType as RoleType] : undefined,
     statusLabel: ENABLEMENT_STATUS_LABELS[status],
     isActive: status === 'ACTIVE',
   }
@@ -32,9 +39,9 @@ function generatedRoleCode() {
 
 @Injectable()
 export class RoleService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly approvals?: ApprovalService) {}
 
-  async list() {
+  async list(permissions: string[] = []) {
     const roles = await this.prisma.role.findMany({
       orderBy: { createdAt: 'desc' },
       select: {
@@ -57,12 +64,15 @@ export class RoleService {
         statusLabel: ENABLEMENT_STATUS_LABELS[role.status],
         isActive: role.status === 'ACTIVE',
         userCount: role._count.users,
-        capabilities: {
-          canEdit: role.roleType === RoleType.BUSINESS,
-          canGrant: role.roleType === RoleType.BUSINESS && role.status === 'ACTIVE',
-          canManageDataScope: role.roleType === RoleType.BUSINESS && role.status === 'ACTIVE',
-          canDelete: role.roleType === RoleType.BUSINESS,
-        },
+        availableActions: [
+          role.roleType === RoleType.BUSINESS && permissions.includes('system.role.update') ? availableAction('edit', 'system.role.update') : null,
+          role.roleType === RoleType.BUSINESS && role.status === 'ACTIVE' &&
+          ['system.role.grant', 'system.role.grants.read', 'system.role.options'].every((code) => permissions.includes(code)) ? availableAction('grant', 'system.role.grant') : null,
+          role.roleType === RoleType.BUSINESS && role.status === 'ACTIVE' && permissions.includes('system.data-scope.read') ? availableAction('data-scope', 'system.data-scope.update') : null,
+          role.status === 'ACTIVE' && permissions.includes('system.role.disable') ? availableAction('disable', 'system.role.disable') : null,
+          role.status === 'DISABLED' && permissions.includes('system.role.enable') ? availableAction('enable', 'system.role.enable') : null,
+          role.roleType === RoleType.BUSINESS && role._count.users === 0 && permissions.includes('system.role.delete') ? availableAction('delete', 'system.role.delete') : null,
+        ].filter(Boolean),
       })),
     }
   }
@@ -85,7 +95,11 @@ export class RoleService {
     return {
       code: API_CODE.SUCCESS,
       message: 'success',
-      data: { permissionIds: role.permissions.filter((item) => item.permission.code !== '*').map((item) => item.permission.id) },
+      data: {
+        permissionIds: role.permissions
+          .filter((item) => item.permission.code !== '*')
+          .map((item) => item.permission.id),
+      },
     }
   }
 
@@ -111,11 +125,16 @@ export class RoleService {
     return {
       code: API_CODE.SUCCESS,
       message: 'success',
-      data: items.filter(ordinaryPermission).map(({ roleTypes: _roleTypes, status, ...item }) => ({
-        ...item,
-        statusLabel: ENABLEMENT_STATUS_LABELS[status],
-        isActive: status === PermissionStatus.ACTIVE,
-      })),
+      data: items.filter(ordinaryPermission).map((item) => {
+        const { status, ...itemWithoutStatus } = item
+        const { roleTypes, ...itemWithoutRoleTypes } = itemWithoutStatus
+        void roleTypes
+        return {
+          ...itemWithoutRoleTypes,
+          statusLabel: ENABLEMENT_STATUS_LABELS[status],
+          isActive: status === PermissionStatus.ACTIVE,
+        }
+      }),
     }
   }
 
@@ -196,8 +215,41 @@ export class RoleService {
     return { code: API_CODE.SUCCESS, message: 'success', data: roleView(role) }
   }
 
-  async grants(id: string, input: { permissionIds: string[]; reason: string; expiresAt?: string }, actor: Actor) {
+  async grants(
+    id: string,
+    input: { permissionIds: string[]; reason: string; expiresAt?: string },
+    actor: Actor,
+    approvalActor?: ApprovalActor
+  ) {
     const expiresAt = grantInput(input.permissionIds, input.reason, input.expiresAt)
+    if (this.approvals && approvalActor) {
+      const current = await this.prisma.role.findUnique({
+        where: { roleId: id },
+        include: {
+          permissions: {
+            where: { revokedAt: null },
+            include: { permission: { include: { roleTypes: { select: { roleType: true } } } } },
+          },
+          elevatedDataScopes: { where: { revokedAt: null } },
+        },
+      })
+      if (!current) throw new NotFoundException('角色不存在')
+      if (requiresControlledRoleApproval(current)) {
+        return this.approvals.createInternal(
+          'ROLE_PERMISSIONS',
+          { roleId: id, permissionIds: input.permissionIds },
+          input.reason,
+          approvalActor,
+          {
+            traceId: actor.traceId,
+            ip: actor.ip,
+            method: actor.method,
+            path: actor.path,
+            userAgent: actor.userAgent,
+          }
+        )
+      }
+    }
     await this.prisma.$transaction(async (tx) => {
       const actorId = await requireActor(tx, actor)
       const role = await tx.role.findUnique({ where: { roleId: id } })
@@ -209,7 +261,10 @@ export class RoleService {
         where: { id: { in: input.permissionIds } },
         include: { roleTypes: { select: { roleType: true } } },
       })
-      if (permissions.length !== input.permissionIds.length || permissions.some((permission) => !ordinaryPermission(permission)))
+      if (
+        permissions.length !== input.permissionIds.length ||
+        permissions.some((permission) => !ordinaryPermission(permission))
+      )
         throw new BadRequestException('权限无效、已禁用或需要高危审批')
       const before = await tx.rolePermission.findMany({ where: { roleId: role.id } })
       await tx.rolePermission.updateMany({
@@ -297,7 +352,8 @@ export class RoleService {
       if (!role) throw new NotFoundException('角色不存在')
       await ordinaryRole(tx, role.id)
       await preventOwnRoleChange(tx, role.id, actor)
-      if (Object.values(role._count).some((count) => count > 0)) throw new ConflictException('角色存在引用，请禁用而非删除')
+      if (Object.values(role._count).some((count) => count > 0))
+        throw new ConflictException('角色存在引用，请禁用而非删除')
       await tx.role.delete({ where: { id: role.id } })
       await audit(tx, actor, 'system.role.delete', id, role, null)
     }, serializable)

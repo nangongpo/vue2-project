@@ -31,8 +31,8 @@ describe('permission catalog route contracts', () => {
 
   it('registers page API options as a distinct read-only permission', () => {
     expect(SYSTEM_APIS.some((entry) => entry.code === 'system.role.grants.read')).toBe(true)
-    expect(BUSINESS_APIS.some((entry) => entry.code === 'order.read')).toBe(true)
-    expect(SYSTEM_APIS.some((entry) => entry.code === 'order.read')).toBe(false)
+    expect(BUSINESS_APIS.some((entry) => entry.code === 'file.upload.status')).toBe(true)
+    expect(SYSTEM_APIS.some((entry) => entry.code === 'file.upload.status')).toBe(false)
     expect(allApiDefinitions()).toContainEqual(
       expect.objectContaining({
         code: 'system.page.api.options',
@@ -134,7 +134,7 @@ describe('permission catalog route contracts', () => {
       expect.objectContaining({ code: 'system.role.grant', name: '配置角色权限' })
     )
     expect(allApiDefinitions()).toContainEqual(
-      expect.objectContaining({ code: 'order.create', name: '创建订单' })
+      expect.objectContaining({ code: 'file.upload.initiate', name: '创建文件上传会话' })
     )
   })
 
@@ -190,8 +190,10 @@ describe('permission catalog route contracts', () => {
       roleTypes: ['SECURITY', 'SYSTEM', 'AUDIT'],
     })
     expect(DATA_FIELD_ROLE_POLICIES).toMatchObject({
+      file: ['BUSINESS'],
       'system.audit': ['AUDIT'],
       'system.approval': ['SECURITY', 'AUDIT'],
+      'system.file': ['SECURITY', 'SYSTEM'],
     })
     expect(MANAGEMENT_PERMISSION_ROLE_POLICIES['system.audit.review']).toEqual({
       type: 'SINGLE_ROLE',
@@ -211,6 +213,8 @@ describe('permission catalog route contracts', () => {
       ['system.audit.field.action.read', ['AUDIT']],
       ['system.approval.field.kind.read', ['SECURITY', 'AUDIT']],
       ['system.user.field.username.read', ['SECURITY', 'SYSTEM']],
+      ['file.field.originalName.read', ['BUSINESS']],
+      ['system.file.field.scanStatus.read', ['SECURITY', 'SYSTEM']],
     ] as const
 
     for (const [code, allowed] of cases) {
