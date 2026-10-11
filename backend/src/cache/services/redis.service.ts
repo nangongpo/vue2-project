@@ -4,8 +4,19 @@ import { Redis as RedisClient } from 'ioredis'
 @Injectable()
 export class RedisService implements OnModuleInit, OnModuleDestroy {
   private client?: RedisClient
+  private readonly subscribers = new Set<RedisClient>()
+  private initialization: Promise<void> = Promise.resolve()
 
-  async onModuleInit() {
+  configured() {
+    return !!process.env.REDIS_URL && process.env.REDIS_ENABLED !== 'false'
+  }
+
+  onModuleInit() {
+    this.initialization = this.initialize()
+    return this.initialization
+  }
+
+  private async initialize() {
     const url = process.env.REDIS_URL
     if (!url || process.env.REDIS_ENABLED === 'false') return
     const client = new RedisClient(url, {
@@ -112,7 +123,43 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  /** 发布跨实例事件；Redis 不可用时返回 false，由 Outbox 保留并重试。 */
+  async publish(channel: string, message: string) {
+    if (!this.client) return false
+    try {
+      await this.client.publish(channel, message)
+      return true
+    } catch (error) {
+      console.error('[redis] publish failed:', (error as Error).message)
+      return false
+    }
+  }
+
+  /** 使用独立订阅连接监听事件，避免阻塞普通命令连接。 */
+  async subscribePattern(pattern: string, handler: (channel: string, message: string) => void) {
+    await this.initialization
+    if (!this.client) return () => undefined
+    const subscriber = this.client.duplicate()
+    subscriber.on('error', (error: Error) => console.error('[redis] subscriber error:', error.message))
+    try {
+      await subscriber.connect()
+      await subscriber.psubscribe(pattern)
+      subscriber.on('pmessage', (_pattern, channel, message) => handler(channel, message))
+      this.subscribers.add(subscriber)
+      return () => {
+        this.subscribers.delete(subscriber)
+        void subscriber.quit()
+      }
+    } catch (error) {
+      console.error('[redis] subscribe failed:', (error as Error).message)
+      subscriber.disconnect()
+      return () => undefined
+    }
+  }
+
   async onModuleDestroy() {
+    for (const subscriber of this.subscribers) await subscriber.quit()
+    this.subscribers.clear()
     if (this.client) await this.client.quit()
   }
 }

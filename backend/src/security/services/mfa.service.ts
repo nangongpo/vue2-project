@@ -189,6 +189,7 @@ export class MfaService {
             id: createHash('sha256').update(rotatedToken).digest('hex'),
             userId,
             kind: 'AUTHENTICATED',
+            activeTenantId: current.activeTenantId,
             expiresAt: new Date(now.getTime() + sessionTtl * 1000),
             ip: current.ip,
             userAgent: current.userAgent,

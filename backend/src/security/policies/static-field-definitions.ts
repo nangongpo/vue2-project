@@ -2,6 +2,23 @@ import type { DataFieldDefinition } from '#app/security/policies/field-policy-ty
 
 /** 数据字段目录。字段必须先登记，响应裁剪才允许输出。 */
 export const DATA_FIELD_DEFINITIONS: readonly DataFieldDefinition[] = [
+  { resource: 'system.organization', field: 'id', name: '组织 ID', dataType: 'string', riskLevel: 'L1' },
+  { resource: 'system.organization', field: 'tenantId', name: '租户 ID', dataType: 'string', riskLevel: 'L2' },
+  { resource: 'system.organization', field: 'parentId', name: '父组织 ID', dataType: 'string', riskLevel: 'L2' },
+  { resource: 'system.organization', field: 'code', name: '组织编码', dataType: 'string', riskLevel: 'L2' },
+  { resource: 'system.organization', field: 'name', name: '组织名称', dataType: 'string', riskLevel: 'L1' },
+  { resource: 'system.organization', field: 'status', name: '组织状态', dataType: 'enum', riskLevel: 'L2' },
+  { resource: 'system.organization', field: 'createdAt', name: '创建时间', dataType: 'datetime', riskLevel: 'L1' },
+  { resource: 'system.organization', field: 'updatedAt', name: '更新时间', dataType: 'datetime', riskLevel: 'L1' },
+  { resource: 'system.department', field: 'id', name: '部门 ID', dataType: 'string', riskLevel: 'L1' },
+  { resource: 'system.department', field: 'tenantId', name: '租户 ID', dataType: 'string', riskLevel: 'L2' },
+  { resource: 'system.department', field: 'organizationId', name: '组织 ID', dataType: 'string', riskLevel: 'L2' },
+  { resource: 'system.department', field: 'parentId', name: '父部门 ID', dataType: 'string', riskLevel: 'L2' },
+  { resource: 'system.department', field: 'code', name: '部门编码', dataType: 'string', riskLevel: 'L2' },
+  { resource: 'system.department', field: 'name', name: '部门名称', dataType: 'string', riskLevel: 'L1' },
+  { resource: 'system.department', field: 'status', name: '部门状态', dataType: 'enum', riskLevel: 'L2' },
+  { resource: 'system.department', field: 'createdAt', name: '创建时间', dataType: 'datetime', riskLevel: 'L1' },
+  { resource: 'system.department', field: 'updatedAt', name: '更新时间', dataType: 'datetime', riskLevel: 'L1' },
   {
     resource: 'system.user',
     field: 'userId',
@@ -952,6 +969,9 @@ export const DATA_FIELD_DEFINITIONS: readonly DataFieldDefinition[] = [
   },
   ...([
     ['uploadId', '上传会话 ID', 'string', 'L1'],
+    ['fileName', '上传文件名', 'string', 'L1'],
+    ['fileSize', '上传文件大小', 'string', 'L1'],
+    ['clientSha256', '客户端文件摘要', 'string', 'L2'],
     ['fileId', '文件 ID', 'string', 'L1'],
     ['status', '上传会话状态', 'enum', 'L2'],
     ['scanStatus', '扫描状态', 'enum', 'L2'],
@@ -962,7 +982,6 @@ export const DATA_FIELD_DEFINITIONS: readonly DataFieldDefinition[] = [
     ['partNumber', '分片编号', 'number', 'L1'],
     ['size', '分片大小', 'number', 'L1'],
     ['checksum', '分片摘要', 'string', 'L2'],
-    ['url', '分片上传地址', 'string', 'L2'],
   ] as const).map(([field, name, dataType, riskLevel]) => ({
     resource: 'file.upload', field, name, dataType, riskLevel,
   })),
@@ -978,7 +997,6 @@ export const DATA_FIELD_DEFINITIONS: readonly DataFieldDefinition[] = [
     ['partNumber', '分片编号', 'number', 'L1'],
     ['size', '分片大小', 'number', 'L1'],
     ['checksum', '分片摘要', 'string', 'L2'],
-    ['url', '分片上传地址', 'string', 'L2'],
     ['expiresAt', '分片地址失效时间', 'datetime', 'L1'],
   ] as const).map(([field, name, dataType, riskLevel]) => ({
     resource: 'file.upload.part', field, name, dataType, riskLevel,
@@ -997,6 +1015,8 @@ export const DATA_FIELD_DEFINITIONS: readonly DataFieldDefinition[] = [
     dataType: 'string',
     riskLevel: 'L2',
   },
+  { resource: 'system.file', field: 'organizationId', name: '组织 ID', dataType: 'string', riskLevel: 'L2' },
+  { resource: 'system.file', field: 'departmentId', name: '部门 ID', dataType: 'string', riskLevel: 'L2' },
   {
     resource: 'system.file',
     field: 'ownerUserId',

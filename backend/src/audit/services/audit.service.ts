@@ -48,6 +48,7 @@ export class AuditService {
     const record = {
       id,
       traceId: input.traceId,
+      tenantId: input.tenantId ?? null,
       actorId: input.actorId ?? null,
       action: input.action,
       operationCode: input.operationCode ?? null,
@@ -81,6 +82,7 @@ export class AuditService {
         })
       : undefined
     const where: Prisma.AuditLogWhereInput = {
+      tenantId: query.tenantId,
       ...(query.result ? { result: query.result } : {}),
       ...(query.riskLevel ? { riskLevel: query.riskLevel } : {}),
       ...(query.operationCode ? { operationCode: query.operationCode } : {}),
@@ -139,9 +141,9 @@ export class AuditService {
     }
   }
 
-  async detail(id: string) {
+  async detail(id: string, tenantId: string) {
     const item = await this.prisma.auditLog.findUnique({
-      where: { id },
+      where: { id, tenantId },
       select: {
         id: true,
         traceId: true,
@@ -168,8 +170,8 @@ export class AuditService {
     }
   }
 
-  async verify(id: string) {
-    const item = await this.prisma.auditLog.findUnique({ where: { id } })
+  async verify(id: string, tenantId: string) {
+    const item = await this.prisma.auditLog.findUnique({ where: { id, tenantId } })
     if (!item) throw new NotFoundException('审计记录不存在')
     const { integrityHash: storedHash, ...payload } = item
     const expectedHash = integrityHash(payload)
@@ -191,6 +193,7 @@ export class AuditService {
       throw new BadRequestException('导出必须指定不超过 31 天的有效时间范围')
     const items = await this.prisma.auditLog.findMany({
       where: {
+        tenantId: query.tenantId,
         createdAt: { gte: from, lte: to },
         ...(query.result ? { result: query.result } : {}),
         ...(query.riskLevel ? { riskLevel: query.riskLevel } : {}),

@@ -51,17 +51,7 @@
             show-word-limit
             placeholder="请说明本次角色变更的业务依据" />
         </el-form-item>
-        <el-form-item label="有效期限" prop="expiresAt">
-          <el-radio-group v-model="expiryPreset" @change="setExpiryPreset">
-            <el-radio-button label="never">长期授权</el-radio-button>
-            <el-radio-button label="custom">自定义时间</el-radio-button>
-          </el-radio-group>
-          <el-date-picker
-            v-model="form.expiresAt"
-            type="datetime"
-            :disabled="expiryPreset !== 'custom'"
-            placeholder="请选择到期时间" />
-        </el-form-item>
+        <authorization-expiry-field v-model="form.expiresAt" prop="expiresAt" label="有效期限" />
       </el-form>
     </div>
     <span slot="footer">
@@ -76,9 +66,11 @@
 <script>
 import { getRoleAssignmentOptions, updateUserRoles } from '@/api/admin'
 import { requiredText } from '@/views/system/permission/utils'
+import AuthorizationExpiryField from '../../role/components/AuthorizationExpiryField.vue'
 
 export default {
   name: 'UserRoleAssignmentDialog',
+  components: { AuthorizationExpiryField },
   props: {
     visible: Boolean,
     user: { type: Object, default: null },
@@ -94,7 +86,6 @@ export default {
       rolesLoaded: false,
       approvalRequired: false,
       originalIds: [],
-      expiryPreset: 'custom',
       form: { roleIds: [], reason: '', expiresAt: null },
       rules: { reason: requiredText('操作原因') },
     }
@@ -126,7 +117,6 @@ export default {
       this.rolesLoaded = false
       this.approvalRequired = false
       this.originalIds = []
-      this.expiryPreset = 'custom'
       this.form = { roleIds: [], reason: '', expiresAt: null }
       if (!this.canManage) this.error = '缺少用户角色授权或回收权限'
       else if (!this.user || !this.user.isActive || this.user.isLocked) this.error = '仅启用的用户可以分配角色'
@@ -139,7 +129,6 @@ export default {
           this.loading = false
           return
         }
-        this.setExpiryPreset('custom')
         this.blocked = false
       }
       this.loading = false
@@ -169,27 +158,17 @@ export default {
         this.optionsLoading = false
       }
     },
-    setExpiryPreset(value) {
-      if (value === 'never') {
-        this.form.expiresAt = null
-        return
-      }
-      if (value === 'custom' && !this.form.expiresAt)
-        this.form.expiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000)
-    },
     async submit() {
       if (!this.canSubmit) return
       if (!(await this.$refs.roleForm.validate().catch(() => false))) return
-      const expiresAt = this.form.expiresAt ? new Date(this.form.expiresAt) : null
+      const expiresAt = new Date(this.form.expiresAt)
       const now = Date.now()
-      if (this.expiryPreset === 'never') {
-        if (expiresAt) this.form.expiresAt = null
-      } else if (!expiresAt || !Number.isFinite(expiresAt.getTime()) || expiresAt.getTime() <= now || expiresAt.getTime() > now + 24 * 60 * 60 * 1000) {
-        this.$message.warning('自定义时间必须在未来 24 小时内，或选择“长期授权”')
+      if (!Number.isFinite(expiresAt.getTime()) || expiresAt.getTime() <= now || expiresAt.getTime() > now + 90 * 24 * 60 * 60 * 1000) {
+        this.$message.warning('有效期限必须在未来 90 天内')
         return
       }
       if (!(await this.$confirm(
-        '将更新“' + this.user.displayName + '”的业务角色，有效期：' + (expiresAt ? expiresAt.toLocaleString() : '长期授权') + '。确认继续？',
+        '将更新“' + this.user.displayName + '”的业务角色，有效期至：' + expiresAt.toLocaleString() + '。确认继续？',
         '确认用户角色变更',
         { type: 'warning' }
       ).then(() => true).catch(() => false))) return
@@ -199,7 +178,7 @@ export default {
         const result = await updateUserRoles(this.user.userId, {
           roleIds: this.form.roleIds,
           reason: this.form.reason,
-          ...(expiresAt ? { expiresAt: expiresAt.toISOString() } : {}),
+          expiresAt: expiresAt.toISOString(),
         })
         if (result?.kind === 'ROLE_GRANT' && result?.status === 'REQUESTED') {
           this.$message.success('高危角色申请已提交，请进入受控审批流程继续处理')

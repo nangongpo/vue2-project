@@ -11,16 +11,27 @@ const IDEMPOTENCY_ROUTE_POLICY = {
     templates: [],
   },
   full: {
-    exact: new Set(['/auth/tenant', '/auth/password']),
-    prefixes: ['/users', '/roles', '/permission/', '/ops-tickets', '/files'],
-    templates: [],
+    // 仅登记已确认需要完整幂等的写接口；新增写接口必须先补充这里和后端策略。
+    exact: new Set([
+      '/auth/tenant',
+      '/auth/password',
+      '/files/uploads/initiate',
+    ]),
+    prefixes: ['/users', '/roles', '/permission/', '/ops-tickets'],
+    templates: [
+      '/files/uploads/:uploadId/complete',
+      '/files/uploads/:uploadId/abort',
+      '/files/:fileId/rescan',
+      '/files/:fileId/reject',
+      '/files/:fileId/delete',
+      '/files/:fileId/restore',
+    ],
   },
   disabled: {
     exact: new Set(['/auth/logout']),
     prefixes: ['/captcha/'],
     templates: [
       '/files/uploads/:uploadId/parts/:partNumber',
-      '/files/uploads/:uploadId/part-urls',
     ],
   },
 }

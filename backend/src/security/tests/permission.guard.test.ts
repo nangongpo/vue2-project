@@ -204,4 +204,18 @@ describe('PermissionGuard', () => {
     expect(request.operationCode).toBe('auth.password.change')
     expect(policies.resolve).toHaveBeenCalledWith('auth.password.change')
   })
+
+  it('enforces the explicit tenant-switch operation on its exempt route', async () => {
+    const { context, request, handler } = fixture([], {
+      method: 'POST',
+      routeOptions: { url: '/api/v1/auth/tenant' },
+      user: { ...authorized(), mfaRequired: true },
+    })
+    Reflect.defineMetadata(SECURITY_OPERATION, 'auth.tenant.switch', handler)
+    const policies = { resolve: vi.fn().mockResolvedValue({ riskLevel: 'L2' }) }
+    const secured = new PermissionGuard(new Reflector(), undefined, policies as any)
+    await expect(secured.canActivate(context)).resolves.toBe(true)
+    expect(request.operationCode).toBe('auth.tenant.switch')
+    expect(policies.resolve).toHaveBeenCalledWith('auth.tenant.switch')
+  })
 })

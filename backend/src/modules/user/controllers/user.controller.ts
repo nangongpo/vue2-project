@@ -16,6 +16,7 @@ import {
   ArrayUnique,
   IsArray,
   IsDateString,
+  IsDefined,
   IsIn,
   IsOptional,
   IsString,
@@ -57,7 +58,7 @@ export class AssignRolesDto extends ReasonDto {
   /** 要授予用户的角色 UUID 列表。 */
   @IsArray() @ArrayMaxSize(500) @ArrayUnique() @IsUUID('all', { each: true }) roleIds!: string[]
   /** 角色授权失效时间。 */
-  @IsOptional() @IsDateString() expiresAt?: string
+  @IsDefined() @IsDateString({ strict: true }) expiresAt!: string
 }
 
 class UserQueryDto extends PaginationQueryDto {

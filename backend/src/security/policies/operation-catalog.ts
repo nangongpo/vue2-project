@@ -20,6 +20,18 @@ export type OperationDefinition = {
  */
 export const BUILT_IN_OPERATION_CATALOG: readonly OperationDefinition[] = [
   {
+    operationCode: 'auth.tenant.switch',
+    name: '切换租户',
+    resource: 'auth.tenant',
+    action: 'switch',
+    riskLevel: 'L2',
+    requireMfa: true,
+    requireReauth: true,
+    requireApproval: false,
+    requireDualControl: false,
+    auditRequired: true,
+  },
+  {
     operationCode: 'auth.password.change',
     name: '修改密码',
     resource: 'auth',

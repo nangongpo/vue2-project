@@ -62,7 +62,7 @@ var TianaiCaptcha = (function () {
     function move(event) { if (!dragging) return; event.preventDefault(); var p = point(event); var rect = track.getBoundingClientRect(); setLeft(p.x - rect.left - startX); record(p) }
     function end(event) {
       if (!dragging) return
-      event.preventDefault(); dragging = false; remove(); var p = point(event); var rect = track.getBoundingClientRect(); setLeft(p.x - rect.left - startX)
+      event.preventDefault(); dragging = false; remove(); var p = point(event); var rect = track.getBoundingClientRect(); setLeft(p.x - rect.left - startX); record(p)
       var result = { points: points, finalX: Math.round(left), trackWidth: track.clientWidth, duration: points.length ? points[points.length - 1].t : 0 }
       var verify = options.Verify || options.verify
       var verification = verify ? verify(result) : Promise.resolve(result)

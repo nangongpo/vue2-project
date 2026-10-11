@@ -57,6 +57,7 @@ const env = Joi.object({
     .default('http://127.0.0.1:3100'),
   CAPTCHA_SERVICE_ID: Joi.string().min(1).default('backend-admin'),
   CAPTCHA_SERVICE_SECRET: Joi.string().min(1).allow('').default(''),
+  MFA_ENCRYPTION_KEY: Joi.string().allow('').default(''),
   CAPTCHA_LOG_HASH_SECRET: Joi.string()
     .min(32)
     .default('development-captcha-log-hash-secret-change-me')
@@ -77,6 +78,10 @@ const env = Joi.object({
   FILE_STORAGE_ROOT: Joi.string().min(1).default('.data/uploads'),
   DEFAULT_TENANT_CODE: Joi.string().pattern(/^[a-z][a-z0-9-]{1,63}$/).default('default-tenant'),
   DEFAULT_TENANT_NAME: Joi.string().min(1).max(128).default('默认租户'),
+  DEFAULT_ORGANIZATION_CODE: Joi.string().pattern(/^[a-z][a-z0-9-]{1,63}$/).required(),
+  DEFAULT_ORGANIZATION_NAME: Joi.string().min(1).max(128).required(),
+  DEFAULT_DEPARTMENT_CODE: Joi.string().pattern(/^[a-z][a-z0-9-]{1,63}$/).required(),
+  DEFAULT_DEPARTMENT_NAME: Joi.string().min(1).max(128).required(),
   FILE_UPLOAD_MAX_CHUNK_BYTES: Joi.number().integer().min(5 * 1024 * 1024).max(64 * 1024 * 1024).default(64 * 1024 * 1024),
   CLAMAV_SOCKET_PATH: Joi.string().allow('').default('/run/clamav/clamd.ctl'),
   CLAMAV_HOST: Joi.string().hostname().default('127.0.0.1'),
@@ -98,6 +103,16 @@ if (env.value.NODE_ENV === 'production' && env.value.ENABLE_HTTPS !== true) {
 }
 if (env.value.NODE_ENV === 'production' && env.value.ENABLE_CSP !== true) {
   throw new Error('生产环境必须启用 ENABLE_CSP=true')
+}
+if (env.value.NODE_ENV === 'production' && (env.value.REDIS_ENABLED !== true || !env.value.REDIS_URL)) {
+  throw new Error('生产环境必须启用 REDIS_ENABLED=true 并配置 REDIS_URL')
+}
+if (env.value.NODE_ENV === 'production' && !env.value.CAPTCHA_SERVICE_SECRET) {
+  throw new Error('生产环境必须配置 CAPTCHA_SERVICE_SECRET')
+}
+if (env.value.NODE_ENV === 'production') {
+  const mfaKey = Buffer.from(env.value.MFA_ENCRYPTION_KEY, 'base64')
+  if (mfaKey.length !== 32) throw new Error('生产环境 MFA_ENCRYPTION_KEY 必须是 Base64 编码的 32 字节密钥')
 }
 if (
   env.value.NODE_ENV === 'production' &&

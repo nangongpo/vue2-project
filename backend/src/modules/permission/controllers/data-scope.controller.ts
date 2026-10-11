@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Inject, Param, ParseUUIDPipe, Patch, Post, Req, UseGuards } from '@nestjs/common'
 import { StandardDataScopeType } from '#app/common/types/prisma-enums.js'
-import { IsEnum, IsISO8601, IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator'
+import { IsDefined, IsEnum, IsISO8601, IsString, Matches, MaxLength, MinLength } from 'class-validator'
 import { AuthGuard } from '#app/security/guards/auth.guard.js'
 import { SESSION_COOKIE } from '#app/security/services/auth.service.js'
 import type { AuthenticatedUser } from '#app/security/types/auth.types.js'
@@ -12,7 +12,7 @@ import { DataScopeManagementService } from '#app/modules/permission/services/dat
 class GrantDataScopeDto {
   @IsString() @Matches(/^[a-z][a-z0-9_.:-]{0,127}$/) resource!: string
   @IsEnum(StandardDataScopeType) scopeType!: StandardDataScopeType
-  @IsOptional() @IsISO8601() expiresAt?: string
+  @IsDefined() @IsISO8601({ strict: true }) expiresAt!: string
   @IsString() @MinLength(1) @MaxLength(255) reason!: string
 }
 class RevokeDataScopeDto {

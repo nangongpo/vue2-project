@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
 import { Prisma, FileObjectStatus } from '@prisma/client'
 import { successResponse } from '#app/common/http/api-response.js'
 import { FILE_SCAN_STATUS_LABELS, FILE_STATUS_LABELS } from '#app/common/constants/enum-labels.js'
@@ -8,6 +8,7 @@ import { PrismaService } from '#app/database/prisma.service.js'
 import { FileScanService } from '#app/modules/file/file-scan.service.js'
 import { requireActor, serializable, type Actor } from '#app/modules/role/domain/authorization.js'
 import { ApprovalService, type ApprovalActor } from '#app/modules/permission/services/approval.service.js'
+import { DataScopeService } from '#app/security/services/data-scope.service.js'
 import type { FileActionPayload } from '#app/modules/permission/dto/approval.dto.js'
 import type { FileAdminQueryDto } from '#app/modules/file/file-admin.dto.js'
 
@@ -27,6 +28,7 @@ export class FileAdminService {
     private readonly prisma: PrismaService,
     private readonly scans: FileScanService,
     private readonly approvals: ApprovalService,
+    private readonly dataScopes: DataScopeService,
   ) {
     for (const kind of ['FILE_DELETE', 'FILE_REJECT', 'FILE_RESTORE', 'FILE_RESCAN'] as const)
       this.approvals.registerExecutionHandler(kind, (tx, request, payload, actor, now) =>
@@ -37,8 +39,7 @@ export class FileAdminService {
   async page(query: FileAdminQueryDto, actor: Actor) {
     const scope = await this.fileScope(actor)
     const pagination = normalizePagination(query)
-    const where: Prisma.FileObjectWhereInput = {
-      tenantId: scope.tenantId,
+    const filters: Prisma.FileObjectWhereInput = {
       ...(query.status ? { status: query.status } : {}),
       ...(query.scanStatus ? { scanStatus: query.scanStatus } : {}),
       ...(query.keyword
@@ -69,6 +70,7 @@ export class FileAdminService {
           }
         : {}),
     }
+    const where: Prisma.FileObjectWhereInput = { AND: [scope, filters] }
     const [total, items] = await this.prisma.$transaction([
       this.prisma.fileObject.count({ where }),
       this.prisma.fileObject.findMany({
@@ -114,7 +116,7 @@ export class FileAdminService {
   async detail(fileId: string, actor: Actor) {
     const scope = await this.fileScope(actor)
     const file = await this.prisma.fileObject.findFirst({
-      where: { id: fileId, tenantId: scope.tenantId },
+      where: { AND: [scope, { id: fileId }] },
       include: {
         owner: { select: { userId: true, username: true, displayName: true } },
         bindings: { orderBy: { createdAt: 'desc' } },
@@ -156,7 +158,11 @@ export class FileAdminService {
       where: { id: actor.internalId },
       select: {
         roles: {
-          where: { revokedAt: null, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }], role: { status: 'ACTIVE' } },
+          where: {
+            revokedAt: null,
+            OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+            role: { status: 'ACTIVE', tenantId: actor.tenantId },
+          },
           select: { role: { select: { permissions: { where: { revokedAt: null, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }], permission: { status: 'ACTIVE' } }, select: { permission: { select: { code: true } } } } } } },
         },
       },
@@ -165,9 +171,7 @@ export class FileAdminService {
   }
 
   private async fileScope(actor: Actor) {
-    const tenantId = actor.tenantId
-    if (!tenantId) throw new ForbiddenException('未确定有效租户数据范围')
-    return { tenantId }
+    return this.dataScopes.where(actor, 'file') as Promise<Prisma.FileObjectWhereInput>
   }
 
   async rescan(fileId: string, reason: string, actor: Actor, approvalActor: ApprovalActor) {
@@ -195,7 +199,7 @@ export class FileAdminService {
   ) {
     await this.authorizeActor(actor)
     const scope = await this.fileScope(actor)
-    const target = await this.prisma.fileObject.findFirst({ where: { id: fileId, tenantId: scope.tenantId }, select: { id: true } })
+    const target = await this.prisma.fileObject.findFirst({ where: { AND: [scope, { id: fileId }] }, select: { id: true } })
     if (!target) throw new NotFoundException('文件不存在')
     this.requireReason(reason)
     return this.approvals.createInternal(
@@ -215,11 +219,12 @@ export class FileAdminService {
     actor: ApprovalActor,
     now: Date,
   ) {
-    const file = await tx.fileObject.findUnique({ where: { id: payload.fileId } })
+    const scope = await this.dataScopes.where(actor, 'file', tx)
+    const file = await tx.fileObject.findFirst({ where: { AND: [scope, { id: payload.fileId }] } })
     if (!file) throw new NotFoundException('文件不存在')
     if (kind === 'FILE_RESCAN') {
       if (file.status === FileObjectStatus.DELETED) throw new ConflictException('已删除文件不能重新扫描')
-      const jobId = await this.scans.enqueue(payload.fileId, tx)
+      const jobId = await this.scans.enqueue(payload.fileId, actor.tenantId, tx)
       const updated = await tx.fileObject.findUniqueOrThrow({ where: { id: payload.fileId } })
       return { before: file, after: { ...(view(updated) as Record<string, unknown>), scanJobId: jobId, scanStatus: 'PENDING' } }
     }
@@ -244,7 +249,7 @@ export class FileAdminService {
       where: { id: payload.fileId },
       data: { status: 'QUARANTINED', deletedAt: null, deletedBy: null, scanStatus: 'PENDING', scanDetail: null },
     })
-    const scanJobId = await this.scans.enqueue(payload.fileId, tx)
+    const scanJobId = await this.scans.enqueue(payload.fileId, actor.tenantId, tx)
     return { before: file, after: { ...(view(after) as Record<string, unknown>), scanJobId } }
   }
 

@@ -334,8 +334,8 @@ export class PermissionController {
   }
   @Get('apis/:id/references')
   @RequirePermissions('system.api.references')
-  references(@Param('id', ParseUUIDPipe) id: string) {
-    return this.service.references(id)
+  references(@Param('id', ParseUUIDPipe) id: string, @Req() req: MutationContext) {
+    return this.service.references(id, req.user.tenantId)
   }
   @Delete('apis/:id')
   @HttpCode(204)

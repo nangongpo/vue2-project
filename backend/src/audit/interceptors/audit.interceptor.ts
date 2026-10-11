@@ -1,4 +1,4 @@
-import { CallHandler, ExecutionContext, Injectable, Logger, NestInterceptor } from '@nestjs/common'
+import { CallHandler, ExecutionContext, Injectable, NestInterceptor, ServiceUnavailableException } from '@nestjs/common'
 import { randomUUID } from 'node:crypto'
 import { Observable, catchError, mergeMap } from 'rxjs'
 import type { FastifyReply } from 'fastify'
@@ -13,8 +13,6 @@ import { normalizeAuditAction } from '#app/audit/utils/audit-action.js'
 
 @Injectable()
 export class AuditInterceptor implements NestInterceptor {
-  private readonly logger = new Logger(AuditInterceptor.name)
-
   constructor(private readonly audit: AuditService, private readonly reflector: Reflector) {}
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
@@ -41,6 +39,7 @@ export class AuditInterceptor implements NestInterceptor {
     const requestState = request as { auditRecorded?: boolean }
     const base = {
       traceId,
+      tenantId: request.user?.tenantId || '',
       actorId: request.user?.internalId,
       action,
       resource,
@@ -65,8 +64,9 @@ export class AuditInterceptor implements NestInterceptor {
               riskDecision: decision,
             },
           })
-        } catch (error) {
-          this.logger.error(`audit write failed for ${traceId}`, error)
+        } catch {
+          // 审计是安全控制面的一部分；写入失败时拒绝返回业务成功结果。
+          throw new ServiceUnavailableException('审计服务不可用，操作未确认完成')
         }
         requestState.auditRecorded = true
         return value
@@ -92,8 +92,9 @@ export class AuditInterceptor implements NestInterceptor {
               },
             },
           })
-        } catch (auditError) {
-          this.logger.error(`audit write failed for ${traceId}`, auditError)
+        } catch {
+          // 原始失败也不能掩盖审计故障，调用方必须重试或转人工处置。
+          throw new ServiceUnavailableException('审计服务不可用，操作结果需人工核查')
         }
         requestState.auditRecorded = true
         throw error

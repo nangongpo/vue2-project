@@ -92,6 +92,21 @@ add('system.user.unlock', 'POST', '/users/:id/unlock', { resource: 'system.user'
 add('system.user.grant', 'PATCH', '/users/:id/roles', { resource: 'system.user', action: 'grant' })
 add('system.role.options', 'GET', '/roles/permission-options', { resource: 'system.role', action: 'options' })
 add('system.role.assignment-options', 'GET', '/roles/assignment-options', { resource: 'system.role', action: 'assignment-options' })
+for (const [code, method, path, action] of [
+  ['system.organization.read', 'GET', '/organizations', 'read'],
+  ['system.organization.create', 'POST', '/organizations', 'create'],
+  ['system.organization.update', 'PATCH', '/organizations/:id', 'update'],
+  ['system.organization.status', 'PATCH', '/organizations/:id/status', 'status'],
+  ['system.department.read', 'GET', '/departments', 'read'],
+  ['system.department.create', 'POST', '/departments', 'create'],
+  ['system.department.update', 'PATCH', '/departments/:id', 'update'],
+  ['system.department.status', 'PATCH', '/departments/:id/status', 'status'],
+] as const)
+  add(code, method, path, {
+    rolePolicy: { type: 'ROLE_ALLOWLIST', roleTypes: ['SECURITY', 'SYSTEM'] },
+    resource: code.startsWith('system.organization') ? 'system.organization' : 'system.department',
+    action,
+  })
 add('system.role.grants.read', 'GET', '/roles/:id/grants', { roleType: 'SECURITY', resource: 'system.role', action: 'grants.read' })
 add('system.role.grant', 'PATCH', '/roles/:id/grants', { resource: 'system.role', action: 'grant' })
 add('system.role.delete', 'DELETE', '/roles/:id', { resource: 'system.role', action: 'delete' })
@@ -143,6 +158,8 @@ const SYSTEM_RISK_LEVELS: Record<string, RiskBaseline['riskLevel']> = Object.fro
     'system.api.read', 'system.api.options', 'system.api.references', 'system.field.read',
     'system.data-resource.read', 'system.page.api.options', 'system.button.options',
     'system.file.admin.read',
+    'system.organization.read',
+    'system.department.read',
   ].map((code) => [code, 'L0']),
   ...['system.button.update', 'system.directory.create', 'system.directory.update', 'system.directory.delete', 'system.operation-policy.read', 'system.file.admin.detail'].map((code) => [code, 'L1']),
   ...[
@@ -165,6 +182,8 @@ const SYSTEM_RISK_LEVELS: Record<string, RiskBaseline['riskLevel']> = Object.fro
     'system.data-resource.disable', 'system.user.grant', 'system.user.enable', 'system.user.disable',
     'system.user.unlock', 'system.user.reset-password', 'system.user.mfa-reset', 'system.file.admin.reject',
     'system.file.admin.delete', 'system.file.admin.restore',
+    'system.organization.create', 'system.organization.update', 'system.organization.status',
+    'system.department.create', 'system.department.update', 'system.department.status',
   ].map((code) => [code, 'L3']),
 ])
 for (const definition of definitions) {

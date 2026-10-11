@@ -26,7 +26,8 @@ export type AuthenticatedUser = {
   reauthenticatedAt?: Date | null
   /** 当前登录会话的绝对过期时间，仅用于前端提前提示，不用于授权判断。 */
   sessionExpiresAt?: Date | null
-  tenantId?: string | null
+  /** 已认证会话必须始终绑定到唯一租户；未认证状态不使用此类型。 */
+  tenantId: string
   departmentId?: string | null
   organizationId?: string | null
   tenancyMode?: 'SINGLE' | 'MULTI'

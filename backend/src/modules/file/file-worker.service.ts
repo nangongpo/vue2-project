@@ -4,6 +4,8 @@ import { AuditService } from '#app/audit/services/audit.service.js'
 import { PrismaService } from '#app/database/prisma.service.js'
 import { FileStorageService } from '#app/modules/file/file-storage.service.js'
 import { FILE_SCANNER, type FileScanner } from '#app/modules/file/file-scanner.js'
+import { EventOutboxService } from '#app/events/event-outbox.service.js'
+import { UPLOAD_EVENT_VERSION } from '#app/modules/file/file-event.js'
 
 const LEASE_MS = 5 * 60 * 1000
 const POLL_MS = 1000
@@ -41,6 +43,7 @@ export class FileWorkerService implements OnModuleInit, OnModuleDestroy {
     private readonly prisma: PrismaService,
     private readonly storage: FileStorageService,
     private readonly audit: AuditService,
+    private readonly outbox: EventOutboxService,
     @Inject(FILE_SCANNER) private readonly scanner: FileScanner,
   ) {}
 
@@ -84,6 +87,10 @@ export class FileWorkerService implements OnModuleInit, OnModuleDestroy {
   private async finalizeOne() {
     const job = await this.claimFinalize()
     if (!job) return false
+    if (job.tenantId !== job.file.tenantId || job.tenantId !== job.upload.tenantId) {
+      await this.failFinalize(job.id, new Error('文件最终化任务租户边界不一致'))
+      return true
+    }
     try {
       const merged = await this.storage.mergeToQuarantine(job.upload.id, job.upload.totalParts)
       if (merged.size !== Number(job.upload.fileSize)) throw new Error('服务端合并后的文件大小不匹配')
@@ -95,10 +102,24 @@ export class FileWorkerService implements OnModuleInit, OnModuleDestroy {
       if (extension && detectedMime !== 'application/octet-stream' && !MIME_EXTENSIONS[detectedMime]?.includes(extension))
         throw new Error('文件扩展名与文件魔数不匹配')
       await this.prisma.$transaction(async (tx) => {
-        await tx.fileObject.update({ where: { id: job.fileId }, data: { sha256: merged.checksum, size: BigInt(merged.size), detectedMime } })
+        const fileUpdated = await tx.fileObject.updateMany({
+          where: { id: job.fileId, tenantId: job.tenantId, status: 'QUARANTINED' },
+          data: { sha256: merged.checksum, size: BigInt(merged.size), detectedMime },
+        })
+        if (fileUpdated.count !== 1) throw new Error('文件不存在或租户边界不一致')
         await tx.uploadSession.update({ where: { id: job.uploadId }, data: { status: 'SCANNING' } })
-        await tx.fileScanJob.create({ data: { fileId: job.fileId } })
+        await tx.fileScanJob.create({ data: { fileId: job.fileId, tenantId: job.tenantId } })
         await tx.fileFinalizeJob.update({ where: { id: job.id }, data: { status: 'SUCCEEDED', finishedAt: new Date(), lockedAt: null, lockedBy: null } })
+        await this.outbox.enqueue(tx, {
+          tenantId: job.tenantId,
+          subjectType: 'USER',
+          subjectId: job.upload.userId,
+          eventType: 'file.upload.status.changed',
+          aggregateType: 'upload',
+          aggregateId: job.upload.id,
+          aggregateVersion: UPLOAD_EVENT_VERSION.SCANNING,
+          payload: { uploadId: job.upload.id, fileId: job.fileId, uploadStatus: 'SCANNING', fileStatus: 'QUARANTINED', scanStatus: 'PENDING' },
+        })
       })
     } catch (error) {
       await this.failFinalize(job.id, error)
@@ -136,6 +157,10 @@ export class FileWorkerService implements OnModuleInit, OnModuleDestroy {
   private async scanOne() {
     const job = await this.claimScan()
     if (!job) return false
+    if (job.tenantId !== job.file.tenantId) {
+      await this.failScan(job.id, job.fileId, new Error('文件扫描任务租户边界不一致'))
+      return true
+    }
     try {
       const upload = job.file.uploads[0]
       if (!upload) throw new Error('找不到文件对应的隔离上传会话')
@@ -145,12 +170,28 @@ export class FileWorkerService implements OnModuleInit, OnModuleDestroy {
       if (result.verdict === 'ERROR') throw new Error(result.detail || '扫描服务不可用或结果不确定')
       if (result.verdict === 'CLEAN') await this.storage.promote(upload.id, job.file.storageKey)
       await this.prisma.$transaction(async (tx) => {
-        await tx.fileObject.update({ where: { id: job.fileId, status: 'QUARANTINED' }, data: { status: result.verdict === 'CLEAN' ? 'READY' : 'REJECTED', scanStatus: result.verdict, scanDetail: result.detail || null, scanEngineVersion: result.engineVersion || null, policyVersion: result.policyVersion || null } })
-        await tx.uploadSession.updateMany({ where: { fileId: job.fileId }, data: { status: result.verdict === 'CLEAN' ? 'COMPLETED' : 'FAILED' } })
+        const fileUpdated = await tx.fileObject.updateMany({
+          where: { id: job.fileId, tenantId: job.tenantId, status: 'QUARANTINED' },
+          data: { status: result.verdict === 'CLEAN' ? 'READY' : 'REJECTED', scanStatus: result.verdict, scanDetail: result.detail || null, scanEngineVersion: result.engineVersion || null, policyVersion: result.policyVersion || null },
+        })
+        if (fileUpdated.count !== 1) throw new Error('文件不存在或租户边界不一致')
+        await tx.uploadSession.updateMany({ where: { fileId: job.fileId, tenantId: job.tenantId }, data: { status: result.verdict === 'CLEAN' ? 'COMPLETED' : 'FAILED' } })
         await tx.fileScanJob.update({ where: { id: job.id }, data: { status: result.verdict === 'CLEAN' ? 'SUCCEEDED' : 'INFECTED', finishedAt: new Date(), lockedAt: null, lockedBy: null } })
+        const upload = job.file.uploads[0]
+        if (upload) await this.outbox.enqueue(tx, {
+          tenantId: job.tenantId,
+          subjectType: 'USER',
+          subjectId: upload.userId,
+          eventType: 'file.upload.status.changed',
+          aggregateType: 'upload',
+          aggregateId: upload.id,
+          aggregateVersion: result.verdict === 'CLEAN' ? UPLOAD_EVENT_VERSION.COMPLETED : UPLOAD_EVENT_VERSION.FAILED,
+          payload: { uploadId: upload.id, fileId: job.fileId, uploadStatus: result.verdict === 'CLEAN' ? 'COMPLETED' : 'FAILED', fileStatus: result.verdict === 'CLEAN' ? 'READY' : 'REJECTED', scanStatus: result.verdict },
+        })
       })
       await this.audit.record({
         traceId: randomUUID(),
+        tenantId: job.tenantId,
         action: result.verdict === 'CLEAN' ? 'file.scan.clean' : 'file.scan.infected',
         resource: 'file',
         method: 'WORKER',
@@ -175,11 +216,11 @@ export class FileWorkerService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async failScan(id: string, fileId: string, error: unknown) {
-    const job = await this.prisma.fileScanJob.findUnique({ where: { id }, select: { attempts: true, maxAttempts: true } })
+    const job = await this.prisma.fileScanJob.findUnique({ where: { id }, select: { attempts: true, maxAttempts: true, tenantId: true } })
     const terminal = !!job && job.attempts >= job.maxAttempts
     await this.prisma.$transaction(async (tx) => {
       await tx.fileScanJob.updateMany({ where: { id, lockedBy: this.workerId }, data: { status: terminal ? 'DEAD_LETTER' : 'PENDING', nextRetryAt: new Date(Date.now() + Math.min(300000, 5000 * 2 ** Math.max(0, (job?.attempts || 1) - 1))), lastError: this.safeError(error), lockedAt: null, lockedBy: null } })
-      await tx.fileObject.update({ where: { id: fileId }, data: { status: 'QUARANTINED', scanStatus: 'ERROR', scanDetail: terminal ? '安全扫描失败，请联系管理员' : '安全扫描暂不可用，系统将自动重试' } })
+      await tx.fileObject.updateMany({ where: { id: fileId, tenantId: job?.tenantId }, data: { status: 'QUARANTINED', scanStatus: 'ERROR', scanDetail: terminal ? '安全扫描失败，请联系管理员' : '安全扫描暂不可用，系统将自动重试' } })
     })
   }
 

@@ -38,6 +38,8 @@ backend 默认监听 `0.0.0.0:3000`，接口前缀为 `/api/v1`。
 | `PREAUTH_TTL_SECONDS` | `300` | MFA 完成前的 PRE_AUTH 临时会话有效期，范围 60–900 秒。 |
 | `TENANCY_MODE` | `SINGLE` | 部署级租户模式，仅允许 `SINGLE` 或 `MULTI`；变更必须经过审批、备份、演练和受控发布。 |
 | `DEFAULT_TENANT_CODE` / `DEFAULT_TENANT_NAME` | `default-tenant` / `默认租户` | 单租户模式的唯一租户标识和名称；不能用空值表示公共数据。 |
+| `DEFAULT_ORGANIZATION_CODE` / `DEFAULT_ORGANIZATION_NAME` | `default-organization` / `默认组织` | seed 初始化的默认业务组织；必须显式配置，组织归属于默认租户。 |
+| `DEFAULT_DEPARTMENT_CODE` / `DEFAULT_DEPARTMENT_NAME` | `default-department` / `默认部门` | seed 初始化的默认业务部门；必须显式配置，部门归属于默认组织和默认租户。 |
 | `SESSION_MAX_CONCURRENT` | `3` | 单个用户允许同时存在的最大会话数，范围 1–100；超出时撤销最早的会话。 |
 | `API_RATE_LIMIT` | `120` | 单接口/IP 的请求次数。 |
 | `API_RATE_WINDOW_SECONDS` | `60` | backend 全局限流窗口。 |

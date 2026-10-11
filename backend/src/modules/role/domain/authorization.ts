@@ -5,10 +5,14 @@ import { isUUID } from 'class-validator'
 import { resolveRiskDecision } from '#app/security/policies/risk-policy.js'
 import { isCatalogManagementCode, isManagementApiPath, isManagementResource } from '#app/security/policies/permission-catalog/index.js'
 import { sanitizeAuditDetail } from '#app/audit/utils/audit-sanitizer.js'
+import { parseAuthorizationExpiry } from '#app/common/constants/authorization.js'
 
 export type Actor = {
   internalId: bigint
-  tenantId?: string | null
+  /** 授权操作不得脱离当前会话租户执行。 */
+  tenantId: string
+  organizationId?: string | null
+  departmentId?: string | null
   traceId?: string
   ip?: string
   userAgent?: string
@@ -16,7 +20,7 @@ export type Actor = {
   path?: string
 }
 export type ActorRequest = {
-  user: { internalId: bigint; tenantId?: string | null }
+  user: { internalId: bigint; userId?: string; tenantId: string; organizationId?: string | null; departmentId?: string | null }
   traceId?: string
   ip?: string
   method?: string
@@ -26,6 +30,8 @@ export type ActorRequest = {
 export const actorFrom = (request: ActorRequest): Actor => ({
   internalId: request.user.internalId,
   tenantId: request.user.tenantId,
+  organizationId: request.user.organizationId,
+  departmentId: request.user.departmentId,
   traceId: request.traceId,
   ip: request.ip,
   userAgent: request.headers['user-agent'],
@@ -43,6 +49,18 @@ export function rejectFields(input: object, fields: string[]) {
     throw new BadRequestException('授权、类型和状态必须通过专用接口维护')
 }
 
+const SYSTEM_BUILTIN_ROLE_CODES = new Set([
+  'builtin_business',
+  'builtin_security',
+  'builtin_system',
+  'builtin_audit',
+])
+
+/** 系统预置角色由初始化策略维护，不允许按普通业务角色删除。 */
+export function isSystemBuiltinRole(role: { code: string }) {
+  return SYSTEM_BUILTIN_ROLE_CODES.has(role.code)
+}
+
 export function grantInput(ids: string[], reason: string, expiresAt?: string) {
   if (
     !Array.isArray(ids) ||
@@ -52,9 +70,7 @@ export function grantInput(ids: string[], reason: string, expiresAt?: string) {
   )
     throw new BadRequestException('授权标识必须为不重复的 UUID，最多 500 项')
   requireReason(reason)
-  const expiry = expiresAt === undefined ? null : new Date(expiresAt)
-  if (expiry && (!Number.isFinite(expiry.getTime()) || expiry <= new Date())) throw new BadRequestException('授权到期时间必须在未来')
-  return expiry
+  return parseAuthorizationExpiry(expiresAt)
 }
 
 export function requireReason(reason: string) {
@@ -103,6 +119,7 @@ export function requiresControlledRoleApproval(role: {
 
 export async function requireActor(tx: Prisma.TransactionClient, actor: Actor) {
   if (!actor || typeof actor.internalId !== 'bigint') throw new UnauthorizedException('缺少操作者身份')
+  if (!actor.tenantId) throw new ForbiddenException('未确定有效租户')
   const user = await tx.user.findUnique({
     where: { id: actor.internalId },
     select: { userId: true, status: true, expiresAt: true },
@@ -126,6 +143,7 @@ export async function audit(
   ) as Prisma.InputJsonValue
   await tx.auditLog.create({
     data: {
+      tenantId: actor.tenantId,
       actorId: actor.internalId,
       traceId: actor.traceId || randomUUID(),
       action,
@@ -148,7 +166,7 @@ export async function audit(
   })
 }
 
-export async function ordinaryRole(tx: Prisma.TransactionClient, id: bigint) {
+export async function ordinaryRole(tx: Prisma.TransactionClient, id: bigint, tenantId: string) {
   const role = await tx.role.findUniqueOrThrow({
     where: { id },
     include: {
@@ -159,6 +177,7 @@ export async function ordinaryRole(tx: Prisma.TransactionClient, id: bigint) {
       elevatedDataScopes: { where: { revokedAt: null } },
     },
   })
+  if (role.tenantId !== tenantId) throw new ForbiddenException('角色不属于当前租户')
   if (requiresControlledRoleApproval(role))
     throw new ForbiddenException('高危角色需要受控审批流程')
   return role

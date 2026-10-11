@@ -8,6 +8,8 @@ export type DataFieldSecurityResource =
   | 'system.audit'
   | 'system.file'
   | 'system.health'
+  | 'system.organization'
+  | 'system.department'
   | 'system.ops-ticket'
   | 'system.role'
   | 'system.user'

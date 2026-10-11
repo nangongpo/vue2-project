@@ -31,6 +31,8 @@ export const MANAGEMENT_PERMISSION_ROLE_POLICIES: Readonly<Record<string, Permis
 export const DATA_FIELD_ROLE_POLICIES: Readonly<Record<string, readonly RoleType[]>> = {
   file: ['BUSINESS'],
   'file.upload': ['BUSINESS'],
+  'file.upload.resume': ['BUSINESS'],
+  'file.upload.events': ['BUSINESS'],
   'file.upload.part': ['BUSINESS'],
   'system.audit': ['AUDIT'],
   'system.audit.actor': ['AUDIT'],

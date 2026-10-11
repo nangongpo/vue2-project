@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
 import { PermissionStatus, RoleType } from '#app/common/types/prisma-enums.js'
 import { randomBytes } from 'node:crypto'
 import { PrismaService } from '#app/database/prisma.service.js'
@@ -8,6 +8,7 @@ import { availableAction } from '#app/common/constants/api-name-labels.js'
 import {
   audit,
   grantInput,
+  isSystemBuiltinRole,
   ordinaryPermission,
   ordinaryRole,
   requiresControlledRoleApproval,
@@ -41,11 +42,13 @@ function generatedRoleCode() {
 export class RoleService {
   constructor(private readonly prisma: PrismaService, private readonly approvals?: ApprovalService) {}
 
-  async list(permissions: string[] = []) {
+  async list(permissions: string[] = [], tenantId: string) {
     const roles = await this.prisma.role.findMany({
+      where: { tenantId },
       orderBy: { createdAt: 'desc' },
       select: {
         roleId: true,
+        code: true,
         name: true,
         description: true,
         roleType: true,
@@ -69,18 +72,19 @@ export class RoleService {
           role.roleType === RoleType.BUSINESS && role.status === 'ACTIVE' &&
           ['system.role.grant', 'system.role.grants.read', 'system.role.options'].every((code) => permissions.includes(code)) ? availableAction('grant', 'system.role.grant') : null,
           role.roleType === RoleType.BUSINESS && role.status === 'ACTIVE' && permissions.includes('system.data-scope.read') ? availableAction('data-scope', 'system.data-scope.update') : null,
-          role.status === 'ACTIVE' && permissions.includes('system.role.disable') ? availableAction('disable', 'system.role.disable') : null,
-          role.status === 'DISABLED' && permissions.includes('system.role.enable') ? availableAction('enable', 'system.role.enable') : null,
-          role.roleType === RoleType.BUSINESS && role._count.users === 0 && permissions.includes('system.role.delete') ? availableAction('delete', 'system.role.delete') : null,
+          !isSystemBuiltinRole(role) && role.status === 'ACTIVE' && permissions.includes('system.role.disable') ? availableAction('disable', 'system.role.disable') : null,
+          !isSystemBuiltinRole(role) && role.status === 'DISABLED' && permissions.includes('system.role.enable') ? availableAction('enable', 'system.role.enable') : null,
+          role.roleType === RoleType.BUSINESS && !isSystemBuiltinRole(role) && role._count.users === 0 && permissions.includes('system.role.delete') ? availableAction('delete', 'system.role.delete') : null,
         ].filter(Boolean),
       })),
     }
   }
 
-  async listGrants(id: string) {
+  async listGrants(id: string, tenantId: string) {
     const role = await this.prisma.role.findUnique({
       where: { roleId: id },
       select: {
+        tenantId: true,
         permissions: {
           where: {
             revokedAt: null,
@@ -91,7 +95,7 @@ export class RoleService {
         },
       },
     })
-    if (!role) throw new NotFoundException('角色不存在')
+    if (!role || role.tenantId !== tenantId) throw new NotFoundException('角色不存在')
     return {
       code: API_CODE.SUCCESS,
       message: 'success',
@@ -138,9 +142,9 @@ export class RoleService {
     }
   }
 
-  async assignmentOptions() {
+  async assignmentOptions(tenantId: string) {
     const roles = await this.prisma.role.findMany({
-      where: { status: 'ACTIVE', roleType: RoleType.BUSINESS },
+      where: { tenantId, status: 'ACTIVE', roleType: RoleType.BUSINESS },
       orderBy: [{ name: 'asc' }, { createdAt: 'desc' }],
       select: { roleId: true, code: true, name: true, status: true },
     })
@@ -166,6 +170,7 @@ export class RoleService {
         const created = await tx.role.create({
           data: {
             code: generatedRoleCode(),
+            tenantId: actor.tenantId,
             name: input.name,
             description: input.description,
             roleType: RoleType.BUSINESS,
@@ -194,8 +199,8 @@ export class RoleService {
     const role = await this.prisma.$transaction(async (tx) => {
       await requireActor(tx, actor)
       const exists = await tx.role.findUnique({ where: { roleId: id } })
-      if (!exists) throw new NotFoundException('角色不存在')
-      await ordinaryRole(tx, exists.id)
+      if (!exists || exists.tenantId !== actor.tenantId) throw new NotFoundException('角色不存在')
+      await ordinaryRole(tx, exists.id, actor.tenantId)
       await preventOwnRoleChange(tx, exists.id, actor)
       const updated = await tx.role.update({
         where: { id: exists.id },
@@ -234,6 +239,7 @@ export class RoleService {
         },
       })
       if (!current) throw new NotFoundException('角色不存在')
+      if (current.tenantId !== actor.tenantId) throw new NotFoundException('角色不存在')
       if (requiresControlledRoleApproval(current)) {
         return this.approvals.createInternal(
           'ROLE_PERMISSIONS',
@@ -253,9 +259,9 @@ export class RoleService {
     await this.prisma.$transaction(async (tx) => {
       const actorId = await requireActor(tx, actor)
       const role = await tx.role.findUnique({ where: { roleId: id } })
-      if (!role) throw new NotFoundException('角色不存在')
+      if (!role || role.tenantId !== actor.tenantId) throw new NotFoundException('角色不存在')
       if (role.status !== 'ACTIVE') throw new BadRequestException('只能为启用角色授权')
-      await ordinaryRole(tx, role.id)
+      await ordinaryRole(tx, role.id, actor.tenantId)
       await preventOwnRoleChange(tx, role.id, actor)
       const permissions = await tx.permission.findMany({
         where: { id: { in: input.permissionIds } },
@@ -300,7 +306,8 @@ export class RoleService {
     await this.prisma.$transaction(async (tx) => {
       await requireActor(tx, actor)
       const before = await tx.role.findUnique({ where: { roleId: id } })
-      if (!before) throw new NotFoundException('角色不存在')
+      if (!before || before.tenantId !== actor.tenantId) throw new NotFoundException('角色不存在')
+      if (isSystemBuiltinRole(before)) throw new ForbiddenException('系统预置角色不可启用或停用')
       const boundUserCount = await tx.userRole.count({
         where: {
           roleId: before.id,
@@ -311,7 +318,7 @@ export class RoleService {
       // A role with no active users can be disabled directly. Roles that are
       // still in use and contain administrative permissions must go through
       // the controlled ROLE_STATUS approval flow.
-      if (boundUserCount > 0) await ordinaryRole(tx, before.id)
+      if (boundUserCount > 0) await ordinaryRole(tx, before.id, actor.tenantId)
       await preventOwnRoleChange(tx, before.id, actor)
       const after = await tx.role.update({
         where: { id: before.id },
@@ -350,7 +357,9 @@ export class RoleService {
         },
       })
       if (!role) throw new NotFoundException('角色不存在')
-      await ordinaryRole(tx, role.id)
+      if (role.tenantId !== actor.tenantId) throw new NotFoundException('角色不存在')
+      if (isSystemBuiltinRole(role)) throw new ForbiddenException('系统预置角色不可删除')
+      await ordinaryRole(tx, role.id, actor.tenantId)
       await preventOwnRoleChange(tx, role.id, actor)
       if (Object.values(role._count).some((count) => count > 0))
         throw new ConflictException('角色存在引用，请禁用而非删除')

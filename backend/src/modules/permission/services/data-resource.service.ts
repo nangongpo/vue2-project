@@ -9,7 +9,7 @@ import { ENABLEMENT_STATUS_LABELS } from '#app/common/constants/enum-labels.js'
 import { sanitizeAuditDetail } from '#app/audit/utils/audit-sanitizer.js'
 
 type ResourceMutationContext = {
-  user: { internalId: bigint; userId: string }
+  user: { internalId: bigint; userId: string; tenantId: string }
   traceId?: string
   method: string
   url: string
@@ -117,6 +117,7 @@ export class DataResourceService {
   ) {
     await tx.auditLog.create({
       data: {
+        tenantId: req.user.tenantId,
         traceId: req.traceId || randomUUID(),
         actorId: req.user.internalId,
         action: `permission.data-resource.${action}`,

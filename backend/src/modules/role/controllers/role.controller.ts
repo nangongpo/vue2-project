@@ -17,9 +17,10 @@ import {
   ArrayUnique,
   IsArray,
   IsDateString,
-  IsOptional,
+  IsDefined,
   IsString,
   IsUUID,
+  IsOptional,
   Matches,
   MaxLength,
   MinLength,
@@ -51,7 +52,7 @@ export class GrantPermissionsDto {
   /** 权限变更原因，用于审计。 */
   @IsString() @Matches(/\S/) @MaxLength(255) reason!: string
   /** 权限授权失效时间。 */
-  @IsOptional() @IsDateString() expiresAt?: string
+  @IsDefined() @IsDateString({ strict: true }) expiresAt?: string
 }
 
 export class ReasonDto {
@@ -67,7 +68,7 @@ export class RoleController {
   @RequirePermissions('system.role.read')
   @DataFieldSecurity('system.role')
   list(@Req() request: ActorRequest) {
-    return this.roles.list((request.user as { permissions?: string[] }).permissions || [])
+    return this.roles.list((request.user as { permissions?: string[] }).permissions || [], request.user.tenantId)
   }
 
   @Get('permission-options')
@@ -78,14 +79,14 @@ export class RoleController {
 
   @Get('assignment-options')
   @RequirePermissions('system.role.assignment-options')
-  assignmentOptions() {
-    return this.roles.assignmentOptions()
+  assignmentOptions(@Req() request: ActorRequest) {
+    return this.roles.assignmentOptions(request.user.tenantId)
   }
 
   @Get(':id/grants')
   @RequirePermissions('system.role.grants.read')
-  grantsList(@Param('id', ParseUUIDPipe) id: string) {
-    return this.roles.listGrants(id)
+  grantsList(@Param('id', ParseUUIDPipe) id: string, @Req() request: ActorRequest) {
+    return this.roles.listGrants(id, request.user.tenantId)
   }
 
   @Post()

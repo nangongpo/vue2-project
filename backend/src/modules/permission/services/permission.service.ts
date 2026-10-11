@@ -34,6 +34,7 @@ export type MutationContext = {
   user: {
     internalId: bigint
     userId: string
+    tenantId: string
     roles?: unknown[]
     mfaEnabled?: boolean
     mfaVerifiedAt?: Date | null
@@ -592,7 +593,7 @@ export class PermissionService {
       return { before, after }
     })
   }
-  async references(id: string) {
+  async references(id: string, tenantId: string) {
     await this.api(this.prisma, id)
     const [pages, buttons, roles] = await Promise.all([
       this.prisma.functionApi.findMany({
@@ -604,7 +605,7 @@ export class PermissionService {
         select: { button: { select: { id: true, name: true } } },
       }),
       this.prisma.rolePermission.findMany({
-        where: { permissionId: id },
+        where: { permissionId: id, role: { tenantId } },
         select: { role: { select: { roleId: true, name: true } } },
       }),
     ])
@@ -719,6 +720,7 @@ export class PermissionService {
           const { before, after } = await fn(tx)
           await tx.auditLog.create({
             data: {
+              tenantId: req.user.tenantId,
               traceId: req.traceId || randomUUID(),
               actorId: req.user.internalId,
               action,

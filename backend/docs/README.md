@@ -12,9 +12,10 @@
 6. [PERMISSION_CODE_STANDARD.md](PERMISSION_CODE_STANDARD.md)：权限码、动作和迁移命名规范。
 7. [APPROVAL_CONTRACT.md](APPROVAL_CONTRACT.md)：高危操作审批接口、状态机和执行契约。
 8. [FILE_SECURITY.md](FILE_SECURITY.md)：文件上传、隔离、扫描、下载和删除安全模型。
-9. [CONFIGURATION.md](CONFIGURATION.md)：应用环境变量和安全配置总表。
-10. [CLAMAV_CONFIGURATION.md](CLAMAV_CONFIGURATION.md)：ClamAV 部署、连通性和扫描故障处理。
-11. [DATABASE_OPERATIONS.md](DATABASE_OPERATIONS.md)：数据库迁移、备份、恢复和生产操作约束。
+9. [SSE_DESIGN.md](SSE_DESIGN.md)：SSE 事件流、多实例投递、连接治理和轮询兜底。
+10. [CONFIGURATION.md](CONFIGURATION.md)：应用环境变量和安全配置总表。
+11. [CLAMAV_CONFIGURATION.md](CLAMAV_CONFIGURATION.md)：ClamAV 部署、连通性和扫描故障处理。
+12. [DATABASE_OPERATIONS.md](DATABASE_OPERATIONS.md)：数据库迁移、备份、恢复和生产操作约束。
 
 ## 2. 文档职责矩阵
 
@@ -28,6 +29,7 @@
 | `PERMISSION_CODE_STANDARD.md` | 权限码和动作的命名、目录、迁移规则 | 授权运行时流程 |
 | `APPROVAL_CONTRACT.md` | 审批 API、请求体、状态机、执行和审计回写 | 通用权限架构 |
 | `FILE_SECURITY.md` | 文件上传、生命周期、存储隔离、病毒扫描和下载安全 | ClamAV 安装命令、通用配置表 |
+| `SSE_DESIGN.md` | SSE 事件流、连接认证、多实例投递和轮询兜底 | 租户与数据范围权威规则 |
 | `CONFIGURATION.md` | 环境变量、密钥和部署配置原则 | 数据库/ClamAV 的完整运维手册 |
 | `CLAMAV_CONFIGURATION.md` | ClamAV 运维和故障排查 | 文件模块业务状态机 |
 | `DATABASE_OPERATIONS.md` | 数据库生产操作和恢复 | 应用权限和业务契约 |

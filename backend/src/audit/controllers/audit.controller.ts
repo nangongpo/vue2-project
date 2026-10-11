@@ -1,4 +1,4 @@
-import { BadRequestException, Controller, Get, Inject, Param, ParseUUIDPipe, Query, UseGuards } from '@nestjs/common'
+import { BadRequestException, Controller, Get, Inject, Param, ParseUUIDPipe, Query, Req, UseGuards } from '@nestjs/common'
 import { AuthGuard } from '#app/security/guards/auth.guard.js'
 import { RequirePermissions } from '#app/security/decorators/permission.decorator.js'
 import { DataFieldSecurity } from '#app/common/decorators/data-field-security.decorator.js'
@@ -7,9 +7,8 @@ import { AuditAction } from '#app/audit/decorators/audit.decorator.js'
 import { IsDateString, IsIn, IsISO8601, IsOptional, IsString, IsUUID, Matches, MaxLength } from 'class-validator'
 import { RiskLevel } from '#app/common/types/prisma-enums.js'
 import { PaginationQueryDto } from '#app/common/dto/pagination.dto.js'
-import type { AuditExportQuery, AuditPageRequest } from '#app/audit/types.js'
 
-class ExportAuditQuery implements AuditExportQuery {
+class ExportAuditQuery {
   @IsISO8601() from!: string
   @IsISO8601() to!: string
   @IsOptional() @IsString() @MaxLength(128) keyword?: string
@@ -18,7 +17,7 @@ class ExportAuditQuery implements AuditExportQuery {
   @IsOptional() @IsString() @MaxLength(128) operationCode?: string
 }
 
-class AuditQueryDto extends PaginationQueryDto implements AuditPageRequest {
+class AuditQueryDto extends PaginationQueryDto {
   @IsOptional() @IsString() @MaxLength(128) keyword = ''
   @IsOptional() @IsIn(['SUCCESS', 'FAILURE']) result?: 'SUCCESS' | 'FAILURE'
   @IsOptional() @IsIn(['L0', 'L1', 'L2', 'L3']) riskLevel?: RiskLevel
@@ -37,11 +36,12 @@ export class AuditController {
   @Get()
   @AuditAction('audit.logs.list')
   @DataFieldSecurity('system.audit')
-  page(@Query() query: AuditQueryDto) {
+  page(@Query() query: AuditQueryDto, @Req() request: { user: { tenantId: string } }) {
     const from = query.from ? new Date(query.from) : undefined
     const to = query.to ? new Date(query.to) : undefined
     if (from && to && from > to) throw new BadRequestException('开始时间不能晚于结束时间')
     return this.audit.page({
+      tenantId: request.user.tenantId,
       keyword: query.keyword,
       result: query.result,
       riskLevel: query.riskLevel,
@@ -57,22 +57,22 @@ export class AuditController {
   @Get('export')
   @RequirePermissions('system.audit.export')
   @AuditAction('audit.logs.export')
-  export(@Query() query: ExportAuditQuery) {
-    return this.audit.export(query)
+  export(@Query() query: ExportAuditQuery, @Req() request: { user: { tenantId: string } }) {
+    return this.audit.export({ ...query, tenantId: request.user.tenantId })
   }
 
   @Get(':id')
   @RequirePermissions('system.audit.detail')
   @AuditAction('audit.logs.detail')
   @DataFieldSecurity('system.audit')
-  detail(@Param('id', ParseUUIDPipe) id: string) {
-    return this.audit.detail(id)
+  detail(@Param('id', ParseUUIDPipe) id: string, @Req() request: { user: { tenantId: string } }) {
+    return this.audit.detail(id, request.user.tenantId)
   }
 
   @Get(':id/integrity')
   @RequirePermissions('system.audit.integrity')
   @AuditAction('audit.logs.integrity')
-  verify(@Param('id', ParseUUIDPipe) id: string) {
-    return this.audit.verify(id)
+  verify(@Param('id', ParseUUIDPipe) id: string, @Req() request: { user: { tenantId: string } }) {
+    return this.audit.verify(id, request.user.tenantId)
   }
 }

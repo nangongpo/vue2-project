@@ -42,6 +42,9 @@ const BUSINESS_API_SPECS = {
   'file.upload.read': {
     method: 'GET', path: '/files/uploads/mine', resource: 'file', action: 'read', riskBaseline: BUSINESS_READ_RISK,
   },
+  'file.upload.resume': {
+    method: 'GET', path: '/files/uploads/unfinished', resource: 'file', action: 'upload.resume', riskBaseline: BUSINESS_READ_RISK,
+  },
   'file.upload.initiate': {
     method: 'POST', path: '/files/uploads/initiate', resource: 'file', action: 'upload.initiate', riskBaseline: BUSINESS_WRITE_RISK,
   },
@@ -50,6 +53,9 @@ const BUSINESS_API_SPECS = {
   },
   'file.upload.status': {
     method: 'GET', path: '/files/uploads/:uploadId/status', resource: 'file', action: 'upload.status', riskBaseline: BUSINESS_READ_RISK,
+  },
+  'file.upload.events': {
+    method: 'GET', path: '/files/uploads/:uploadId/events', resource: 'file', action: 'upload.events', riskBaseline: BUSINESS_READ_RISK,
   },
   'file.upload.complete': {
     method: 'POST', path: '/files/uploads/:uploadId/complete', resource: 'file', action: 'upload.complete', riskBaseline: BUSINESS_WRITE_RISK,

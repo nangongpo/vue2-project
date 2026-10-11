@@ -5,7 +5,7 @@ import { PermissionService } from '#app/modules/permission/services/permission.s
 import type { MutationContext } from '#app/modules/permission/services/permission.service.js'
 
 const req: MutationContext = {
-  user: { internalId: 7n, userId: 'actor-public-id', roles: ['SECURITY'] },
+  user: { internalId: 7n, userId: 'actor-public-id', tenantId: 'tenant-a', roles: ['SECURITY'] },
   traceId: 'test-trace',
   method: 'PATCH',
   url: '/api/v1/permission/pages/page/base-apis?ignored=yes',

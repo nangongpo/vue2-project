@@ -41,7 +41,6 @@ export function getIdempotencyRoutePolicy(method: string, path: string): Idempot
   // 登出、验证码和文件分片已有各自的一次性/分片语义，不使用通用幂等守卫。
   if (path === '/api/v1/auth/logout' || path.startsWith('/api/v1/captcha/')) return null
   if (/^\/api\/v1\/files\/uploads\/[^/]+\/parts\/[^/]+$/.test(path)) return null
-  if (path.endsWith('/part-urls')) return null
 
   // 业务写接口支持完整幂等：同一 Key + 同一请求指纹可重放成功响应。
   if (

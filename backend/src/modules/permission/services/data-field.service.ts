@@ -8,7 +8,7 @@ import { ENABLEMENT_STATUS_LABELS } from '#app/common/constants/enum-labels.js'
 import { sanitizeAuditDetail } from '#app/audit/utils/audit-sanitizer.js'
 
 type FieldMutationContext = {
-  user: { internalId: bigint; userId: string; roles?: unknown[] }
+  user: { internalId: bigint; userId: string; tenantId: string; roles?: unknown[] }
   traceId?: string
   method: string
   url: string
@@ -101,7 +101,9 @@ export class DataFieldService {
           },
         })
         const roles = await tx.role.findMany({
-          where: { code: { in: ['builtin_security', 'builtin_system'] } },
+          // Permissions are global definitions, but role bindings are tenant data.
+          // Never grant a newly-created field permission to another tenant.
+          where: { tenantId: req.user.tenantId, code: { in: ['builtin_security', 'builtin_system'] } },
           select: { id: true },
         })
         for (const role of roles) {
@@ -115,6 +117,7 @@ export class DataFieldService {
         }
         await tx.auditLog.create({
           data: {
+            tenantId: req.user.tenantId,
             traceId: req.traceId || randomUUID(),
             actorId: req.user.internalId,
             action: 'permission.field.create',
@@ -165,6 +168,7 @@ export class DataFieldService {
         const after = await tx.permissionField.update({ where: { id }, data: { status } })
         await tx.auditLog.create({
           data: {
+            tenantId: req.user.tenantId,
             traceId: req.traceId || randomUUID(),
             actorId: req.user.internalId,
             action: 'permission.field.status',
@@ -214,6 +218,7 @@ export class DataFieldService {
         })
         await tx.auditLog.create({
           data: {
+            tenantId: req.user.tenantId,
             traceId: req.traceId || randomUUID(),
             actorId: req.user.internalId,
             action: 'permission.field.update',

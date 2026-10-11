@@ -143,7 +143,6 @@ export default {
     return {
       title: 'vue2-project',
       loading: false,
-      redirecting: false,
       securityPending: false,
       mfaEnrollment: null,
       mfaEnrollmentStep: 1,
@@ -173,7 +172,7 @@ export default {
   },
   computed: {
     loginBusy() {
-      return this.loading || this.redirecting
+      return this.loading
     },
     mfaQrCodeUrl() {
       if (!this.mfaEnrollment?.uri) return ''
@@ -191,16 +190,18 @@ export default {
     }
   },
   methods: {
+    resetLoginLoading() {
+      this.loading = false
+      this.loadingText = ''
+    },
     async finishLogin() {
-      this.redirecting = true
       this.loadingText = '正在跳转...'
       this.securityPending = false
       try {
         await this.$router.replace({ name: 'dashboard' })
-      } catch (error) {
-        this.redirecting = false
-        this.loadingText = ''
-        throw error
+      } finally {
+        // 无论导航成功、被权限守卫重定向，还是导航异常，都不能遗留跳转状态。
+        this.resetLoginLoading()
       }
     },
     async cancelSecurity() {
@@ -345,7 +346,6 @@ export default {
     async handleLogin() {
       if (
         this.loading ||
-        this.redirecting ||
         this.captchaDialogVisible ||
         this.otpDialogVisible ||
         this.captchaCooldownSeconds > 0
@@ -412,8 +412,7 @@ export default {
           this.sliderCaptcha = null
         }
       } finally {
-        this.loading = false
-        if (!this.redirecting) this.loadingText = ''
+        this.resetLoginLoading()
       }
     },
     handleCaptchaDialogClose() {

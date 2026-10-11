@@ -8,12 +8,14 @@ function fixture(scopes: string[] = ['SELF']) {
     status: 'ACTIVE',
     tenantId: 'tenant-a',
     tenant: { status: 'ACTIVE' },
+    tenantMemberships: [{ tenantId: 'tenant-a', organizationId: 'org-a', departmentId: 'dept-a', scopeType: 'DEPARTMENT' }],
     departmentId: 'dept-a',
     organizationId: 'org-a',
-    roles: [{ role: { dataScopes: scopes.map((scopeType) => ({ scopeType })), elevatedDataScopes: [] } }],
+    roles: [{ role: { tenantId: 'tenant-a', dataScopes: scopes.map((scopeType) => ({ scopeType })), elevatedDataScopes: [] } }],
   }
   const db: any = {
     dataResource: { findUnique: vi.fn(async () => ({ status: 'ACTIVE' })) },
+    tenant: { findUnique: vi.fn(async () => ({ status: 'ACTIVE' })) },
     user: { findUnique: vi.fn(async () => user), findFirst: vi.fn(async () => null) },
     department: {
       findFirst: vi.fn(async () => ({ id: 'dept-a' })),
@@ -30,39 +32,39 @@ function fixture(scopes: string[] = ['SELF']) {
 describe('data scope enforcement', () => {
   it('always scopes SELF to authenticated tenant and owner', async () => {
     const f = fixture()
-    expect(await f.service.where({ internalId: 1n }, 'file')).toEqual({
-      AND: [{ tenantId: 'tenant-a' }, { ownerId: 'user-a' }],
+    expect(await f.service.where({ internalId: 1n, tenantId: 'tenant-a' }, 'file')).toEqual({
+      AND: [{ tenantId: 'tenant-a' }, { ownerUserId: 'user-a' }],
     })
   })
   it('rejects a disabled data resource before applying existing role scopes', async () => {
     const f = fixture()
     f.db.dataResource.findUnique.mockResolvedValue({ status: 'DISABLED' })
-    await expect(f.service.where({ internalId: 1n }, 'file')).rejects.toThrow()
+    await expect(f.service.where({ internalId: 1n, tenantId: 'tenant-a' }, 'file')).rejects.toThrow()
   })
   it('intersects conflicting scopes instead of broadening them', async () => {
     const f = fixture(['SELF', 'TENANT', 'DEPARTMENT_SELF'])
-    expect(await f.service.where({ internalId: 1n }, 'file')).toEqual({
-      AND: [{ tenantId: 'tenant-a' }, { ownerId: 'user-a' }, { departmentId: 'dept-a' }],
+    expect(await f.service.where({ internalId: 1n, tenantId: 'tenant-a' }, 'file')).toEqual({
+      AND: [{ tenantId: 'tenant-a' }, { ownerUserId: 'user-a' }, { departmentId: 'dept-a' }],
     })
   })
   it.each(['SELF', 'DEPARTMENT_SELF', 'DEPARTMENT_TREE', 'ORGANIZATION_SELF', 'ORGANIZATION_TREE', 'TENANT'])(
     'keeps tenant boundary for %s',
     async (type) => {
       const f = fixture([type])
-    expect((await f.service.where({ internalId: 1n }, 'file')).AND?.[0]).toEqual({
+      expect((await f.service.where({ internalId: 1n, tenantId: 'tenant-a' }, 'file')).AND?.[0]).toEqual({
         tenantId: 'tenant-a',
       })
     }
   )
   it('does not traverse descendants for SELF department', async () => {
     const f = fixture(['DEPARTMENT_SELF'])
-    await f.service.where({ internalId: 1n }, 'file')
+    await f.service.where({ internalId: 1n, tenantId: 'tenant-a' }, 'file')
     expect(f.db.department.findMany).not.toHaveBeenCalled()
   })
   it('loads department tree with protected tenant and organization', async () => {
     const f = fixture(['DEPARTMENT_TREE'])
     f.db.department.findMany.mockResolvedValueOnce([{ id: 'dept-b' }]).mockResolvedValueOnce([])
-    expect((await f.service.where({ internalId: 1n }, 'file')).AND).toContainEqual({
+    expect((await f.service.where({ internalId: 1n, tenantId: 'tenant-a' }, 'file')).AND).toContainEqual({
       departmentId: { in: ['dept-a', 'dept-b'] },
     })
     expect(f.db.department.findMany).toHaveBeenCalledWith(
@@ -74,9 +76,9 @@ describe('data scope enforcement', () => {
   it('rejects cycles and missing organization master records', async () => {
     const f = fixture(['ORGANIZATION_TREE'])
     f.db.organization.findMany.mockResolvedValue([{ id: 'org-a' }])
-    await expect(f.service.where({ internalId: 1n }, 'file')).rejects.toThrow()
+    await expect(f.service.where({ internalId: 1n, tenantId: 'tenant-a' }, 'file')).rejects.toThrow()
     f.db.organization.findFirst.mockResolvedValue(null)
-    await expect(f.service.where({ internalId: 1n }, 'file')).rejects.toThrow()
+    await expect(f.service.where({ internalId: 1n, tenantId: 'tenant-a' }, 'file')).rejects.toThrow()
   })
   it('does not run a repository operation without a scope', async () => {
     const f = fixture([]),
@@ -87,24 +89,25 @@ describe('data scope enforcement', () => {
   it('combines client filters with AND without accepting tenant overrides', async () => {
     const f = fixture(),
       operation = vi.fn(async (_tx, args) => args)
-    const result = await f.service.execute({ internalId: 1n }, 'file', { tenantId: 'attacker-tenant' }, operation)
+    const result = await f.service.execute({ internalId: 1n, tenantId: 'tenant-a' }, 'file', { tenantId: 'attacker-tenant' }, operation)
     expect(result).toEqual({
       where: {
-        AND: [{ AND: [{ tenantId: 'tenant-a' }, { ownerId: 'user-a' }] }, { tenantId: 'attacker-tenant' }],
+      AND: [{ AND: [{ tenantId: 'tenant-a' }, { ownerUserId: 'user-a' }] }, { tenantId: 'attacker-tenant' }],
       },
     })
   })
   it.each(['DISABLED', 'LOCKED'])('rejects %s accounts', async (status) => {
     const f = fixture()
     f.user.status = status
-    await expect(f.service.where({ internalId: 1n }, 'file')).rejects.toThrow()
+    await expect(f.service.where({ internalId: 1n, tenantId: 'tenant-a' }, 'file')).rejects.toThrow()
   })
   it('rejects missing tenant and disabled tenant', async () => {
     const f = fixture()
-    f.user.tenant.status = 'DISABLED'
-    await expect(f.service.where({ internalId: 1n }, 'file')).rejects.toThrow()
-    f.user.tenantId = null
-    await expect(f.service.where({ internalId: 1n }, 'file')).rejects.toThrow()
+    f.db.tenant.findUnique.mockResolvedValue({ status: 'DISABLED' })
+    await expect(f.service.where({ internalId: 1n, tenantId: 'tenant-a' }, 'file')).rejects.toThrow()
+    f.db.tenant.findUnique.mockResolvedValue({ status: 'ACTIVE' })
+    f.user.tenantMemberships = []
+    await expect(f.service.where({ internalId: 1n, tenantId: 'tenant-a' }, 'file')).rejects.toThrow()
   })
   it('ALL remains time limited and tenant bounded', async () => {
     const f = fixture([])
@@ -118,11 +121,11 @@ describe('data scope enforcement', () => {
         targets: [],
       },
     ]
-    expect(await f.service.where({ internalId: 1n }, 'file')).toEqual({
+    expect(await f.service.where({ internalId: 1n, tenantId: 'tenant-a' }, 'file')).toEqual({
       AND: [{ tenantId: 'tenant-a' }],
     })
     f.user.roles[0].role.elevatedDataScopes[0].approvalRef = null
-    await expect(f.service.where({ internalId: 1n }, 'file')).rejects.toThrow()
+    await expect(f.service.where({ internalId: 1n, tenantId: 'tenant-a' }, 'file')).rejects.toThrow()
   })
   it('rejects custom target outside current tenant', async () => {
     const f = fixture([])
@@ -136,6 +139,6 @@ describe('data scope enforcement', () => {
         targets: [{ targetType: 'TENANT', targetId: 'another-tenant' }],
       },
     ]
-    await expect(f.service.where({ internalId: 1n }, 'file')).rejects.toThrow()
+    await expect(f.service.where({ internalId: 1n, tenantId: 'tenant-a' }, 'file')).rejects.toThrow()
   })
 })

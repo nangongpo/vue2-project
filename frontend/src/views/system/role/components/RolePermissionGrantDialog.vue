@@ -5,7 +5,7 @@
     width="720px"
     :close-on-click-modal="false"
     :before-close="close"
-    @open="load">
+    @open="prepare">
     <div v-loading="loading">
       <div class="role-summary">
         <strong>{{ role ? role.name : '—' }}</strong>
@@ -14,7 +14,15 @@
         </el-tag>
       </div>
       <el-alert v-if="error" :title="error" type="error" :closable="false" />
-      <el-form ref="grantForm" :model="form" :rules="rules" label-width="85px" class="grant-form">
+      <security-verification-gate
+        v-if="!loaded"
+        permission="system.role.grants.read"
+        title="配置角色权限需要安全验证"
+        description="需要安全管理员权限，并完成 5 分钟内的 MFA 和重新认证。"
+        button-text="验证并配置"
+        :loading="loading"
+        @verify="load" />
+      <el-form v-else ref="grantForm" :model="form" :rules="rules" label-width="85px" class="grant-form">
         <el-form-item v-for="group in groups" :key="group.type" :class="'grant-' + group.type.toLowerCase()" :label="group.label">
           <el-select
             v-model="form.selection[group.type]"
@@ -33,19 +41,14 @@
         <el-form-item label="操作原因" prop="reason" class="grant-reason">
           <el-input v-model.trim="form.reason" type="textarea" maxlength="255" show-word-limit />
         </el-form-item>
-        <el-form-item label="到期时间" class="grant-expires">
-          <el-date-picker
-            v-model="form.expiresAt"
-            type="datetime"
-            placeholder="可选，不填表示无到期时间" />
-        </el-form-item>
+        <authorization-expiry-field v-model="form.expiresAt" />
       </el-form>
     </div>
     <span slot="footer">
       <el-button :disabled="saving" @click="close">取消</el-button>
-      <el-button
+      <el-button v-if="loaded"
         type="primary"
-        :disabled="blocked || loading"
+        :disabled="!loaded || blocked || loading"
         :loading="saving"
         @click="submit">
         保存
@@ -58,9 +61,12 @@
 import { getRoleGrants, getRolePermissionOptions, updateRoleGrants } from '@/api/admin'
 import { grantChanges, requiredText } from '@/views/system/permission/utils'
 import { hasAvailableAction } from '@/utils/available-action'
+import AuthorizationExpiryField from './AuthorizationExpiryField.vue'
+import SecurityVerificationGate from '@/components/SecurityVerificationGate.vue'
 
 export default {
   name: 'RolePermissionGrantDialog',
+  components: { AuthorizationExpiryField, SecurityVerificationGate },
   props: {
     visible: Boolean,
     role: { type: Object, default: null },
@@ -70,6 +76,7 @@ export default {
       loading: false,
       saving: false,
       blocked: true,
+      loaded: false,
       error: '',
       options: [],
       originalIds: [],
@@ -96,12 +103,22 @@ export default {
     close() {
       if (!this.saving) this.$emit('update:visible', false)
     },
+    prepare() {
+      this.loading = false
+      this.error = ''
+      this.options = []
+      this.originalIds = []
+      this.loaded = false
+      this.blocked = true
+      this.form = { selection: { PAGE: [], BUTTON: [], API: [] }, reason: '', expiresAt: null }
+    },
     async load() {
       this.loading = true
       this.blocked = true
       this.error = ''
       this.options = []
       this.originalIds = []
+      this.loaded = false
       this.form = { selection: { PAGE: [], BUTTON: [], API: [] }, reason: '', expiresAt: null }
       try {
         if (!this.role || !this.role.isActive) throw new Error('仅启用的业务角色可授权')
@@ -124,6 +141,7 @@ export default {
             .filter((item) => this.originalIds.includes(item.id))
             .map((item) => item.id)
         })
+        this.loaded = true
         this.blocked = false
       } catch (error) {
         this.error = error.message || '授权选项加载失败'
@@ -134,9 +152,9 @@ export default {
     async submit() {
       if (this.blocked || this.loading || this.saving) return
       if (!(await this.$refs.grantForm.validate().catch(() => false))) return
-      const expiresAt = this.form.expiresAt ? new Date(this.form.expiresAt) : null
-      if (expiresAt && (!Number.isFinite(expiresAt.getTime()) || expiresAt <= new Date())) {
-        this.$message.warning('到期时间必须在未来')
+      const expiresAt = new Date(this.form.expiresAt)
+      if (!Number.isFinite(expiresAt.getTime()) || expiresAt <= new Date()) {
+        this.$message.warning('请设置有效的授权到期时间')
         return
       }
       if (!(await this.$confirm(
@@ -150,7 +168,7 @@ export default {
         await updateRoleGrants(this.role.roleId, {
           permissionIds: this.selectedIds,
           reason: this.form.reason,
-          ...(expiresAt ? { expiresAt: expiresAt.toISOString() } : {}),
+          expiresAt: expiresAt.toISOString(),
         })
         this.$emit('update:visible', false)
         this.$emit('saved')

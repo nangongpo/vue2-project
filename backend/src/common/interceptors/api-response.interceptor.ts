@@ -1,4 +1,4 @@
-import { CallHandler, ExecutionContext, Injectable, NestInterceptor } from '@nestjs/common'
+import { CallHandler, ExecutionContext, Injectable, NestInterceptor, StreamableFile } from '@nestjs/common'
 import { FastifyReply } from 'fastify'
 import { from, map, Observable, switchMap } from 'rxjs'
 import { isApiResponse, successResponse } from '#app/common/http/api-response.js'
@@ -23,6 +23,7 @@ export class ApiResponseInterceptor implements NestInterceptor {
     }
     return next.handle().pipe(
       switchMap((value: unknown) => {
+        if (value instanceof StreamableFile) return from([value])
         // A 204 response must remain bodyless. All other successful values use
         // the same public envelope unless the handler already supplied it.
         const payload = response.statusCode === 204 || isApiResponse(value) ? value : successResponse(value ?? null)

@@ -3,12 +3,12 @@ import { Prisma } from '@prisma/client'
 import { PrismaService } from '#app/database/prisma.service.js'
 import type { AuthenticatedUser } from '#app/security/types/auth.types.js'
 
-export type ScopeActor = Pick<AuthenticatedUser, 'internalId'>
+export type ScopeActor = Pick<AuthenticatedUser, 'internalId'> & { tenantId?: string | null }
 export type DataScopeWhere = {
   AND?: DataScopeWhere[]
   OR?: DataScopeWhere[]
   tenantId?: string
-  ownerId?: string
+  ownerUserId?: string
   departmentId?: string | { in: string[] }
   organizationId?: string | { in: string[] }
 }
@@ -16,6 +16,7 @@ export const effectiveGrant = (now: Date) => ({
   revokedAt: null,
   OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
 })
+export const effectiveDataScope = (now: Date) => ({ revokedAt: null, expiresAt: { gt: now } })
 const deny = (): never => {
   throw new ForbiddenException('没有有效的数据范围或归属关系')
 }
@@ -27,6 +28,8 @@ export class DataScopeService {
 
   async where(actor: ScopeActor, resource: string, db: Prisma.TransactionClient = this.prisma): Promise<DataScopeWhere> {
     if (!actor?.internalId || !/^[a-z][a-z0-9_.:-]{0,127}$/.test(resource)) return deny()
+    const tenantId = actor.tenantId
+    if (!tenantId) return deny()
     const now = new Date()
     const resourceDefinition = await db.dataResource.findUnique({
       where: { code: resource },
@@ -37,12 +40,20 @@ export class DataScopeService {
       where: { id: actor.internalId },
       include: {
         tenant: true,
+        tenantMemberships: {
+          where: {
+            tenantId,
+            status: 'ACTIVE',
+            OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+          },
+          select: { tenantId: true, organizationId: true, departmentId: true, scopeType: true },
+        },
         roles: {
-          where: { ...effectiveGrant(now), role: { status: 'ACTIVE' } },
+          where: { ...effectiveGrant(now), role: { status: 'ACTIVE', tenantId } },
           include: {
             role: {
               include: {
-                dataScopes: { where: { resource, ...effectiveGrant(now) } },
+                dataScopes: { where: { resource, ...effectiveDataScope(now) } },
                 elevatedDataScopes: {
                   where: {
                     resource,
@@ -62,30 +73,38 @@ export class DataScopeService {
       !user ||
       user.status !== 'ACTIVE' ||
       (user.expiresAt && user.expiresAt <= now) ||
-      !user.tenantId ||
-      user.tenant?.status !== 'ACTIVE' ||
+      !user.tenantMemberships.length ||
+      !user.tenantMemberships.some((membership) => membership.tenantId === tenantId) ||
       !user.roles.length
     )
       return deny()
-    const tenantId = user.tenantId
+    const membership = user.tenantMemberships[0]
+    const tenant = await db.tenant.findUnique({ where: { id: tenantId }, select: { status: true } })
+    if (!tenant || tenant.status !== 'ACTIVE') return deny()
+    // User.tenantId is only a legacy query hint. Authorization uses the active membership.
+    const scopedUser = {
+      ...user,
+      departmentId: membership.departmentId,
+      organizationId: membership.organizationId,
+    }
     const clauses: DataScopeWhere[] = [{ tenantId }]
     for (const { role } of user.roles) {
       if (!role.dataScopes.length && !role.elevatedDataScopes.length) return deny()
       for (const scope of role.dataScopes) {
         switch (scope.scopeType) {
           case 'SELF':
-            clauses.push({ ownerId: user.userId })
+            clauses.push({ ownerUserId: user.userId })
             break
           case 'TENANT':
             break
           case 'DEPARTMENT_SELF':
           case 'DEPARTMENT_TREE': {
-            if (!user.departmentId || !user.organizationId) return deny()
+            if (!scopedUser.departmentId || !scopedUser.organizationId) return deny()
             const department = await db.department.findFirst({
               where: {
-                id: user.departmentId,
+                id: scopedUser.departmentId,
                 tenantId,
-                organizationId: user.organizationId,
+                organizationId: scopedUser.organizationId,
                 status: 'ACTIVE',
                 organization: { status: 'ACTIVE' },
               },
@@ -96,16 +115,16 @@ export class DataScopeService {
                 scope.scopeType === 'DEPARTMENT_SELF'
                   ? department.id
                   : {
-                      in: await this.descendants(db, 'department', tenantId, department.id, user.organizationId),
+                      in: await this.descendants(db, 'department', tenantId, department.id, scopedUser.organizationId),
                     },
             })
             break
           }
           case 'ORGANIZATION_SELF':
           case 'ORGANIZATION_TREE': {
-            if (!user.organizationId) return deny()
+            if (!scopedUser.organizationId) return deny()
             const organization = await db.organization.findFirst({
-              where: { id: user.organizationId, tenantId, status: 'ACTIVE' },
+              where: { id: scopedUser.organizationId, tenantId, status: 'ACTIVE' },
             })
             if (!organization) return deny()
             clauses.push({
@@ -144,7 +163,7 @@ export class DataScopeService {
                 }))
               )
                 return deny()
-              targets.push({ ownerId: id })
+              targets.push({ ownerUserId: id })
               break
             case 'DEPARTMENT':
               if (

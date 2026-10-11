@@ -7,6 +7,8 @@ function session(overrides: Record<string, unknown> = {}) {
   return {
     id: 'session-1',
     revokedAt: null,
+    activeTenantId: 'tenant-a',
+    activeTenant: { id: 'tenant-a', status: 'ACTIVE' },
     expiresAt: new Date(Date.now() + 60_000),
     lastSeenAt: new Date(),
     user: {
@@ -131,6 +133,7 @@ describe('AuthService session lifecycle', () => {
 })
 
 function transactionFixture() {
+  vi.stubEnv('DEFAULT_TENANT_CODE', 'default-tenant')
   const user = {
     ...session().user,
     password: 'old-hash',
@@ -150,6 +153,7 @@ function transactionFixture() {
   }
   const prisma = {
     user: { findUnique: vi.fn().mockResolvedValue(user) },
+    userTenantMembership: { findFirst: vi.fn().mockResolvedValue({ tenantId: 'tenant-a' }) },
     $transaction: vi.fn(async (work: any) => work(tx)),
   }
   const passwords = {

@@ -338,6 +338,7 @@ export class ApprovalService {
                 await tx.user.findMany({
                   where: {
                     status: 'ACTIVE',
+                    tenantMemberships: { some: { tenantId: actor.tenantId, status: 'ACTIVE' } },
                     ...(keyword
                       ? {
                           OR: [
@@ -356,6 +357,7 @@ export class ApprovalService {
                 await tx.approvalTargetRef.create({
                   data: {
                     tokenHash: targetTokenHash(token),
+                    tenantId: actor.tenantId,
                     actorUserId: actor.userId,
                     kind: dto.kind,
                     targetType: dto.targetType,
@@ -370,6 +372,7 @@ export class ApprovalService {
               (
                 await tx.role.findMany({
                   where: {
+                    tenantId: actor.tenantId,
                     status: 'ACTIVE',
                     ...(keyword
                       ? { OR: [{ code: { contains: keyword } }, { name: { contains: keyword } }] }
@@ -384,6 +387,7 @@ export class ApprovalService {
                 await tx.approvalTargetRef.create({
                   data: {
                     tokenHash: targetTokenHash(token),
+                    tenantId: actor.tenantId,
                     actorUserId: actor.userId,
                     kind: dto.kind,
                     targetType: dto.targetType,
@@ -415,11 +419,12 @@ export class ApprovalService {
       if (external) this.assertExternalTargetRefs(dto.kind, dto.payload)
       const payload = approvalPayload(
         dto.kind,
-        await this.resolveTargetRefs(tx, dto.kind, dto.payload, actor.userId)
+        await this.resolveTargetRefs(tx, dto.kind, dto.payload, actor.userId, actor.tenantId)
       )
-      await this.validateTarget(tx, dto.kind, payload, [actor.userId])
+      await this.validateTarget(tx, dto.kind, payload, [actor.userId], actor.tenantId)
       const item = await tx.approvalRequest.create({
         data: {
+          tenantId: actor.tenantId,
           requestNo: requestNo(createdAt),
           kind: dto.kind,
           payload: json(payload),
@@ -478,7 +483,8 @@ export class ApprovalService {
     tx: Tx,
     kind: string,
     payload: Record<string, unknown>,
-    actorUserId: string
+    actorUserId: string,
+    actorTenantId: string
   ) {
     const resolved = { ...payload }
     const refs = [
@@ -493,7 +499,7 @@ export class ApprovalService {
     for (const entry of refs) {
       const value = resolved[entry.ref]
       if (typeof value !== 'string' || !value) continue
-      const target = await tx.approvalTargetRef.findUnique({ where: { tokenHash: targetTokenHash(value) } })
+      const target = await tx.approvalTargetRef.findFirst({ where: { tokenHash: targetTokenHash(value), tenantId: actorTenantId } })
       if (
         !target ||
         target.actorUserId !== actorUserId ||
@@ -508,7 +514,7 @@ export class ApprovalService {
     }
     for (const item of pending) {
       const claimed = await tx.approvalTargetRef.updateMany({
-        where: { id: item.target.id, usedAt: null, expiresAt: { gt: new Date() } },
+        where: { id: item.target.id, tenantId: actorTenantId, usedAt: null, expiresAt: { gt: new Date() } },
         data: { usedAt: new Date() },
       })
       if (claimed.count !== 1) throw new ConflictException('审批目标引用已被使用，请重新选择')
@@ -522,7 +528,7 @@ export class ApprovalService {
     this.authorize(actor, 'read')
     const dto = approvalDto(ApprovalQueryDto, query)
     const items = await this.prisma.approvalRequest.findMany({
-      where: { ...(dto.status ? { status: dto.status } : {}) },
+      where: { tenantId: actor.tenantId, ...(dto.status ? { status: dto.status } : {}) },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: 51,
       ...(dto.cursor ? { cursor: { id: dto.cursor }, skip: 1 } : {}),
@@ -569,7 +575,7 @@ export class ApprovalService {
 
   async detail(id: string, actor: ApprovalActor) {
     this.authorize(actor, 'detail')
-    const item = await this.prisma.approvalRequest.findUnique({ where: { id } })
+    const item = await this.prisma.approvalRequest.findFirst({ where: { id, tenantId: actor.tenantId } })
     if (!item) throw new NotFoundException('审批单不存在')
     return ok((await this.withActorProfiles([item], true, actor))[0])
   }
@@ -732,7 +738,7 @@ export class ApprovalService {
     const dto = approvalDto(ApprovalActionDto, input)
     if (!dto.note.trim()) throw new BadRequestException('必须填写处理意见')
     return this.transaction(async (tx) => {
-      const before = await tx.approvalRequest.findUnique({ where: { id } })
+      const before = await tx.approvalRequest.findFirst({ where: { id, tenantId: actor.tenantId } })
       if (!before) throw new NotFoundException('审批单不存在')
       this.authorize(actor, step, before.kind)
       const expected = { approve: 'REQUESTED', execute: 'APPROVED', review: 'EXECUTED' } as const
@@ -759,7 +765,7 @@ export class ApprovalService {
       ]
       if (step === 'review')
         await this.assertNotBeneficiary(tx, before.kind, payload, [actor.userId])
-      else await this.validateTarget(tx, before.kind, payload, actors)
+      else await this.validateTarget(tx, before.kind, payload, actors, actor.tenantId)
       const now = new Date()
       const data: Prisma.ApprovalRequestUpdateManyMutationInput = {
         status: next[step],
@@ -791,6 +797,7 @@ export class ApprovalService {
       const claimed = await tx.approvalRequest.updateMany({
         where: {
           id,
+          tenantId: actor.tenantId,
           status: expected[step],
           ...(step !== 'review' ? { expiresAt: { gt: now } } : {}),
         },
@@ -799,7 +806,7 @@ export class ApprovalService {
       if (claimed.count !== 1) throw new ConflictException('审批已被其他操作处理或已过期')
       const mutation =
         step === 'execute' ? await this.execute(tx, before, payload, actor, now) : undefined
-      const after = await tx.approvalRequest.findUniqueOrThrow({ where: { id } })
+      const after = await tx.approvalRequest.findFirstOrThrow({ where: { id, tenantId: actor.tenantId } })
       await this.audit(
         tx,
         actor,
@@ -823,14 +830,14 @@ export class ApprovalService {
     const dto = approvalDto(ApprovalActionDto, input)
     if (!dto.note.trim()) throw new BadRequestException('必须填写撤回原因')
     return this.transaction(async (tx) => {
-      const before = await tx.approvalRequest.findUnique({ where: { id } })
+      const before = await tx.approvalRequest.findFirst({ where: { id, tenantId: actor.tenantId } })
       if (!before) throw new NotFoundException('审批单不存在')
       if (!sameActor(before.applicantId, actor.userId))
         throw new ForbiddenException('只有申请人可以撤回审批申请')
       if (before.status !== 'REQUESTED') throw new ConflictException('只有待审批申请可以撤回')
       const now = new Date()
       const claimed = await tx.approvalRequest.updateMany({
-        where: { id, applicantId: actor.userId, status: 'REQUESTED' },
+        where: { id, tenantId: actor.tenantId, applicantId: actor.userId, status: 'REQUESTED' },
         data: {
           status: 'CANCELLED',
           cancellerId: actor.userId,
@@ -840,15 +847,15 @@ export class ApprovalService {
         },
       })
       if (claimed.count !== 1) throw new ConflictException('审批已被其他操作处理')
-      const after = await tx.approvalRequest.findUniqueOrThrow({ where: { id } })
+      const after = await tx.approvalRequest.findFirstOrThrow({ where: { id, tenantId: actor.tenantId } })
       await this.audit(tx, actor, context, 'cancel', id, { approval: before }, { approval: after })
       return ok(after)
     })
   }
 
-  private async role(tx: Tx, roleId: string) {
+  private async role(tx: Tx, roleId: string, tenantId: string) {
     const role = await tx.role.findUnique({ where: { roleId } })
-    if (!role || role.status !== 'ACTIVE') throw new BadRequestException('目标角色不存在或已停用')
+    if (!role || role.tenantId !== tenantId || role.status !== 'ACTIVE') throw new BadRequestException('目标角色不存在或已停用')
     return role
   }
 
@@ -961,13 +968,14 @@ export class ApprovalService {
     tx: Tx,
     kind: string,
     payload: ReturnType<typeof approvalPayload>,
-    actors: string[]
+    actors: string[],
+    tenantId: string
   ) {
     await this.assertNotBeneficiary(tx, kind, payload, actors)
     const now = new Date()
     if (['FILE_DELETE', 'FILE_REJECT', 'FILE_RESTORE', 'FILE_RESCAN'].includes(kind)) {
       const input = payload as FileActionPayload
-      const file = await tx.fileObject.findUnique({ where: { id: input.fileId } })
+      const file = await tx.fileObject.findFirst({ where: { id: input.fileId, tenantId } })
       if (!file) throw new NotFoundException('目标文件不存在')
       if (kind === 'FILE_DELETE' && file.status === 'DELETED') throw new ConflictException('文件已经删除')
       if (kind === 'FILE_REJECT' && file.status === 'DELETED') throw new ConflictException('已删除文件不能拒绝')
@@ -978,7 +986,7 @@ export class ApprovalService {
     if (kind === 'ROLE_STATUS') {
       const input = payload as RoleStatusPayload
       const role = await tx.role.findUnique({ where: { roleId: input.roleId } })
-      if (!role) throw new NotFoundException('目标角色不存在')
+      if (!role || role.tenantId !== tenantId) throw new NotFoundException('目标角色不存在')
       if (role.status === input.status) throw new ConflictException('角色已经是目标状态')
       if (input.status !== 'DISABLED') throw new BadRequestException('角色启用必须直接操作')
       if (
@@ -1003,7 +1011,7 @@ export class ApprovalService {
       } else {
         const input = payload as RoleGrantPayload | RolePermissionsPayload
         const role = await tx.role.findUnique({ where: { roleId: input.roleId } })
-        if (!role) throw new NotFoundException('目标角色不存在')
+        if (!role || role.tenantId !== tenantId) throw new NotFoundException('目标角色不存在')
         if (kind === 'ROLE_REVOKE') {
           const user = await tx.user.findUnique({
             where: { userId: (input as RoleGrantPayload).userId },
@@ -1138,7 +1146,7 @@ export class ApprovalService {
         throw new ConflictException('页面路径已存在')
       return
     }
-    const role = await this.role(tx, (payload as RoleGrantPayload).roleId)
+    const role = await this.role(tx, (payload as RoleGrantPayload).roleId, tenantId)
     const existing = await tx.rolePermission.findMany({
       where: { roleId: role.id, ...live(now) },
       include: { permission: { include: { roleTypes: { select: { roleType: true } } } } },
@@ -1186,6 +1194,8 @@ export class ApprovalService {
       )
         throw new BadRequestException('数据资源不存在或未启用')
       for (const target of input.targets) {
+        if (target.targetType === 'TENANT' && target.targetId !== tenantId)
+          throw new BadRequestException('数据范围目标必须属于当前租户')
         const exists =
           target.targetType === 'USER'
             ? await tx.user.findFirst({
@@ -1193,6 +1203,7 @@ export class ApprovalService {
                   userId: target.targetId,
                   status: 'ACTIVE',
                   OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+                  tenantMemberships: { some: { tenantId, status: 'ACTIVE' } },
                 },
                 select: { id: true },
               })
@@ -1203,12 +1214,13 @@ export class ApprovalService {
               })
             : target.targetType === 'ORGANIZATION'
             ? await tx.organization.findFirst({
-                where: { id: target.targetId, status: 'ACTIVE', tenant: { status: 'ACTIVE' } },
+                where: { id: target.targetId, tenantId, status: 'ACTIVE', tenant: { status: 'ACTIVE' } },
                 select: { id: true },
               })
             : await tx.department.findFirst({
                 where: {
                   id: target.targetId,
+                  tenantId,
                   status: 'ACTIVE',
                   tenant: { status: 'ACTIVE' },
                   organization: { status: 'ACTIVE' },
@@ -1232,7 +1244,8 @@ export class ApprovalService {
     if (isRevocation(request.kind)) return this.revoke(tx, request, payload, actor, now)
     if (request.kind === 'ROLE_STATUS') {
       const input = payload as RoleStatusPayload
-      const role = await tx.role.findUniqueOrThrow({ where: { roleId: input.roleId } })
+      const role = await tx.role.findFirst({ where: { roleId: input.roleId, tenantId: actor.tenantId } })
+      if (!role) throw new NotFoundException('目标角色不存在')
       if (role.status === input.status) throw new ConflictException('角色状态已变化，请重新读取')
       const after = await tx.role.update({
         where: { id: role.id },
@@ -1309,7 +1322,7 @@ export class ApprovalService {
     }
     if (request.kind === 'ROLE_GRANT') {
       const input = payload as RoleGrantPayload
-      const role = await this.role(tx, input.roleId)
+      const role = await this.role(tx, input.roleId, actor.tenantId)
       const user = await tx.user.findUniqueOrThrow({
         where: { userId: input.userId },
         select: { id: true },
@@ -1325,7 +1338,7 @@ export class ApprovalService {
     }
     if (request.kind === 'ROLE_PERMISSIONS') {
       const input = payload as RolePermissionsPayload
-      const role = await this.role(tx, input.roleId)
+      const role = await this.role(tx, input.roleId, actor.tenantId)
       const before = await tx.rolePermission.findMany({
         where: { roleId: role.id, permissionId: { in: input.permissionIds } },
       })
@@ -1418,7 +1431,7 @@ export class ApprovalService {
       return { before, after }
     }
     const input = payload as ElevatedScopePayload
-    const role = await this.role(tx, input.roleId)
+    const role = await this.role(tx, input.roleId, actor.tenantId)
     const after = await tx.roleElevatedDataScope.create({
       data: {
         roleId: role.id,
@@ -1451,17 +1464,17 @@ export class ApprovalService {
     const revocation = { revokedAt: now, revokedBy: actor.userId, revokeReason: request.reason }
     if (request.kind === 'ELEVATED_REVOKE') {
       const id = (payload as ElevatedRevokePayload).scopeId
-      const before = await tx.roleElevatedDataScope.findUniqueOrThrow({
-        where: { id },
+      const before = await tx.roleElevatedDataScope.findFirstOrThrow({
+        where: { id, role: { tenantId: actor.tenantId } },
         include: { targets: true },
       })
       const changed = await tx.roleElevatedDataScope.updateMany({
-        where: { id, revokedAt: null },
+        where: { id, revokedAt: null, role: { tenantId: actor.tenantId } },
         data: { revokedAt: now },
       })
       if (changed.count !== 1) throw new ConflictException('数据范围已被其他操作回收')
-      const after = await tx.roleElevatedDataScope.findUniqueOrThrow({
-        where: { id },
+      const after = await tx.roleElevatedDataScope.findFirstOrThrow({
+        where: { id, role: { tenantId: actor.tenantId } },
         include: { targets: true },
       })
       // The scope schema has no revoke actor/reason columns. Persist explicit provenance in the same atomic audit.
@@ -1469,6 +1482,7 @@ export class ApprovalService {
     }
     const input = payload as RoleGrantPayload | RolePermissionsPayload
     const role = await tx.role.findUniqueOrThrow({ where: { roleId: input.roleId } })
+    if (role.tenantId !== actor.tenantId) throw new NotFoundException('目标角色不存在')
     if (request.kind === 'ROLE_REVOKE') {
       const user = await tx.user.findUniqueOrThrow({
         where: { userId: (input as RoleGrantPayload).userId },
@@ -1519,6 +1533,7 @@ export class ApprovalService {
   ) {
     await tx.auditLog.create({
       data: {
+        tenantId: actor.tenantId,
         traceId: context.traceId || randomUUID(),
         actorId: actor.internalId,
         action: `system.approval.${action}`,

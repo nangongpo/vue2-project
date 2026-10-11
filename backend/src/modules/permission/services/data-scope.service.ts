@@ -9,6 +9,7 @@ import { resolveRiskDecision } from '#app/security/policies/risk-policy.js'
 import { isBusinessDataResource } from '#app/modules/permission/policies/data-resource-policy.js'
 import { sanitizeAuditDetail } from '#app/audit/utils/audit-sanitizer.js'
 import { DATA_SCOPE_TYPE_LABELS } from '#app/common/constants/enum-labels.js'
+import { parseAuthorizationExpiry } from '#app/common/constants/authorization.js'
 
 export type ScopeManagementContext = {
   actor: ScopeActor
@@ -35,10 +36,12 @@ export class DataScopeManagementService {
     now: Date
   ) {
     if (!context.actor?.internalId || !context.sessionToken) throw new ForbiddenException('需要安全管理员权限')
+    if (!context.actor.tenantId) throw new ForbiddenException('未确定有效租户')
     const session = await db.session.findFirst({
       where: {
         id: createHash('sha256').update(context.sessionToken).digest('hex'),
         userId: context.actor.internalId,
+        activeTenantId: context.actor.tenantId,
         kind: 'AUTHENTICATED',
         revokedAt: null,
         expiresAt: { gt: now },
@@ -52,6 +55,7 @@ export class DataScopeManagementService {
               role: {
                 status: 'ACTIVE',
                 roleType: 'SECURITY',
+                tenantId: context.actor.tenantId,
                 permissions: {
                   some: {
                     ...effectiveGrant(now),
@@ -80,6 +84,7 @@ export class DataScopeManagementService {
         const role = await tx.role.findUnique({
           where: { roleId },
           select: {
+            tenantId: true,
             roleId: true,
             dataScopes: {
               select: {
@@ -95,7 +100,7 @@ export class DataScopeManagementService {
             },
           },
         })
-        if (!role) throw new NotFoundException('角色不存在')
+        if (!role || role.tenantId !== context.actor.tenantId) throw new NotFoundException('角色不存在')
         return ok({
           ...role,
           dataScopes: role.dataScopes.map((scope) => ({
@@ -118,8 +123,7 @@ export class DataScopeManagementService {
     if (!isBusinessDataResource(input.resource) || !input.reason?.trim() || input.reason.length > 255)
       throw new BadRequestException('资源和授权原因无效')
     const now = new Date()
-    const expiresAt = input.expiresAt ? new Date(input.expiresAt) : null
-    if (expiresAt && (!Number.isFinite(expiresAt.getTime()) || expiresAt <= now)) throw new BadRequestException('过期时间必须在未来')
+    const expiresAt = parseAuthorizationExpiry(input.expiresAt, now)
     return this.prisma.$transaction(
       async (tx) => {
         await this.authorize(tx, context, 'system.data-scope.update', now)
@@ -141,7 +145,7 @@ export class DataScopeManagementService {
           id: scope.id,
           resource: scope.resource,
           scopeType: scope.scopeType,
-          expiresAt: scope.expiresAt?.toISOString() ?? null,
+          expiresAt: scope.expiresAt.toISOString(),
         })
         return ok({
           id: scope.id,
@@ -184,7 +188,9 @@ export class DataScopeManagementService {
   }
 
   private async editableRole(db: Prisma.TransactionClient, context: ScopeManagementContext, roleId: string) {
-    const role = await db.role.findUnique({ where: { roleId } })
+    const tenantId = context.actor.tenantId
+    if (!tenantId) throw new ForbiddenException('未确定有效租户')
+    const role = await db.role.findFirst({ where: { roleId, tenantId } })
     if (!role || role.status !== 'ACTIVE') throw new NotFoundException('启用角色不存在')
     if (role.roleType !== 'BUSINESS') throw new ForbiddenException('非业务角色的数据范围必须通过受控审批流程变更')
     // Expired assignments may be renewed: deny any unrevoked own assignment.
@@ -208,6 +214,7 @@ export class DataScopeManagementService {
   ) {
     await db.auditLog.create({
       data: {
+        tenantId: context.actor.tenantId,
         traceId: context.traceId || randomUUID(),
         actorId: context.actor.internalId,
         action: `system.data-scope.${action}`,

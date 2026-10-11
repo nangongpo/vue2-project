@@ -348,10 +348,17 @@ export class AuthService {
       select: { tenant: { select: { id: true, code: true, name: true } } },
     })
     const tenants = memberships.map(({ tenant }) => tenant)
-    return this.tenancyMode() === 'SINGLE' ? tenants.slice(0, 1) : tenants
+    if (this.tenancyMode() === 'SINGLE') {
+      const defaultCode = process.env.DEFAULT_TENANT_CODE?.trim()
+      const tenant = tenants.find((item) => item.code === defaultCode)
+      if (!tenant || tenants.length !== 1) throw new UnauthorizedException('单租户模式配置无效')
+      return [tenant]
+    }
+    return tenants
   }
 
   async switchTenant(rawToken: string | undefined, userId: bigint, tenantId: string) {
+    if (this.tenancyMode() === 'SINGLE') throw new ConflictException('单租户模式不允许切换租户')
     if (!rawToken) throw new UnauthorizedException('登录状态不存在')
     const now = new Date()
     const session = await this.prisma.session.findFirst({
@@ -405,7 +412,7 @@ export class AuthService {
     userId: bigint,
     currentPassword: string,
     newPassword: string,
-    auditContext: { traceId?: string; ip?: string; userAgent?: string; roleTypes?: string[] } = {}
+    auditContext: { traceId?: string; ip?: string; userAgent?: string; roleTypes?: string[]; tenantId?: string } = {}
   ) {
     try {
       await this.prisma.$transaction(
@@ -443,6 +450,7 @@ export class AuthService {
           })
           await tx.auditLog.create({
             data: {
+              tenantId: auditContext.tenantId || null,
               traceId: auditContext.traceId || randomUUID(),
               actorId: userId,
               action: 'auth.password.change',
@@ -477,9 +485,19 @@ export class AuthService {
   }
 
   private async toUser(user: AuthUserRecord, activeTenantId?: string | null): Promise<AuthenticatedUser> {
+    const membership = activeTenantId && this.prisma.userTenantMembership
+      ? await this.prisma.userTenantMembership.findFirst({
+          where: { userId: user.id, tenantId: activeTenantId, status: 'ACTIVE' },
+          select: { departmentId: true, organizationId: true },
+        })
+      : null
     const now = new Date()
     const roles = user.roles.filter(
-      (binding) => !binding.revokedAt && (!binding.expiresAt || binding.expiresAt > now) && binding.role.status === 'ACTIVE'
+      (binding) =>
+        binding.role.tenantId === activeTenantId &&
+        !binding.revokedAt &&
+        (!binding.expiresAt || binding.expiresAt > now) &&
+        binding.role.status === 'ACTIVE'
     )
     const adminTypes = new Set(roles.map((binding) => binding.role.roleType).filter((type: string) => type !== 'BUSINESS'))
     if (adminTypes.size > 1) throw new UnauthorizedException('账户绑定了互斥的管理员职责，请联系安全管理员')
@@ -583,9 +601,9 @@ export class AuthService {
         })),
       mfaEnabled: user.mfaEnabled,
       mfaRequired: adminTypes.size > 0,
-      tenantId: activeTenantId ?? user.tenantId,
-      departmentId: activeTenantId && activeTenantId !== user.tenantId ? null : user.departmentId,
-      organizationId: activeTenantId && activeTenantId !== user.tenantId ? null : user.organizationId,
+      tenantId: activeTenantId || (() => { throw new UnauthorizedException('当前会话未确定有效租户') })(),
+      departmentId: membership?.departmentId || null,
+      organizationId: membership?.organizationId || null,
       tenancyMode: this.tenancyMode(),
     }
   }
@@ -595,13 +613,23 @@ export class AuthService {
   }
 
   private async initialTenantId(userId: bigint) {
-    if (!this.prisma.userTenantMembership) return null
+    const defaultCode = process.env.DEFAULT_TENANT_CODE?.trim()
+    if (this.tenancyMode() === 'SINGLE' && !defaultCode) throw new UnauthorizedException('默认租户未配置')
     const membership = await this.prisma.userTenantMembership.findFirst({
-      where: { userId, status: 'ACTIVE', OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }], tenant: { status: 'ACTIVE' } },
+      where: {
+        userId,
+        status: 'ACTIVE',
+        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+        tenant: {
+          status: 'ACTIVE',
+          ...(this.tenancyMode() === 'SINGLE' ? { code: defaultCode } : {}),
+        },
+      },
       orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
       select: { tenantId: true },
     })
-    return membership?.tenantId || null
+    if (!membership) throw new UnauthorizedException('账号未绑定默认租户')
+    return membership.tenantId
   }
 
   private async sessionTenantId(session: { activeTenantId?: string | null; activeTenant?: { id: string; status: string } | null; user: { id: bigint; tenantId?: string | null } }) {

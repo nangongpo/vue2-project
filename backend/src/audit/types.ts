@@ -3,6 +3,7 @@ import type { RiskDecision } from '#app/security/policies/risk-policy.js'
 
 export type AuditRecordInput = {
   traceId: string
+  tenantId?: string
   actorId?: bigint
   action: string
   operationCode?: string
@@ -18,6 +19,7 @@ export type AuditRecordInput = {
 }
 
 export type AuditPageQuery = {
+  tenantId: string
   keyword?: string
   result?: AuditResult
   riskLevel?: RiskLevel
@@ -37,6 +39,7 @@ export type AuditPageRequest = Omit<AuditPageQuery, 'from' | 'to' | 'page' | 'pa
 }
 
 export type AuditExportQuery = {
+  tenantId: string
   from: string
   to: string
   keyword?: string
@@ -59,6 +62,7 @@ export type AuditRequest = {
   body: unknown
   user?: {
     internalId?: bigint
+    tenantId?: string
     roles?: readonly { roleType: string }[]
   }
   routeOptions?: { url?: string }

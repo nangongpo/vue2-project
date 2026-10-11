@@ -66,7 +66,7 @@ export class OpsTicketService {
       this.assertTypeAccess(user.roleTypes, input.type)
       this.validateCore(input)
       const ticket = await tx.opsTicket.create({
-        data: { ...input, ticketNo: this.ticketNo(), requestedBy: user.userId },
+        data: { ...input, tenantId: actor.tenantId, ticketNo: this.ticketNo(), requestedBy: user.userId },
       })
       await this.audit(tx, actor, 'ops-ticket.create', ticket.id, null, ticket)
       return this.ok(ticket)
@@ -76,6 +76,7 @@ export class OpsTicketService {
   async list(query: OpsTicketQueryDto, actor: Actor) {
     const { page, pageSize } = normalizePagination(query)
     const where: Prisma.OpsTicketWhereInput = {
+      tenantId: actor.tenantId,
       ...(query.status ? { status: query.status } : {}),
       ...(query.type ? { type: query.type } : {}),
       ...(query.riskLevel ? { riskLevel: query.riskLevel } : {}),
@@ -116,8 +117,8 @@ export class OpsTicketService {
   }
 
   async detail(id: string, actor: Actor) {
-    const ticket = await this.prisma.opsTicket.findUnique({
-      where: { id },
+    const ticket = await this.prisma.opsTicket.findFirst({
+      where: { id, tenantId: actor.tenantId },
       include: {
         evidence: { orderBy: { createdAt: 'asc' } },
         executions: { orderBy: { executedAt: 'asc' } },
@@ -188,7 +189,7 @@ export class OpsTicketService {
   async patch(id: string, input: PatchOpsTicketDto, actor: Actor) {
     return this.prisma.$transaction(async (tx) => {
       await this.authorize(tx, actor, 'system.ops-ticket.update')
-      const before = await tx.opsTicket.findUnique({ where: { id } })
+      const before = await tx.opsTicket.findFirst({ where: { id, tenantId: actor.tenantId } })
       if (!before) throw new NotFoundException('工单不存在')
       if (before.status !== 'DRAFT') throw new ConflictException('仅草稿工单允许修改')
       const after = await tx.opsTicket.update({ where: { id }, data: input })
@@ -204,17 +205,17 @@ export class OpsTicketService {
   async approve(id: string, input: OpsNoteDto, actor: Actor) {
     return this.prisma.$transaction(async (tx) => {
       const user = await this.authorize(tx, actor, 'system.ops-ticket.approve')
-      const before = await tx.opsTicket.findUnique({ where: { id } })
+      const before = await tx.opsTicket.findFirst({ where: { id, tenantId: actor.tenantId } })
       if (!before) throw new NotFoundException('工单不存在')
       if (before.status !== 'SUBMITTED') throw new ConflictException('工单当前状态不可确认')
       if (same(user.userId, before.requestedBy)) throw new ForbiddenException('申请人不能确认自己的工单')
       this.assertTypeAccess(user.roleTypes, before.type)
       const after = await tx.opsTicket.updateMany({
-        where: { id, status: 'SUBMITTED' },
+        where: { id, tenantId: actor.tenantId, status: 'SUBMITTED' },
         data: { status: 'APPROVED', approvedBy: user.userId, approvedAt: new Date() },
       })
       if (after.count !== 1) throw new ConflictException('工单已被其他操作处理')
-      const result = await tx.opsTicket.findUniqueOrThrow({ where: { id } })
+      const result = await tx.opsTicket.findFirstOrThrow({ where: { id, tenantId: actor.tenantId } })
       await this.audit(tx, actor, 'ops-ticket.approve', id, before, { ...result, note: input.note })
       return this.ok(result)
     }, serializable)
@@ -223,18 +224,18 @@ export class OpsTicketService {
   async execute(id: string, input: OpsNoteDto, actor: Actor) {
     return this.prisma.$transaction(async (tx) => {
       const user = await this.authorize(tx, actor, 'system.ops-ticket.execute')
-      const before = await tx.opsTicket.findUnique({ where: { id } })
+      const before = await tx.opsTicket.findFirst({ where: { id, tenantId: actor.tenantId } })
       if (!before) throw new NotFoundException('工单不存在')
       if (before.status !== 'APPROVED') throw new ConflictException('工单当前状态不可执行')
       if ([before.requestedBy, before.approvedBy].some((value) => value && same(value, user.userId)))
         throw new ForbiddenException('执行人必须独立于申请和确认人员')
       this.assertTypeAccess(user.roleTypes, before.type)
       const changed = await tx.opsTicket.updateMany({
-        where: { id, status: 'APPROVED' },
+        where: { id, tenantId: actor.tenantId, status: 'APPROVED' },
         data: { status: 'EXECUTED', executedBy: user.userId, executedAt: new Date() },
       })
       if (changed.count !== 1) throw new ConflictException('工单已被其他操作处理')
-      const result = await tx.opsTicket.findUniqueOrThrow({ where: { id } })
+      const result = await tx.opsTicket.findFirstOrThrow({ where: { id, tenantId: actor.tenantId } })
       await this.audit(tx, actor, 'ops-ticket.execute', id, before, { ...result, note: input.note })
       return this.ok(result)
     }, serializable)
@@ -243,13 +244,13 @@ export class OpsTicketService {
   async review(id: string, input: OpsNoteDto, actor: Actor) {
     return this.prisma.$transaction(async (tx) => {
       const user = await this.authorize(tx, actor, 'system.ops-ticket.review')
-      const before = await tx.opsTicket.findUnique({ where: { id } })
+      const before = await tx.opsTicket.findFirst({ where: { id, tenantId: actor.tenantId } })
       if (!before) throw new NotFoundException('工单不存在')
       if (before.status !== 'EXECUTED') throw new ConflictException('仅已执行工单允许复核')
       if ([before.requestedBy, before.approvedBy, before.executedBy].some((value) => value && same(value, user.userId)))
         throw new ForbiddenException('复核人必须独立于其他阶段人员')
       const changed = await tx.opsTicket.updateMany({
-        where: { id, status: 'EXECUTED' },
+        where: { id, tenantId: actor.tenantId, status: 'EXECUTED' },
         data: {
           status: 'REVIEWED',
           reviewedBy: user.userId,
@@ -258,7 +259,7 @@ export class OpsTicketService {
         },
       })
       if (changed.count !== 1) throw new ConflictException('工单已被其他操作处理')
-      const result = await tx.opsTicket.findUniqueOrThrow({ where: { id } })
+      const result = await tx.opsTicket.findFirstOrThrow({ where: { id, tenantId: actor.tenantId } })
       await this.audit(tx, actor, 'ops-ticket.review', id, before, { ...result, note: input.note })
       return this.ok(result)
     }, serializable)
@@ -267,16 +268,16 @@ export class OpsTicketService {
   async cancel(id: string, input: OpsNoteDto, actor: Actor) {
     return this.prisma.$transaction(async (tx) => {
       const user = await this.authorize(tx, actor, 'system.ops-ticket.cancel')
-      const before = await tx.opsTicket.findUnique({ where: { id } })
+      const before = await tx.opsTicket.findFirst({ where: { id, tenantId: actor.tenantId } })
       if (!before) throw new NotFoundException('工单不存在')
       if (!['DRAFT', 'SUBMITTED'].includes(before.status)) throw new ConflictException('当前状态不可取消')
       if (!same(before.requestedBy, user.userId)) throw new ForbiddenException('只有申请人可以取消草稿或待确认工单')
       const changed = await tx.opsTicket.updateMany({
-        where: { id, status: before.status },
+        where: { id, tenantId: actor.tenantId, status: before.status },
         data: { status: 'CANCELLED', closedAt: new Date() },
       })
       if (changed.count !== 1) throw new ConflictException('工单已被其他操作处理')
-      const result = await tx.opsTicket.findUniqueOrThrow({ where: { id } })
+      const result = await tx.opsTicket.findFirstOrThrow({ where: { id, tenantId: actor.tenantId } })
       await this.audit(tx, actor, 'ops-ticket.cancel', id, before, { ...result, note: input.note })
       return this.ok(result)
     }, serializable)
@@ -285,11 +286,11 @@ export class OpsTicketService {
   async addEvidence(id: string, input: OpsEvidenceDto, actor: Actor) {
     return this.prisma.$transaction(async (tx) => {
       const user = await this.authorize(tx, actor, 'system.ops-ticket.evidence.create')
-      const ticket = await tx.opsTicket.findUnique({ where: { id } })
+      const ticket = await tx.opsTicket.findFirst({ where: { id, tenantId: actor.tenantId } })
       if (!ticket) throw new NotFoundException('工单不存在')
       if (ticket.status === 'REVIEWED' || ticket.status === 'CANCELLED') throw new ConflictException('已关闭工单不能追加证据')
       const evidence = await tx.opsTicketEvidence.create({
-        data: { ...input, ticketId: id, uploadedBy: user.userId },
+        data: { ...input, tenantId: actor.tenantId, ticketId: id, uploadedBy: user.userId },
       })
       await this.audit(tx, actor, 'ops-ticket.evidence', id, null, evidence)
       return this.ok(evidence)
@@ -299,7 +300,7 @@ export class OpsTicketService {
   async addExecution(id: string, input: OpsExecutionDto, actor: Actor) {
     return this.prisma.$transaction(async (tx) => {
       const user = await this.authorize(tx, actor, 'system.ops-ticket.execution.create')
-      const ticket = await tx.opsTicket.findUnique({ where: { id } })
+      const ticket = await tx.opsTicket.findFirst({ where: { id, tenantId: actor.tenantId } })
       if (!ticket) throw new NotFoundException('工单不存在')
       if (ticket.ticketNo !== input.ticketNo || !['APPROVED', 'EXECUTED'].includes(ticket.status))
         throw new ConflictException('工单号不匹配或工单不允许执行回写')
@@ -312,6 +313,7 @@ export class OpsTicketService {
       if (duplicate) throw new ConflictException('执行记录已回写，禁止重复提交')
       const execution = await tx.opsTicketExecution.create({
         data: {
+          tenantId: actor.tenantId,
           ticketId: id,
           ticketNo: input.ticketNo,
           executorUserId: user.userId,
@@ -345,16 +347,16 @@ export class OpsTicketService {
   private async transition(id: string, status: 'SUBMITTED', actor: Actor, action: string) {
     return this.prisma.$transaction(async (tx) => {
       const user = await this.authorize(tx, actor, 'system.ops-ticket.submit')
-      const before = await tx.opsTicket.findUnique({ where: { id } })
+      const before = await tx.opsTicket.findFirst({ where: { id, tenantId: actor.tenantId } })
       if (!before) throw new NotFoundException('工单不存在')
       if (before.status !== 'DRAFT' || !same(before.requestedBy, user.userId)) throw new ConflictException('只有申请人可提交草稿工单')
       this.validateCore(before)
       const changed = await tx.opsTicket.updateMany({
-        where: { id, status: 'DRAFT' },
+        where: { id, tenantId: actor.tenantId, status: 'DRAFT' },
         data: { status },
       })
       if (changed.count !== 1) throw new ConflictException('工单已被其他操作处理')
-      const after = await tx.opsTicket.findUniqueOrThrow({ where: { id } })
+      const after = await tx.opsTicket.findFirstOrThrow({ where: { id, tenantId: actor.tenantId } })
       await this.audit(tx, actor, action, id, before, after)
       return this.ok(after)
     }, serializable)
@@ -447,6 +449,7 @@ export class OpsTicketService {
   private async audit(tx: Prisma.TransactionClient, actor: Actor, action: string, targetId: string, before: unknown, after: unknown) {
     await tx.auditLog.create({
       data: {
+        tenantId: actor.tenantId,
         actorId: actor.internalId,
         traceId: actor.traceId || randomUUID(),
         action,

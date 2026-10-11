@@ -47,7 +47,40 @@ Tenant
 
 组织、部门、用户归属和父子关系不能跨租户。组织是业务边界，部门是组织内的人员和数据范围边界；两者不能仅凭名称或客户端 ID 判断归属。
 
-### 3.3 当前租户上下文
+### 3.3 租户管理域与平台管理账号
+
+安全管理员、系统管理员和审计管理员不应归属某个业务组织或部门，而应归属当前租户的“租户管理域”：
+
+```text
+Tenant
+├── Platform management domain
+│   ├── Security administrator
+│   ├── System administrator
+│   └── Audit administrator
+└── Business organization
+    └── Department
+        └── Business user
+```
+
+平台管理账号的归属必须显式表达，不能仅依赖两个空字段推断。成员关系使用：
+
+```text
+scopeType = PLATFORM | ORGANIZATION | DEPARTMENT
+```
+
+约束如下：
+
+- `PLATFORM`：`organizationId` 和 `departmentId` 必须为 `NULL`，表示租户管理域；
+- `ORGANIZATION`：必须绑定当前租户下有效组织，部门可以为空；
+- `DEPARTMENT`：必须绑定当前租户下有效组织和部门；
+- 普通业务用户不能使用 `PLATFORM`；
+- `PLATFORM` 不自动授予任何业务数据范围或文件下载权；
+- 平台管理账号仍然只能访问被明确授予的管理资源；
+- 真正跨租户的平台运维账号应使用独立平台管理域和受控审批，不得依赖 `organizationId = NULL` 实现跨租户访问。
+
+因此，`NULL` 只表示显式的租户管理域，绝不表示全部组织、全部部门或全部业务数据。当前模型通过 `scopeType` 显式区分成员关系；新建成员关系必须同时校验 `scopeType` 与组织/部门字段。
+
+### 3.4 当前租户上下文
 
 当前租户上下文由服务端从已认证会话中确定，至少包含：
 
@@ -98,6 +131,8 @@ MULTI    多租户运行模式
 7. 文件、审批、缓存 Key、任务和审计记录仍携带租户 ID。
 8. 默认租户不存在、重复、禁用或配置不一致时，应用拒绝启动或进入只读维护状态。
 
+初始化还必须创建默认组织 `default-organization` 和默认部门 `default-department`。业务账号默认绑定该组织和部门，成员关系使用 `scopeType = DEPARTMENT`；安全、系统、审计管理员绑定 `scopeType = PLATFORM`，组织和部门保持 `NULL`。这只是归属初始化，不授予任何额外业务数据范围。
+
 单租户模式只是把可用租户集合限制为一个，不能使用 `tenantId IS NULL` 代表公共数据，也不能在代码中删除租户条件。
 
 ### 4.3 多租户模式
@@ -111,6 +146,29 @@ MULTI    多租户运行模式
 5. 切换后重新加载角色、数据范围、字段权限和风险策略。
 6. 跨租户资源 ID、文件 ID、审批 ID 和任务 ID 不得直接复用为授权凭据。
 7. 平台管理员权限和租户业务权限分层，平台管理员不自动获得租户业务数据下载权。
+
+### 4.4 全局数据边界规则
+
+单租户和多租户必须遵守同一套四级数据隔离模型：
+
+```text
+租户 → 组织 → 部门 → 数据资源范围/字段权限
+```
+
+规则如下：
+
+1. 单租户仍必须使用真实的默认租户边界；
+2. 单租户未来可以启用组织和部门，不得因为租户固定而跳过组织、部门或数据范围校验；
+3. `organizationId = NULL`、`departmentId = NULL` 只能表示显式的 `PLATFORM` 管理域，不表示全部组织、全部部门或全部租户；
+4. `PLATFORM` 账号不能自动获得业务数据，必须拥有明确的管理资源权限和数据范围；
+5. 组织、部门为空时，不能使用组织树或部门树范围；对于具备可信所有者字段的业务资源，必须显式配置 `SELF` 才能访问本人数据；
+6. 没有显式数据范围时默认拒绝，不执行运行时隐式 `SELF` 回退；
+7. 资源没有可信所有者、组织或部门归属时，不能使用 `SELF`、部门树或组织树范围；
+8. 多租户下所有范围都必须附加 `tenantId = session.activeTenantId`；
+9. 数据范围过滤必须先于字段权限裁剪；字段权限不能扩大数据范围；
+10. 客户端提交的租户、组织、部门、所有者和数据范围不能成为最终授权依据。
+
+这一节是全局数据边界的权威定义；授权执行细节以 [PERMISSION_DESIGN.md](PERMISSION_DESIGN.md) 为准。
 
 ## 5. 推荐数据模型
 
@@ -141,6 +199,7 @@ sys_user_tenant
 - user_id
 - tenant_id
 - status                ACTIVE / SUSPENDED / EXPIRED / REVOKED
+- scope_type            PLATFORM / ORGANIZATION / DEPARTMENT
 - default_tenant       BOOLEAN
 - valid_from
 - expires_at
@@ -149,9 +208,13 @@ sys_user_tenant
 - revoked_by
 - revoked_at
 
-实现中的成员关系表为 `sys_user_tenant_membership`，并使用 `(user_id, tenant_id)` 唯一约束、状态和有效期索引。所有新用户创建必须在同一事务中创建 ACTIVE 成员关系。
+实现中的成员关系表为 `sys_user_tenant_membership`，并使用 `(user_id, tenant_id)` 唯一约束、状态和有效期索引。所有新用户创建必须在同一事务中创建 ACTIVE 成员关系，并根据 `scope_type` 校验组织和部门归属。
 
-### 5.3 会话当前租户
+### 5.3 租户角色边界
+
+`sys_role.tenant_id` 是角色的强制租户边界。角色、角色绑定、角色权限和角色数据范围只能在当前会话租户内读取或变更；角色标识不能作为跨租户授权凭据。认证、用户角色分配、审批执行和数据范围计算都必须重新校验 `role.tenant_id = session.activeTenantId`。平台管理员角色也必须归属于明确租户，`PLATFORM` 只表示该租户内的管理域，不表示跨租户角色。
+
+### 5.4 会话当前租户
 
 ```text
 sys_session.active_tenant_id -> sys_tenant.id

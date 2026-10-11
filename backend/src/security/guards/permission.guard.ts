@@ -34,6 +34,8 @@ export class PermissionGuard implements CanActivate {
       'POST /api/v1/auth/logout',
       'GET /api/v1/auth/me',
       'GET /api/v1/auth/sessions',
+      'GET /api/v1/auth/tenants',
+      'POST /api/v1/auth/tenant',
       'GET /api/v1/auth/mfa/status',
       'DELETE /api/v1/auth/sessions/:id',
       'POST /api/v1/auth/password',

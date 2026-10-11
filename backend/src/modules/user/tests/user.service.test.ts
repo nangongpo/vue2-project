@@ -4,6 +4,7 @@ import { UserService } from '#app/modules/user/services/user.service.js'
 
 const actor = { internalId: 1n, tenantId: 'tenant-1' }
 const uuid = '550e8400-e29b-41d4-a716-446655440000'
+const expiry = () => new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
 const target = {
   id: 2n,
   userId: uuid,
@@ -16,6 +17,7 @@ const target = {
 const role = {
   id: 3n,
   roleId: uuid,
+  tenantId: 'tenant-1',
   roleType: 'BUSINESS',
   status: 'ACTIVE',
   permissions: [],
@@ -23,20 +25,26 @@ const role = {
 }
 
 function createPrisma() {
+  const findUser = vi.fn().mockImplementation(({ where }) =>
+    Promise.resolve(where.id === 1n ? { userId: uuid, status: 'ACTIVE', expiresAt: null } : target)
+  )
   const tx = {
     user: {
       count: vi.fn().mockResolvedValue(1),
       findMany: vi.fn().mockResolvedValue([{ id: 'u1', username: 'admin', roles: [] }]),
       create: vi.fn().mockResolvedValue({ userId: uuid, username: 'new-user' }),
-      findUnique: vi
-        .fn()
-        .mockImplementation(({ where }) =>
-          Promise.resolve(where.id === 1n ? { userId: uuid, status: 'ACTIVE', expiresAt: null } : target)
-        ),
+      findUnique: findUser,
+      findFirst: findUser,
       update: vi.fn().mockResolvedValue(target),
     },
     tenant: {
       findUnique: vi.fn().mockResolvedValue({ id: 'tenant-1', status: 'ACTIVE' }),
+    },
+    organization: {
+      findFirst: vi.fn().mockResolvedValue({ id: 'org-1' }),
+    },
+    department: {
+      findFirst: vi.fn().mockResolvedValue({ id: 'dept-1' }),
     },
     userTenantMembership: {
       create: vi.fn(),
@@ -146,7 +154,8 @@ describe('UserService', () => {
   it('assigns business roles with revocation history and a transactional audit', async () => {
     const prisma = createPrisma()
     const service = new UserService(prisma as any, {} as any)
-    await service.roles(uuid, { roleIds: [uuid], reason: 'Job duties', expiresAt: '2099-01-01T00:00:00Z' }, actor)
+    const expiresAt = expiry()
+    await service.roles(uuid, { roleIds: [uuid], reason: 'Job duties', expiresAt }, actor)
     expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
       isolationLevel: 'Serializable',
     })
@@ -155,7 +164,7 @@ describe('UserService', () => {
         create: expect.objectContaining({
           roleId: 3n,
           grantedBy: uuid,
-          expiresAt: new Date('2099-01-01T00:00:00Z'),
+          expiresAt: new Date(expiresAt),
         }),
       })
     )
@@ -184,7 +193,7 @@ describe('UserService', () => {
     const prisma = createPrisma()
     prisma.user.findUnique.mockResolvedValue({ ...target, id: 1n })
     const service = new UserService(prisma as any, {} as any)
-    await expect(service.roles(uuid, { roleIds: [], reason: 'Test' }, actor)).rejects.toBeInstanceOf(ForbiddenException)
+    await expect(service.roles(uuid, { roleIds: [], reason: 'Test', expiresAt: expiry() }, actor)).rejects.toBeInstanceOf(ForbiddenException)
     expect(prisma.userRole.updateMany).not.toHaveBeenCalled()
   })
 
@@ -193,7 +202,7 @@ describe('UserService', () => {
     prisma.role.findMany.mockResolvedValue([{ ...role, roleType }])
     prisma.role.findUniqueOrThrow.mockResolvedValue({ ...role, roleType })
     const service = new UserService(prisma as any, {} as any)
-    await expect(service.roles(uuid, { roleIds: [uuid], reason: 'Test' }, actor)).rejects.toBeInstanceOf(
+    await expect(service.roles(uuid, { roleIds: [uuid], reason: 'Test', expiresAt: expiry() }, actor)).rejects.toBeInstanceOf(
       ForbiddenException
     )
     expect(prisma.userRole.upsert).not.toHaveBeenCalled()
@@ -207,7 +216,7 @@ describe('UserService', () => {
       { ...role, roleId: otherId, roleType: 'AUDIT' },
     ])
     const service = new UserService(prisma as any, {} as any)
-    await expect(service.roles(uuid, { roleIds: [uuid, otherId], reason: 'Test' }, actor)).rejects.toThrow('职责互斥')
+    await expect(service.roles(uuid, { roleIds: [uuid, otherId], reason: 'Test', expiresAt: expiry() }, actor)).rejects.toThrow('职责互斥')
     expect(prisma.userRole.upsert).not.toHaveBeenCalled()
   })
 
@@ -217,7 +226,7 @@ describe('UserService', () => {
     prisma.userRole.findMany.mockResolvedValue([{ roleId: 3n, revokedAt: null }] as any)
     prisma.role.findUniqueOrThrow.mockResolvedValue({ ...role, roleType: 'AUDIT' })
     await expect(
-      new UserService(prisma as any, {} as any).roles(uuid, { roleIds: [], reason: 'Test' }, actor)
+      new UserService(prisma as any, {} as any).roles(uuid, { roleIds: [], reason: 'Test', expiresAt: expiry() }, actor)
     ).rejects.toBeInstanceOf(ForbiddenException)
     expect(prisma.userRole.updateMany).not.toHaveBeenCalled()
   })
@@ -233,7 +242,7 @@ describe('UserService', () => {
       ],
     } as any)
     await expect(
-      new UserService(prisma as any, {} as any).roles(uuid, { roleIds: [uuid], reason: 'Test' }, actor)
+      new UserService(prisma as any, {} as any).roles(uuid, { roleIds: [uuid], reason: 'Test', expiresAt: expiry() }, actor)
     ).rejects.toBeInstanceOf(ForbiddenException)
   })
 
@@ -344,7 +353,7 @@ describe('UserService', () => {
     const prisma = createPrisma()
     prisma.auditLog.create.mockRejectedValue(new Error('Audit unavailable'))
     await expect(
-      new UserService(prisma as any, {} as any).roles(uuid, { roleIds: [uuid], reason: 'Test' }, actor)
+      new UserService(prisma as any, {} as any).roles(uuid, { roleIds: [uuid], reason: 'Test', expiresAt: expiry() }, actor)
     ).rejects.toThrow('Audit unavailable')
   })
 })

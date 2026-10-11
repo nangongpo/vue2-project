@@ -146,9 +146,11 @@ export const PAGE_PERMISSION_BINDINGS: Readonly<Record<SeedPageCode, readonly Pa
   ],
   'page.business.file-upload': [
     pageApi('file.upload.read'),
+    pageApi('file.upload.resume'),
     buttonApi('file.upload.initiate', 'upload'),
     buttonApi('file.upload.part', 'upload-part'),
     buttonApi('file.upload.status', 'upload-status'),
+    buttonApi('file.upload.events', 'events'),
     buttonApi('file.upload.complete', 'complete'),
     buttonApi('file.upload.abort', 'abort'),
   ],

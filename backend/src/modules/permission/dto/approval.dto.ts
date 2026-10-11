@@ -69,7 +69,7 @@ export class ApprovalTargetOptionsQuery {
 export class RoleGrantPayload {
   @IsUUID() userId!: string
   @IsUUID() roleId!: string
-  /** 角色授权期限；不填写表示长期授权，不能复用审批单期限。 */
+  /** 角色授权期限；未提供时使用审批本身的短期有效期。 */
   @IsOptional() @IsISO8601({ strict: true }) grantExpiresAt?: string | null
 }
 export class RoleStatusPayload {

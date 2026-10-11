@@ -87,7 +87,7 @@ export class UserService {
           lastLoginAt: true,
           createdAt: true,
           roles: {
-            where: { ...activeGrant(), role: { status: 'ACTIVE' } },
+            where: { ...activeGrant(), role: { status: 'ACTIVE', ...(actor?.tenantId ? { tenantId: actor.tenantId } : {}) } },
             select: { role: { select: { roleId: true, code: true, name: true, roleType: true, status: true } } },
           },
         },
@@ -147,12 +147,41 @@ export class UserService {
         if (!actor.tenantId) throw new ForbiddenException('当前会话未确定有效租户')
         const tenant = await tx.tenant.findUnique({ where: { id: actor.tenantId }, select: { id: true, status: true } })
         if (!tenant || tenant.status !== 'ACTIVE') throw new ForbiddenException('默认租户未初始化或未启用')
+        const defaultOrganizationCode = process.env.DEFAULT_ORGANIZATION_CODE?.trim()
+        const defaultDepartmentCode = process.env.DEFAULT_DEPARTMENT_CODE?.trim()
+        if (!defaultOrganizationCode || !defaultDepartmentCode) throw new ForbiddenException('默认组织和部门配置缺失')
+        const defaultOrganization = await tx.organization.findFirst({
+          where: { tenantId: tenant.id, code: defaultOrganizationCode, status: 'ACTIVE' },
+          select: { id: true },
+        })
+        const defaultDepartment = defaultOrganization
+          ? await tx.department.findFirst({
+              where: { tenantId: tenant.id, organizationId: defaultOrganization.id, code: defaultDepartmentCode, status: 'ACTIVE' },
+              select: { id: true },
+            })
+          : null
+        if (!defaultOrganization || !defaultDepartment) throw new ForbiddenException('默认组织和部门未初始化')
         const created = await tx.user.create({
-          data: { username: input.username, password, displayName: input.displayName, tenantId: tenant.id },
+          data: {
+            username: input.username,
+            password,
+            displayName: input.displayName,
+            tenantId: tenant.id,
+            organizationId: defaultOrganization.id,
+            departmentId: defaultDepartment.id,
+          },
           select: { id: true, ...userSelect },
         })
         await tx.userTenantMembership.create({
-          data: { userId: created.id, tenantId: tenant.id, status: 'ACTIVE', isDefault: true },
+          data: {
+            userId: created.id,
+            tenantId: tenant.id,
+            scopeType: 'DEPARTMENT',
+            organizationId: defaultOrganization.id,
+            departmentId: defaultDepartment.id,
+            status: 'ACTIVE',
+            isDefault: true,
+          },
         })
         await audit(tx, actor, 'system.user.create', created.userId, null, created)
         return created
@@ -168,7 +197,7 @@ export class UserService {
     rejectFields(input, ['roleIds', 'status', 'roleType', 'permissionIds'])
     const user = await this.prisma.$transaction(async (tx) => {
       await requireActor(tx, actor)
-      const before = await tx.user.findUnique({ where: { userId: id }, select: userSelect })
+      const before = await tx.user.findFirst({ where: { userId: id, tenantMemberships: { some: { tenantId: actor.tenantId, status: 'ACTIVE' } } }, select: userSelect })
       if (!before) throw new NotFoundException('用户不存在')
       const after = await tx.user.update({
         where: { userId: id },
@@ -185,13 +214,13 @@ export class UserService {
     await this.prisma.$transaction(
       async (tx) => {
         await requireActor(tx, actor)
-        const user = await tx.user.findUnique({
-          where: { userId: id },
+        const user = await tx.user.findFirst({
+          where: { userId: id, tenantMemberships: { some: { tenantId: actor.tenantId, status: 'ACTIVE' } } },
           select: { id: true, password: true, passwordChangedAt: true, ...userSelect },
         })
         if (!user) throw new NotFoundException('用户不存在')
         if (user.id === actor.internalId) throw new ForbiddenException('请通过本人密码修改接口操作')
-        await this.protectAdministrator(tx, user.id)
+        await this.protectAdministrator(tx, user.id, actor.tenantId)
         await new PasswordPolicyService(this.passwords).replace(tx, user, password, false)
         await tx.session.updateMany({
           where: { userId: user.id, revokedAt: null },
@@ -220,7 +249,7 @@ export class UserService {
     const expiresAt = grantInput(input.roleIds, input.reason, input.expiresAt)
     if (this.approvals && approvalActor && input.roleIds.length === 1) {
       const roles = await this.prisma.role.findMany({
-        where: { roleId: { in: input.roleIds }, status: 'ACTIVE' },
+        where: { roleId: { in: input.roleIds }, tenantId: actor.tenantId, status: 'ACTIVE' },
         include: {
           permissions: {
             where: { revokedAt: null },
@@ -252,8 +281,8 @@ export class UserService {
     }
     await this.prisma.$transaction(async (tx) => {
       const actorId = await requireActor(tx, actor)
-      const user = await tx.user.findUnique({
-        where: { userId: id },
+      const user = await tx.user.findFirst({
+        where: { userId: id, tenantMemberships: { some: { tenantId: actor.tenantId, status: 'ACTIVE' } } },
         select: { id: true, status: true, expiresAt: true },
       })
       if (!user) throw new NotFoundException('用户不存在')
@@ -261,7 +290,7 @@ export class UserService {
       if (user.status !== 'ACTIVE' || (user.expiresAt && user.expiresAt <= new Date()))
         throw new BadRequestException('只能向有效账户分配角色')
       const roles = await tx.role.findMany({
-        where: { roleId: { in: input.roleIds }, status: 'ACTIVE' },
+        where: { roleId: { in: input.roleIds }, tenantId: actor.tenantId, status: 'ACTIVE' },
       })
       if (roles.length !== input.roleIds.length) throw new BadRequestException('角色无效或已禁用')
       const adminTypes = new Set(roles.filter((role) => role.roleType !== 'BUSINESS').map((role) => role.roleType))
@@ -269,8 +298,8 @@ export class UserService {
       const before = await tx.userRole.findMany({ where: { userId: user.id } })
       // Existing administrative bindings also require approval to revoke or renew.
       for (const binding of before.filter((binding) => binding.revokedAt === null))
-        await ordinaryRole(tx, binding.roleId)
-      for (const role of roles) await ordinaryRole(tx, role.id)
+        await ordinaryRole(tx, binding.roleId, actor.tenantId)
+      for (const role of roles) await ordinaryRole(tx, role.id, actor.tenantId)
       await tx.userRole.updateMany({
         where: {
           userId: user.id,
@@ -323,13 +352,13 @@ export class UserService {
     requireReason(input.reason)
     await this.prisma.$transaction(async (tx) => {
       await requireActor(tx, actor)
-      const before = await tx.user.findUnique({
-        where: { userId: id },
+      const before = await tx.user.findFirst({
+        where: { userId: id, tenantMemberships: { some: { tenantId: actor.tenantId, status: 'ACTIVE' } } },
         select: { id: true, ...userSelect },
       })
       if (!before) throw new NotFoundException('用户不存在')
       if (before.id === actor.internalId) throw new ForbiddenException('不能修改自身账户状态')
-      await this.protectAdministrator(tx, before.id)
+      await this.protectAdministrator(tx, before.id, actor.tenantId)
       if (unlock && before.status !== 'LOCKED') throw new BadRequestException('只能解锁已锁定账户')
       if (!unlock && input.status === 'ACTIVE' && before.status === 'LOCKED')
         throw new BadRequestException('锁定账户必须使用解锁接口')
@@ -355,8 +384,8 @@ export class UserService {
     return { code: API_CODE.SUCCESS, message: 'success', data: null }
   }
 
-  private async protectAdministrator(tx: Prisma.TransactionClient, userId: bigint) {
+  private async protectAdministrator(tx: Prisma.TransactionClient, userId: bigint, tenantId: string) {
     const bindings = await tx.userRole.findMany({ where: { userId, revokedAt: null } })
-    for (const binding of bindings) await ordinaryRole(tx, binding.roleId)
+    for (const binding of bindings) await ordinaryRole(tx, binding.roleId, tenantId)
   }
 }

@@ -1,51 +1,60 @@
-import request from './http'
+import { sendRequest } from './index'
 
 export function getMyUploadedFiles(params) {
-  return request({
+  return sendRequest({
     url: '/files/uploads/mine',
     method: 'get',
     params,
   })
 }
 
+export function getUnfinishedFileUploads() {
+  return sendRequest({
+    url: '/files/uploads/unfinished',
+    method: 'get',
+  })
+}
+
 export function initiateFileUpload(data) {
-  return request({
+  return sendRequest({
     url: '/files/uploads/initiate',
     method: 'post',
-    data,
+    params: data,
   })
 }
 
 export function getFileUploadStatus(uploadId) {
-  return request({
+  return sendRequest({
     url: `/files/uploads/${uploadId}/status`,
     method: 'get',
   })
 }
 
 export function uploadFilePart(uploadId, partNumber, blob, onUploadProgress) {
-  return request({
+  return sendRequest({
     url: `/files/uploads/${uploadId}/parts/${partNumber}`,
     method: 'put',
-    data: blob,
-    headers: {
-      'Content-Type': 'application/octet-stream',
+    params: blob,
+    config: {
+      headers: {
+        'Content-Type': 'application/octet-stream',
+      },
+      timeout: 0,
+      onUploadProgress,
     },
-    timeout: 0,
-    onUploadProgress,
   })
 }
 
 export function completeFileUpload(uploadId, clientSha256) {
-  return request({
+  return sendRequest({
     url: `/files/uploads/${uploadId}/complete`,
     method: 'post',
-    data: clientSha256 ? { clientSha256 } : {},
+    params: clientSha256 ? { clientSha256 } : {},
   })
 }
 
 export function abortFileUpload(uploadId) {
-  return request({
+  return sendRequest({
     url: `/files/uploads/${uploadId}/abort`,
     method: 'post',
   })

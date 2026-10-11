@@ -1,4 +1,5 @@
-import { BadRequestException, Body, Controller, Get, Headers, HttpCode, HttpStatus, Inject, Param, ParseIntPipe, ParseUUIDPipe, Post, Put, Query, Req, UseGuards } from '@nestjs/common'
+import { BadRequestException, Body, Controller, Get, HttpCode, HttpStatus, Inject, Param, ParseIntPipe, ParseUUIDPipe, Post, Put, Query, Req, Res, Sse, StreamableFile, UseGuards } from '@nestjs/common'
+import type { FastifyReply } from 'fastify'
 import type { FastifyRequest } from 'fastify'
 import type { Readable } from 'node:stream'
 import { AuthGuard } from '#app/security/guards/auth.guard.js'
@@ -8,20 +9,21 @@ import { DataFieldSecurity } from '#app/common/decorators/data-field-security.de
 import { AuditAction } from '#app/audit/decorators/audit.decorator.js'
 import { actorFrom } from '#app/modules/role/domain/authorization.js'
 import type { ActorRequest } from '#app/modules/role/domain/authorization.js'
-import { CompleteUploadDto, FileListQueryDto, InitiateUploadDto, PartUrlsDto } from '#app/modules/file/file.dto.js'
+import { CompleteUploadDto, FileListQueryDto, InitiateUploadDto } from '#app/modules/file/file.dto.js'
 import { FileService } from '#app/modules/file/file.service.js'
+import { EventStreamService } from '#app/events/event-stream.service.js'
 
 @Controller('files')
 @UseGuards(AuthGuard)
 export class FileController {
-  constructor(@Inject(FileService) private readonly files: FileService) {}
+  constructor(@Inject(FileService) private readonly files: FileService, private readonly events: EventStreamService) {}
 
   @Post('uploads/initiate')
   @RequirePermissions('file.upload.initiate')
   @SecurityOperation('file.upload.initiate')
   @AuditAction('file.upload.initiated')
-  initiate(@Body() body: InitiateUploadDto, @Headers('idempotency-key') idempotencyKey: string | undefined, @Req() request: ActorRequest) {
-    return this.files.initiate(body, actorFrom(request), idempotencyKey)
+  initiate(@Body() body: InitiateUploadDto, @Req() request: ActorRequest) {
+    return this.files.initiate(body, actorFrom(request))
   }
 
   @Get('uploads/mine')
@@ -32,11 +34,12 @@ export class FileController {
     return this.files.listMine(query, actorFrom(request))
   }
 
-  @Post('uploads/:uploadId/part-urls')
-  @RequirePermissions('file.upload.part')
-  @SecurityOperation('file.upload.part')
-  partUrls(@Param('uploadId', ParseUUIDPipe) uploadId: string, @Body() body: PartUrlsDto, @Req() request: ActorRequest) {
-    return this.files.partUrls(uploadId, body.partNumbers, actorFrom(request))
+  @Get('uploads/unfinished')
+  @RequirePermissions('file.upload.resume')
+  @SecurityOperation('file.upload.resume')
+  @DataFieldSecurity('file.upload')
+  unfinished(@Req() request: ActorRequest) {
+    return this.files.unfinished(actorFrom(request))
   }
 
   @Get('uploads/:uploadId/status')
@@ -45,6 +48,18 @@ export class FileController {
   @DataFieldSecurity('file.upload')
   status(@Param('uploadId', ParseUUIDPipe) uploadId: string, @Req() request: ActorRequest) {
     return this.files.status(uploadId, actorFrom(request))
+  }
+
+  @Sse('uploads/:uploadId/events')
+  @RequirePermissions('file.upload.events')
+  @SecurityOperation('file.upload.events')
+  eventsForUpload(@Param('uploadId', ParseUUIDPipe) uploadId: string, @Req() request: ActorRequest) {
+    const actor = actorFrom(request)
+    return this.events.connect(
+      { tenantId: actor.tenantId, subjectType: 'USER', subjectId: request.user.userId || request.user.internalId.toString() },
+      () => this.files.eventSnapshot(uploadId, actor),
+      (event) => event.eventType === 'file.upload.status.changed' && event.aggregateId === uploadId ? event.payload as Record<string, unknown> : null,
+    )
   }
 
   @Put('uploads/:uploadId/parts/:partNumber')
@@ -83,8 +98,14 @@ export class FileController {
   @RequirePermissions('file.download')
   @SecurityOperation('file.download')
   @AuditAction('file.downloaded')
-  download(@Param('fileId', ParseUUIDPipe) fileId: string, @Req() request: ActorRequest) {
-    return this.files.download(fileId, actorFrom(request))
+  async download(@Param('fileId', ParseUUIDPipe) fileId: string, @Req() request: ActorRequest, @Res({ passthrough: true }) response: FastifyReply) {
+    const file = await this.files.download(fileId, actorFrom(request))
+    response.header('Content-Type', file.contentType)
+    response.header('Content-Length', file.size.toString())
+    response.header('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(file.filename)}`)
+    response.header('Cache-Control', 'no-store, private')
+    response.header('X-Content-Type-Options', 'nosniff')
+    return new StreamableFile(file.stream)
   }
 
 }

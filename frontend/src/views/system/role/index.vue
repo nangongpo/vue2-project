@@ -14,7 +14,7 @@
         <el-table-column label="状态" width="70"><template slot-scope="{ row }"><el-tag
               :type="row.isActive ? 'success' : 'info'">{{ row.statusLabel }}</el-tag></template></el-table-column>
         <el-table-column prop="userCount" label="用户数" width="80" />
-        <el-table-column label="操作" width="200" fixed="right"><template slot-scope="{ row }">
+        <el-table-column label="操作" width="230" fixed="right"><template slot-scope="{ row }">
             <permission-button :row="row" action="edit" type="text" @click="openForm(row)" />
             <permission-button :row="row" action="grant" type="text" @click="openGrants(row)" />
             <permission-button :row="row" :action="row.isActive ? 'disable' : 'enable'" type="text"

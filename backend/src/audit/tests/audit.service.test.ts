@@ -49,7 +49,7 @@ describe('AuditService', () => {
     const prisma = { auditLog: { findUnique } } as any
     const service = new AuditService(prisma)
 
-    const result = await service.detail('log-1')
+    const result = await service.detail('log-1', 'tenant-a')
 
     expect(result.data).not.toHaveProperty('actorId')
     expect(result.data.actor).toEqual({
@@ -82,7 +82,7 @@ describe('AuditService', () => {
       integrityHash: '8'.repeat(64),
     })
     try {
-      const result = await new AuditService({ auditLog: { findUnique } } as any).verify('log-1')
+      const result = await new AuditService({ auditLog: { findUnique } } as any).verify('log-1', 'tenant-a')
       expect(result.data).toMatchObject({ valid: false, algorithm: 'HMAC-SHA256' })
     } finally {
       if (originalSecret === undefined) delete process.env.AUDIT_INTEGRITY_SECRET
@@ -101,6 +101,7 @@ describe('AuditService', () => {
     const from = new Date('2026-09-01T00:00:00.000Z')
 
     const result = await service.page({
+      tenantId: 'tenant-a',
       keyword: 'users',
       result: 'FAILURE',
       from,

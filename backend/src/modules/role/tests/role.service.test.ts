@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
 import { BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common'
 import { RoleService } from '#app/modules/role/services/role.service.js'
-import { grantInput, ordinaryPermission } from '#app/modules/role/domain/authorization.js'
+import { grantInput, isSystemBuiltinRole, ordinaryPermission } from '#app/modules/role/domain/authorization.js'
 
-const actor = { internalId: 1n, traceId: 'trace' }
+const actor = { internalId: 1n, tenantId: 'tenant-a', traceId: 'trace' }
 const uuid = '550e8400-e29b-41d4-a716-446655440000'
+const expiry = () => new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
 const permission = {
   id: uuid,
   code: 'business.file.read',
@@ -18,6 +19,7 @@ const permission = {
 const role = {
   id: 2n,
   roleId: uuid,
+  tenantId: 'tenant-a',
   code: 'operator',
   roleType: 'BUSINESS',
   status: 'ACTIVE',
@@ -69,13 +71,62 @@ describe('RoleService', () => {
         ]),
       },
     }
-    const result = await new RoleService(prisma as any).list()
+    const result = await new RoleService(prisma as any).list([], 'tenant-a')
     expect(result).toMatchObject({ code: '000000', data: [{ name: 'admin' }] })
     expect(result.data[0]).not.toHaveProperty('code')
     expect(result.data[0]).not.toHaveProperty('roleType')
     expect(result.data[0]).not.toHaveProperty('status')
     expect(result.data[0]).not.toHaveProperty('permissions')
     expect(result.data[0]).not.toHaveProperty('permissionIds')
+  })
+
+  it('does not expose delete for system builtin business roles', async () => {
+    const prisma = {
+      role: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            roleId: uuid,
+            tenantId: 'tenant-a',
+            code: 'builtin_business',
+            name: '业务管理员',
+            description: null,
+            roleType: 'BUSINESS',
+            status: 'ACTIVE',
+            _count: { users: 0 },
+          },
+        ]),
+      },
+    }
+    const result = await new RoleService(prisma as any).list([
+      'system.role.delete',
+      'system.role.disable',
+      'system.role.enable',
+    ], 'tenant-a')
+    expect(result.data[0].availableActions).toEqual([])
+  })
+
+  it('identifies only explicitly prefixed system builtin roles', () => {
+    expect(isSystemBuiltinRole({ code: 'builtin_business' })).toBe(true)
+    expect(isSystemBuiltinRole({ code: 'builtin_future' })).toBe(false)
+    expect(isSystemBuiltinRole({ code: 'operator' })).toBe(false)
+  })
+
+  it('rejects deletion of system builtin roles in the service layer', async () => {
+    const { tx, service } = fixture()
+    tx.role.findUnique.mockResolvedValue({
+      ...role,
+      code: 'builtin_business',
+      _count: { users: 0, permissions: 0, dataScopes: 0, elevatedDataScopes: 0 },
+    } as any)
+    await expect(service.remove(uuid, actor)).rejects.toBeInstanceOf(ForbiddenException)
+    expect(tx.role.delete).not.toHaveBeenCalled()
+  })
+
+  it('rejects enabling or disabling system builtin roles in the service layer', async () => {
+    const { tx, service } = fixture()
+    tx.role.findUnique.mockResolvedValue({ ...role, code: 'builtin_business' } as any)
+    await expect(service.status(uuid, { status: 'DISABLED', reason: 'Emergency test' }, actor)).rejects.toBeInstanceOf(ForbiddenException)
+    expect(tx.role.update).not.toHaveBeenCalled()
   })
 
   it('converts duplicate role codes to a conflict error', async () => {
@@ -116,7 +167,7 @@ describe('RoleService', () => {
   it.each(['PAGE', 'BUTTON', 'API'])('grants only explicitly selected %s resources and keeps revocation history', async (type) => {
     const { tx, prisma, service } = fixture()
     tx.permission.findMany.mockResolvedValue([{ ...permission, type }])
-    await service.grants(uuid, { permissionIds: [uuid], reason: 'Job duties' }, actor)
+    await service.grants(uuid, { permissionIds: [uuid], reason: 'Job duties', expiresAt: expiry() }, actor)
     expect(tx.rolePermission.upsert).toHaveBeenCalledTimes(1)
     expect(tx.rolePermission.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -168,7 +219,7 @@ describe('RoleService', () => {
   it('rejects changes to the actor’s own role grants and status', async () => {
     const { tx, service } = fixture()
     tx.userRole.findFirst.mockResolvedValue({ userId: 1n } as any)
-    await expect(service.grants(uuid, { permissionIds: [uuid], reason: 'Test' }, actor)).rejects.toBeInstanceOf(ForbiddenException)
+    await expect(service.grants(uuid, { permissionIds: [uuid], reason: 'Test', expiresAt: expiry() }, actor)).rejects.toBeInstanceOf(ForbiddenException)
     await expect(service.status(uuid, { status: 'DISABLED', reason: 'Test' }, actor)).rejects.toBeInstanceOf(ForbiddenException)
     expect(tx.rolePermission.upsert).not.toHaveBeenCalled()
     expect(tx.role.update).not.toHaveBeenCalled()
@@ -177,16 +228,16 @@ describe('RoleService', () => {
   it.each(['SYSTEM', 'SECURITY', 'AUDIT'])('protects %s roles from ordinary changes', async (roleType) => {
     const { tx, service } = fixture()
     tx.role.findUniqueOrThrow.mockResolvedValue({ ...role, roleType })
-    await expect(service.grants(uuid, { permissionIds: [], reason: 'Test' }, actor)).rejects.toBeInstanceOf(ForbiddenException)
+    await expect(service.grants(uuid, { permissionIds: [], reason: 'Test', expiresAt: expiry() }, actor)).rejects.toBeInstanceOf(ForbiddenException)
     await expect(service.update(uuid, { name: 'Other' }, actor)).rejects.toBeInstanceOf(ForbiddenException)
   })
 
   it('rejects disabled target roles and nonexistent permissions', async () => {
     const { tx, service } = fixture()
     tx.role.findUnique.mockResolvedValueOnce({ ...role, status: 'DISABLED' })
-    await expect(service.grants(uuid, { permissionIds: [uuid], reason: 'Test' }, actor)).rejects.toBeInstanceOf(BadRequestException)
+    await expect(service.grants(uuid, { permissionIds: [uuid], reason: 'Test', expiresAt: expiry() }, actor)).rejects.toBeInstanceOf(BadRequestException)
     tx.permission.findMany.mockResolvedValue([])
-    await expect(service.grants(uuid, { permissionIds: [uuid], reason: 'Test' }, actor)).rejects.toBeInstanceOf(BadRequestException)
+    await expect(service.grants(uuid, { permissionIds: [uuid], reason: 'Test', expiresAt: expiry() }, actor)).rejects.toBeInstanceOf(BadRequestException)
   })
 
   it.each(['users', 'permissions', 'dataScopes', 'elevatedDataScopes'])(
@@ -206,7 +257,7 @@ describe('RoleService', () => {
     const { tx, service } = fixture()
     tx.permission.findMany.mockResolvedValue([])
     tx.auditLog.create.mockRejectedValue(new Error('Audit unavailable'))
-    await expect(service.grants(uuid, { permissionIds: [], reason: 'Revoke' }, actor)).rejects.toThrow('Audit unavailable')
+    await expect(service.grants(uuid, { permissionIds: [], reason: 'Revoke', expiresAt: expiry() }, actor)).rejects.toThrow('Audit unavailable')
   })
 
   it('validates UUIDs, duplicate IDs, reason and future expiry', () => {

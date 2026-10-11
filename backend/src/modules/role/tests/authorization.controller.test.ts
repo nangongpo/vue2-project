@@ -72,14 +72,14 @@ describe('role/user authorization HTTP contracts', () => {
   it('forwards only the authenticated internal actor identity to services', () => {
     const service = { grants: vi.fn() }
     const request = {
-      user: { internalId: 42n },
+      user: { internalId: 42n, tenantId: 'tenant-a' },
       traceId: 'trace',
       ip: '127.0.0.1',
       method: 'PATCH',
       url: `/api/v1/roles/${uuid}/grants`,
       headers: {},
     }
-    const body = { permissionIds: [uuid], reason: 'Job duties' }
+    const body = { permissionIds: [uuid], reason: 'Job duties', expiresAt: '2099-01-01T00:00:00Z' }
     new RoleController(service as any).grants(uuid, body, request)
     expect(service.grants).toHaveBeenCalledWith(
       uuid,

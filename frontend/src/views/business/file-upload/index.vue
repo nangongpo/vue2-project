@@ -12,8 +12,18 @@
       <div v-if="file" class="file-info">
         <div><span>文件：</span>{{ file.name }}</div>
         <div><span>大小：</span>{{ formatSize(file.size) }}</div>
-        <div><span>建议分片：</span>{{ formatSize(chunkSize) }}</div>
+        <div><span>服务端分片：</span>{{ formatSize(chunkSize) }}</div>
         <div><span>上传会话：</span>{{ uploadId || '尚未创建' }}</div>
+      </div>
+
+      <div v-if="unfinishedUploads.length" class="resume-list">
+        <strong>未完成上传</strong>
+        <div v-for="session in unfinishedUploads" :key="session.uploadId" class="resume-item">
+          <span>{{ session.fileName }}（{{ formatSize(Number(session.fileSize)) }}）</span>
+          <button type="button" class="button" :disabled="!canResume(session) || uploading" @click="useUploadSession(session)">
+            {{ canResume(session) ? '使用此会话' : '请重新选择原文件' }}
+          </button>
+        </div>
       </div>
 
       <div v-if="uploadId" class="progress-wrap">
@@ -59,24 +69,28 @@
 import {
   abortFileUpload,
   completeFileUpload,
+  getUnfinishedFileUploads,
   getMyUploadedFiles,
   getFileUploadStatus,
   initiateFileUpload,
   uploadFilePart,
 } from '@/api/file-upload'
+import { EventStreamClient } from '@/utils/event-stream-client'
+import { resolveFileUploadStatus } from '@/constants/file-upload-status'
 
-const DEFAULT_CHUNK = 8 * 1024 * 1024
 const MAX_RETRY = 3
-
-function chooseChunkSize() {
-  const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection
-  const downlink = connection && Number(connection.downlink)
-  if (downlink >= 50) return 32 * 1024 * 1024
-  if (downlink >= 10) return 16 * 1024 * 1024
-  if (downlink >= 2) return 8 * 1024 * 1024
-  if (downlink > 0) return 5 * 1024 * 1024
-  return DEFAULT_CHUNK
-}
+const FILE_STATUS_LABELS = Object.freeze({
+  QUARANTINED: '隔离',
+  READY: '可用',
+  REJECTED: '拒绝',
+  DELETED: '已删除',
+})
+const FILE_SCAN_STATUS_LABELS = Object.freeze({
+  PENDING: '待扫描',
+  CLEAN: '通过',
+  INFECTED: '感染/违规',
+  ERROR: '扫描异常',
+})
 
 export default {
   name: 'BusinessFileUpload',
@@ -84,7 +98,7 @@ export default {
     return {
       file: null,
       uploadId: '',
-      chunkSize: DEFAULT_CHUNK,
+      chunkSize: 0,
       totalParts: 0,
       completedParts: {},
       uploading: false,
@@ -99,21 +113,27 @@ export default {
       filePageSize: 10,
       fileTotalPages: 0,
       fileListLoading: false,
+      fileListRefreshPending: false,
+      unfinishedUploads: [],
       pollTimer: null,
       pollDelay: 2000,
+      uploadEvents: null,
+      statusFallbackTimer: null,
     }
   },
   mounted() {
     this.loadFileList()
+    this.loadUnfinishedUploads()
   },
   beforeDestroy() {
-    this.stopUploadPolling()
+    this.stopUploadStatusTracking()
   },
   methods: {
     chooseFile() {
       this.$refs.fileInput.click()
     },
     selectFile(event) {
+      this.stopUploadStatusTracking()
       const files = event.target.files || []
       this.file = files[0] || null
       this.uploadId = ''
@@ -122,7 +142,8 @@ export default {
       this.result = ''
       this.message = this.file ? '文件已选择，可以开始上传。' : ''
       this.messageType = 'info'
-      this.chunkSize = chooseChunkSize()
+      this.chunkSize = 0
+      this.loadUnfinishedUploads()
     },
     async startUpload() {
       if (!this.file || this.uploading) return
@@ -137,7 +158,6 @@ export default {
           fileName: this.file.name,
           fileSize: this.file.size,
           declaredMime: this.file.type || undefined,
-          chunkSize: this.chunkSize,
           purpose: 'business-file-upload-test',
         })
         this.uploadId = session.uploadId
@@ -152,6 +172,8 @@ export default {
     },
     async resumeUpload() {
       const status = await getFileUploadStatus(this.uploadId)
+      this.chunkSize = status.chunkSize
+      this.totalParts = status.totalParts
       const received = (status.parts || []).reduce((map, part) => {
         map[part.partNumber] = true
         return map
@@ -171,8 +193,7 @@ export default {
       this.result = JSON.stringify(completed, null, 2)
       this.message = '分片上传完成，文件正在安全扫描。'
       this.messageType = 'success'
-      await this.pollUploadStatus()
-      await this.loadFileList()
+      this.startUploadStatusTracking()
     },
     async uploadPartWithRetry(partNumber) {
       const start = (partNumber - 1) * this.chunkSize
@@ -195,6 +216,7 @@ export default {
       if (!this.uploadId) return
       try {
         await abortFileUpload(this.uploadId)
+        this.stopUploadStatusTracking()
         this.uploading = false
         this.statusText = '已中止'
         this.message = '上传会话已中止。'
@@ -211,24 +233,60 @@ export default {
       this.pollDelay = 2000
       while (this.uploadId) {
         const status = await getFileUploadStatus(this.uploadId)
-        const uploadStatus = status.uploadStatus || status.status
-        const fileStatus = status.fileStatus || 'QUARANTINED'
         this.result = JSON.stringify(status, null, 2)
-        if (uploadStatus === 'COMPLETED' && fileStatus === 'READY' && status.scanStatus === 'CLEAN') {
-          this.statusText = '扫描通过，文件已可用'
-          return
-        }
-        if (['FAILED', 'REJECTED', 'EXPIRED', 'ABORTED'].includes(uploadStatus) || ['REJECTED', 'DELETED'].includes(fileStatus)) {
-          this.statusText = uploadStatus === 'FAILED' ? '处理失败，可重试' : `处理结束：${fileStatus}`
-          return
-        }
-        this.statusText = fileStatus === 'QUARANTINED' ? '等待安全扫描' : '文件正在处理中'
+        const state = resolveFileUploadStatus(status)
+        this.statusText = state.text
+        if (!this.applyUploadStatusToFileList(status)) await this.refreshFileList()
+        if (state.terminal) return
         await new Promise((resolve) => {
           this.pollTimer = setTimeout(resolve, this.pollDelay)
         })
         this.pollTimer = null
         this.pollDelay = Math.min(5000, this.pollDelay + 1000)
       }
+    },
+    startUploadStatusTracking() {
+      this.stopUploadPolling()
+      this.stopUploadEvents()
+      const fallback = () => {
+        this.stopUploadEvents()
+        void this.pollUploadStatus()
+      }
+      const client = new EventStreamClient({
+        path: `/files/uploads/${this.uploadId}/events`,
+        events: {
+          snapshot: (status) => this.handleUploadStatus(status),
+          'file.upload.status.changed': (status) => this.handleUploadStatus(status),
+          message: (status) => this.handleUploadStatus(status),
+        },
+        onOpen: () => this.clearStatusFallbackTimer(),
+        onUnavailable: fallback,
+        onError: fallback,
+      })
+      if (!client.connect()) return
+      this.uploadEvents = client
+      this.statusFallbackTimer = setTimeout(fallback, 15000)
+    },
+    handleUploadStatus(status) {
+      const payload = status && status.data && typeof status.data === 'object' ? status.data : status
+      this.result = JSON.stringify(payload, null, 2)
+      const state = resolveFileUploadStatus(payload)
+      this.statusText = state.text
+      if (!this.applyUploadStatusToFileList(payload)) void this.refreshFileList()
+      if (state.terminal) this.stopUploadStatusTracking()
+    },
+    stopUploadStatusTracking() {
+      this.stopUploadPolling()
+      this.stopUploadEvents()
+    },
+    clearStatusFallbackTimer() {
+      if (this.statusFallbackTimer) clearTimeout(this.statusFallbackTimer)
+      this.statusFallbackTimer = null
+    },
+    stopUploadEvents() {
+      this.clearStatusFallbackTimer()
+      if (this.uploadEvents) this.uploadEvents.close()
+      this.uploadEvents = null
     },
     stopUploadPolling() {
       if (this.pollTimer) clearTimeout(this.pollTimer)
@@ -246,7 +304,58 @@ export default {
         this.showError(error)
       } finally {
         this.fileListLoading = false
+        if (this.fileListRefreshPending) {
+          this.fileListRefreshPending = false
+          void this.loadFileList()
+        }
       }
+    },
+    refreshFileList() {
+      if (this.fileListLoading) {
+        this.fileListRefreshPending = true
+        return Promise.resolve()
+      }
+      return this.loadFileList()
+    },
+    applyUploadStatusToFileList(status) {
+      if (!status || !status.fileId) return false
+      const index = this.fileItems.findIndex((item) => item.id === status.fileId)
+      if (index < 0) return false
+      const fileStatus = status.fileStatus || this.fileItems[index].status
+      const scanStatus = status.scanStatus || this.fileItems[index].scanStatus
+      this.$set(this.fileItems, index, {
+        ...this.fileItems[index],
+        status: fileStatus,
+        statusLabel: FILE_STATUS_LABELS[fileStatus] || this.fileItems[index].statusLabel,
+        scanStatus,
+        scanStatusLabel: FILE_SCAN_STATUS_LABELS[scanStatus] || this.fileItems[index].scanStatusLabel,
+      })
+      return true
+    },
+    async loadUnfinishedUploads() {
+      try {
+        const result = await getUnfinishedFileUploads()
+        this.unfinishedUploads = Array.isArray(result) ? result : []
+      } catch {
+        this.unfinishedUploads = []
+      }
+    },
+    canResume(session) {
+      return Boolean(this.file && this.file.name === session.fileName && this.file.size === Number(session.fileSize))
+    },
+    useUploadSession(session) {
+      if (!this.canResume(session)) return
+      this.uploadId = session.uploadId
+      this.chunkSize = session.chunkSize
+      this.totalParts = session.totalParts
+      this.completedParts = (session.parts || []).reduce((map, part) => {
+        map[part.partNumber] = true
+        return map
+      }, {})
+      this.updateProgress()
+      this.statusText = '可继续上传'
+      this.message = '已选择服务端上传会话，请确认文件后开始继续上传。'
+      this.messageType = 'info'
     },
     async changeFilePage(page) {
       if (page < 1 || (this.fileTotalPages && page > this.fileTotalPages)) return
@@ -277,7 +386,7 @@ export default {
 
 <style lang="scss" scoped>
 .upload-page { padding: 24px; }
-.panel { max-width: 760px; padding: 24px; background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; }
+.panel { padding: 24px; background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; }
 h2 { margin: 0 0 12px; color: #1f2937; }
 .hint { margin: 0 0 20px; color: #6b7280; line-height: 1.6; }
 .file-input { display: none; }

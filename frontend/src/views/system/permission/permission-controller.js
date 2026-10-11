@@ -543,7 +543,7 @@ export default {
       if (!force && this.dataResourcesResource === this.selectedResource && this.dataResources.length) return
       this.dataResourcesLoading = true
       try {
-        this.dataResources = await getDataResources(this.selectedResource)
+        this.dataResources = await getDataResources({ resource: this.selectedResource })
         this.dataResourcesResource = this.selectedResource
       } catch {
         this.dataResources = []

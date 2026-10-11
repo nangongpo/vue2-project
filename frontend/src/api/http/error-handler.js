@@ -126,7 +126,10 @@ export function createErrorHandler(request) {
  */
 export function setupErrorHandler(request) {
   const errorHandler = createErrorHandler(request)
-  const interceptorId = request.interceptors.response.use(responseHandler, errorHandler)
+  const interceptorId = request.interceptors.response.use(
+    (response) => Promise.resolve(responseHandler(response)).catch(errorHandler),
+    errorHandler,
+  )
 
   return {
     errorHandler,

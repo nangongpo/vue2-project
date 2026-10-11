@@ -75,7 +75,7 @@ export const mapButtonApis = (id, apiIds) =>
   sendRequest({ url: `/permission/buttons/${id}/apis`, method: 'patch', params: { apiIds } })
 export const getPermissionDataFields = (resource) =>
   axiosGet('/permission/fields', resource ? { resource } : {})
-export const getDataResources = (resource, status) =>
+export const getDataResources = ({ resource, status } = {}) =>
   axiosGet('/permission/data-resources', {
     ...(resource ? { resource } : {}),
     ...(status ? { status } : {}),

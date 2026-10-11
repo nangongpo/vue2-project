@@ -1,3 +1,7 @@
+-- Generated from backend/prisma/schema.prisma.
+-- The final three statements add tenant-bound membership constraints that
+-- Prisma cannot express as composite membership relations/checks.
+
 -- CreateTable
 CREATE TABLE `sys_user` (
     `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -30,7 +34,9 @@ CREATE TABLE `sys_user` (
 -- CreateTable
 CREATE TABLE `sys_file_object` (
     `id` CHAR(36) NOT NULL,
-    `tenant_id` CHAR(36) NULL,
+    `tenant_id` CHAR(36) NOT NULL,
+    `organization_id` CHAR(36) NOT NULL,
+    `department_id` CHAR(36) NOT NULL,
     `owner_user_id` CHAR(36) NOT NULL,
     `storage_key` VARCHAR(512) NOT NULL,
     `original_name` VARCHAR(255) NOT NULL,
@@ -53,6 +59,7 @@ CREATE TABLE `sys_file_object` (
 
     UNIQUE INDEX `sys_file_object_storage_key_key`(`storage_key`),
     INDEX `sys_file_object_tenant_id_status_created_at_idx`(`tenant_id`, `status`, `created_at`),
+    INDEX `sys_file_object_tenant_org_dept_created_idx`(`tenant_id`, `organization_id`, `department_id`, `created_at`),
     INDEX `sys_file_object_owner_user_id_created_at_idx`(`owner_user_id`, `created_at`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
@@ -61,7 +68,7 @@ CREATE TABLE `sys_file_object` (
 CREATE TABLE `sys_file_binding` (
     `id` CHAR(36) NOT NULL,
     `file_id` CHAR(36) NOT NULL,
-    `tenant_id` CHAR(36) NULL,
+    `tenant_id` CHAR(36) NOT NULL,
     `resource_type` VARCHAR(64) NOT NULL,
     `resource_id` VARCHAR(128) NOT NULL,
     `field_name` VARCHAR(64) NULL,
@@ -79,13 +86,14 @@ CREATE TABLE `sys_file_binding` (
 CREATE TABLE `sys_upload_session` (
     `id` CHAR(36) NOT NULL,
     `user_id` CHAR(36) NOT NULL,
-    `tenant_id` CHAR(36) NULL,
+    `tenant_id` CHAR(36) NOT NULL,
+    `organization_id` CHAR(36) NOT NULL,
+    `department_id` CHAR(36) NOT NULL,
     `file_id` CHAR(36) NULL,
     `object_key` VARCHAR(512) NOT NULL,
     `file_name` VARCHAR(255) NOT NULL,
     `declared_mime` VARCHAR(128) NULL,
     `purpose` VARCHAR(64) NOT NULL,
-    `resource` VARCHAR(128) NULL,
     `resource_type` VARCHAR(64) NULL,
     `resource_id` CHAR(36) NULL,
     `field_name` VARCHAR(64) NULL,
@@ -93,12 +101,13 @@ CREATE TABLE `sys_upload_session` (
     `chunk_size` INTEGER UNSIGNED NOT NULL,
     `total_parts` INTEGER UNSIGNED NOT NULL,
     `client_sha256` CHAR(64) NULL,
-    `status` ENUM('UPLOADING', 'VERIFYING', 'SCANNING', 'COMPLETED', 'FAILED', 'ABORTED', 'EXPIRED') NOT NULL DEFAULT 'UPLOADING',
+    `status` ENUM('UPLOADING', 'FINALIZING', 'SCANNING', 'COMPLETED', 'FAILED', 'ABORTED', 'EXPIRED') NOT NULL DEFAULT 'UPLOADING',
     `expires_at` DATETIME(3) NOT NULL,
     `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `updated_at` DATETIME(3) NOT NULL,
 
     INDEX `sys_upload_session_user_id_status_expires_at_idx`(`user_id`, `status`, `expires_at`),
+    INDEX `sys_upload_session_tenant_org_dept_status_idx`(`tenant_id`, `organization_id`, `department_id`, `status`, `expires_at`),
     INDEX `sys_upload_session_expires_at_idx`(`expires_at`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
@@ -117,6 +126,55 @@ CREATE TABLE `sys_upload_part` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
+CREATE TABLE `sys_file_finalize_job` (
+    `id` CHAR(36) NOT NULL,
+    `file_id` CHAR(36) NOT NULL,
+    `tenant_id` CHAR(36) NOT NULL,
+    `upload_id` CHAR(36) NOT NULL,
+    `status` ENUM('PENDING', 'RUNNING', 'SUCCEEDED', 'INFECTED', 'FAILED', 'DEAD_LETTER', 'CANCELLED') NOT NULL DEFAULT 'PENDING',
+    `attempts` INTEGER UNSIGNED NOT NULL DEFAULT 0,
+    `max_attempts` INTEGER UNSIGNED NOT NULL DEFAULT 5,
+    `next_retry_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `locked_at` DATETIME(3) NULL,
+    `locked_by` VARCHAR(128) NULL,
+    `started_at` DATETIME(3) NULL,
+    `finished_at` DATETIME(3) NULL,
+    `last_error` VARCHAR(512) NULL,
+    `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `updated_at` DATETIME(3) NOT NULL,
+
+    UNIQUE INDEX `sys_file_finalize_job_upload_id_key`(`upload_id`),
+    INDEX `sys_file_finalize_job_status_next_retry_at_idx`(`status`, `next_retry_at`),
+    INDEX `sys_file_finalize_job_tenant_id_status_next_retry_at_idx`(`tenant_id`, `status`, `next_retry_at`),
+    INDEX `sys_file_finalize_job_locked_at_idx`(`locked_at`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
+CREATE TABLE `sys_file_scan_job` (
+    `id` CHAR(36) NOT NULL,
+    `file_id` CHAR(36) NOT NULL,
+    `tenant_id` CHAR(36) NOT NULL,
+    `status` ENUM('PENDING', 'RUNNING', 'SUCCEEDED', 'INFECTED', 'FAILED', 'DEAD_LETTER', 'CANCELLED') NOT NULL DEFAULT 'PENDING',
+    `attempts` INTEGER UNSIGNED NOT NULL DEFAULT 0,
+    `max_attempts` INTEGER UNSIGNED NOT NULL DEFAULT 5,
+    `next_retry_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `locked_at` DATETIME(3) NULL,
+    `locked_by` VARCHAR(128) NULL,
+    `started_at` DATETIME(3) NULL,
+    `finished_at` DATETIME(3) NULL,
+    `last_error` VARCHAR(512) NULL,
+    `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `updated_at` DATETIME(3) NOT NULL,
+
+    INDEX `sys_file_scan_job_status_next_retry_at_idx`(`status`, `next_retry_at`),
+    INDEX `sys_file_scan_job_tenant_id_status_next_retry_at_idx`(`tenant_id`, `status`, `next_retry_at`),
+    INDEX `sys_file_scan_job_file_id_created_at_idx`(`file_id`, `created_at`),
+    INDEX `sys_file_scan_job_locked_at_idx`(`locked_at`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
 CREATE TABLE `sys_password_history` (
     `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     `user_id` BIGINT UNSIGNED NOT NULL,
@@ -131,6 +189,7 @@ CREATE TABLE `sys_password_history` (
 CREATE TABLE `sys_role` (
     `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     `role_id` CHAR(36) NOT NULL,
+    `tenant_id` CHAR(36) NOT NULL,
     `code` VARCHAR(64) NOT NULL,
     `name` VARCHAR(128) NOT NULL,
     `description` VARCHAR(255) NULL,
@@ -140,7 +199,8 @@ CREATE TABLE `sys_role` (
     `updated_at` DATETIME(3) NOT NULL,
 
     UNIQUE INDEX `sys_role_role_id_key`(`role_id`),
-    UNIQUE INDEX `sys_role_code_key`(`code`),
+    UNIQUE INDEX `sys_role_tenant_id_code_key`(`tenant_id`, `code`),
+    INDEX `sys_role_tenant_id_role_type_status_idx`(`tenant_id`, `role_type`, `status`),
     INDEX `sys_role_role_type_status_idx`(`role_type`, `status`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
@@ -314,7 +374,7 @@ CREATE TABLE `sys_role_data_scope` (
     `role_id` BIGINT UNSIGNED NOT NULL,
     `resource` VARCHAR(128) NOT NULL,
     `scope_type` ENUM('SELF', 'DEPARTMENT_SELF', 'DEPARTMENT_TREE', 'ORGANIZATION_SELF', 'ORGANIZATION_TREE', 'TENANT') NOT NULL,
-    `expires_at` DATETIME(3) NULL,
+    `expires_at` DATETIME(3) NOT NULL,
     `revoked_at` DATETIME(3) NULL,
     `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `updated_at` DATETIME(3) NOT NULL,
@@ -369,6 +429,7 @@ CREATE TABLE `sys_session` (
     `revoked_at` DATETIME(3) NULL,
     `mfa_verified_at` DATETIME(3) NULL,
     `reauthenticated_at` DATETIME(3) NULL,
+    `active_tenant_id` CHAR(36) NOT NULL,
     `ip` VARCHAR(64) NULL,
     `user_agent` VARCHAR(512) NULL,
 
@@ -380,6 +441,7 @@ CREATE TABLE `sys_session` (
 -- CreateTable
 CREATE TABLE `sys_audit_log` (
     `id` CHAR(36) NOT NULL,
+    `tenant_id` CHAR(36) NULL,
     `trace_id` VARCHAR(64) NOT NULL,
     `actor_id` BIGINT UNSIGNED NULL,
     `action` VARCHAR(128) NOT NULL,
@@ -397,6 +459,7 @@ CREATE TABLE `sys_audit_log` (
     `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
 
     INDEX `sys_audit_log_created_at_idx`(`created_at`),
+    INDEX `sys_audit_log_tenant_id_created_at_idx`(`tenant_id`, `created_at`),
     INDEX `sys_audit_log_actor_id_created_at_idx`(`actor_id`, `created_at`),
     INDEX `sys_audit_log_trace_id_idx`(`trace_id`),
     INDEX `sys_audit_log_risk_level_created_at_idx`(`risk_level`, `created_at`),
@@ -432,6 +495,7 @@ CREATE TABLE `sys_operation_policy` (
 -- CreateTable
 CREATE TABLE `sys_ops_ticket` (
     `id` CHAR(36) NOT NULL,
+    `tenant_id` CHAR(36) NOT NULL,
     `ticket_no` VARCHAR(32) NOT NULL,
     `type` ENUM('MFA_RESET_EMERGENCY', 'DB_MANUAL_FIX', 'PERMISSION_RECOVERY', 'ACCOUNT_RECOVERY', 'OTHER') NOT NULL,
     `status` ENUM('DRAFT', 'SUBMITTED', 'APPROVED', 'EXECUTED', 'REVIEWED', 'REJECTED', 'CANCELLED') NOT NULL DEFAULT 'DRAFT',
@@ -458,6 +522,7 @@ CREATE TABLE `sys_ops_ticket` (
 
     UNIQUE INDEX `sys_ops_ticket_ticket_no_key`(`ticket_no`),
     INDEX `sys_ops_ticket_status_created_at_idx`(`status`, `created_at`),
+    INDEX `sys_ops_ticket_tenant_id_status_created_at_idx`(`tenant_id`, `status`, `created_at`),
     INDEX `sys_ops_ticket_type_risk_level_created_at_idx`(`type`, `risk_level`, `created_at`),
     INDEX `sys_ops_ticket_requested_by_created_at_idx`(`requested_by`, `created_at`),
     PRIMARY KEY (`id`)
@@ -467,6 +532,7 @@ CREATE TABLE `sys_ops_ticket` (
 CREATE TABLE `sys_ops_ticket_evidence` (
     `id` CHAR(36) NOT NULL,
     `ticket_id` CHAR(36) NOT NULL,
+    `tenant_id` CHAR(36) NOT NULL,
     `type` ENUM('APPROVAL_SCREENSHOT', 'EMAIL', 'CHAT', 'SQL_REVIEW', 'OTHER') NOT NULL,
     `name` VARCHAR(255) NOT NULL,
     `uri` VARCHAR(1024) NOT NULL,
@@ -475,6 +541,7 @@ CREATE TABLE `sys_ops_ticket_evidence` (
     `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
 
     INDEX `sys_ops_ticket_evidence_ticket_id_created_at_idx`(`ticket_id`, `created_at`),
+    INDEX `sys_ops_ticket_evidence_tenant_id_created_at_idx`(`tenant_id`, `created_at`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -482,6 +549,7 @@ CREATE TABLE `sys_ops_ticket_evidence` (
 CREATE TABLE `sys_ops_ticket_execution` (
     `id` CHAR(36) NOT NULL,
     `ticket_id` CHAR(36) NOT NULL,
+    `tenant_id` CHAR(36) NOT NULL,
     `ticket_no` VARCHAR(32) NOT NULL,
     `executor_user_id` CHAR(36) NULL,
     `operator_os_user` VARCHAR(128) NOT NULL,
@@ -502,6 +570,7 @@ CREATE TABLE `sys_ops_ticket_execution` (
     `executed_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
 
     INDEX `sys_ops_ticket_execution_ticket_id_executed_at_idx`(`ticket_id`, `executed_at`),
+    INDEX `sys_ops_ticket_execution_tenant_id_executed_at_idx`(`tenant_id`, `executed_at`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -515,6 +584,28 @@ CREATE TABLE `sys_tenant` (
     `updated_at` DATETIME(3) NOT NULL,
 
     UNIQUE INDEX `sys_tenant_code_key`(`code`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
+CREATE TABLE `sys_user_tenant_membership` (
+    `id` CHAR(36) NOT NULL,
+    `user_id` BIGINT UNSIGNED NOT NULL,
+    `tenant_id` CHAR(36) NOT NULL,
+    `scope_type` ENUM('PLATFORM', 'ORGANIZATION', 'DEPARTMENT') NOT NULL,
+    `organization_id` CHAR(36) NULL,
+    `department_id` CHAR(36) NULL,
+    `status` ENUM('ACTIVE', 'SUSPENDED', 'EXPIRED', 'REVOKED') NOT NULL DEFAULT 'ACTIVE',
+    `is_default` BOOLEAN NOT NULL DEFAULT false,
+    `assigned_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `expires_at` DATETIME(3) NULL,
+    `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `updated_at` DATETIME(3) NOT NULL,
+
+    INDEX `sys_user_tenant_membership_user_id_status_expires_at_idx`(`user_id`, `status`, `expires_at`),
+    INDEX `sys_user_tenant_membership_tenant_id_status_idx`(`tenant_id`, `status`),
+    INDEX `sys_user_tenant_membership_tenant_id_organization_id_departm_idx`(`tenant_id`, `organization_id`, `department_id`),
+    UNIQUE INDEX `sys_user_tenant_membership_user_id_tenant_id_key`(`user_id`, `tenant_id`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -558,6 +649,7 @@ CREATE TABLE `sys_department` (
 -- CreateTable
 CREATE TABLE `sys_approval_request` (
     `id` CHAR(36) NOT NULL,
+    `tenant_id` CHAR(36) NOT NULL,
     `request_no` VARCHAR(20) NOT NULL,
     `kind` ENUM('ROLE_GRANT', 'ROLE_STATUS', 'ROLE_PERMISSIONS', 'API_ROUTE_CHANGE', 'API_CREATE', 'API_UPDATE', 'API_ENABLE', 'API_DISABLE', 'API_DELETE', 'PAGE_ENABLE', 'PAGE_DISABLE', 'PAGE_ROUTE_CHANGE', 'ELEVATED_SCOPE', 'ROLE_REVOKE', 'ROLE_PERMISSION_REVOKE', 'ELEVATED_REVOKE', 'MFA_RESET', 'FILE_DELETE', 'FILE_REJECT', 'FILE_RESTORE', 'FILE_RESCAN') NOT NULL,
     `status` ENUM('REQUESTED', 'APPROVED', 'EXECUTED', 'REVIEWED', 'CANCELLED') NOT NULL DEFAULT 'REQUESTED',
@@ -587,6 +679,7 @@ CREATE TABLE `sys_approval_request` (
 
     UNIQUE INDEX `sys_approval_request_request_no_key`(`request_no`),
     INDEX `sys_approval_request_status_created_at_idx`(`status`, `created_at`),
+    INDEX `sys_approval_request_tenant_id_status_created_at_idx`(`tenant_id`, `status`, `created_at`),
     INDEX `sys_approval_request_applicant_id_created_at_idx`(`applicant_id`, `created_at`),
     INDEX `sys_approval_request_expires_at_idx`(`expires_at`),
     PRIMARY KEY (`id`)
@@ -595,6 +688,7 @@ CREATE TABLE `sys_approval_request` (
 -- CreateTable
 CREATE TABLE `sys_approval_target_ref` (
     `id` CHAR(36) NOT NULL,
+    `tenant_id` CHAR(36) NOT NULL,
     `token` CHAR(64) NOT NULL,
     `actor_user_id` CHAR(36) NOT NULL,
     `kind` ENUM('ROLE_GRANT', 'ROLE_STATUS', 'ROLE_PERMISSIONS', 'API_ROUTE_CHANGE', 'API_CREATE', 'API_UPDATE', 'API_ENABLE', 'API_DISABLE', 'API_DELETE', 'PAGE_ENABLE', 'PAGE_DISABLE', 'PAGE_ROUTE_CHANGE', 'ELEVATED_SCOPE', 'ROLE_REVOKE', 'ROLE_PERMISSION_REVOKE', 'ELEVATED_REVOKE', 'MFA_RESET', 'FILE_DELETE', 'FILE_REJECT', 'FILE_RESTORE', 'FILE_RESCAN') NOT NULL,
@@ -606,6 +700,7 @@ CREATE TABLE `sys_approval_target_ref` (
 
     UNIQUE INDEX `sys_approval_target_ref_token_key`(`token`),
     INDEX `sys_approval_target_ref_actor_user_id_expires_at_idx`(`actor_user_id`, `expires_at`),
+    INDEX `sys_approval_target_ref_tenant_id_expires_at_idx`(`tenant_id`, `expires_at`),
     INDEX `sys_approval_target_ref_expires_at_idx`(`expires_at`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
@@ -622,14 +717,27 @@ ALTER TABLE `sys_user` ADD CONSTRAINT `sys_user_department_id_tenant_id_organiza
 -- AddForeignKey
 ALTER TABLE `sys_file_object` ADD CONSTRAINT `sys_file_object_owner_user_id_fkey` FOREIGN KEY (`owner_user_id`) REFERENCES `sys_user`(`user_id`) ON DELETE RESTRICT ON UPDATE RESTRICT;
 
+ALTER TABLE `sys_file_object` ADD CONSTRAINT `sys_file_object_tenant_id_fkey` FOREIGN KEY (`tenant_id`) REFERENCES `sys_tenant`(`id`) ON DELETE RESTRICT ON UPDATE RESTRICT;
+
 -- AddForeignKey
 ALTER TABLE `sys_file_binding` ADD CONSTRAINT `sys_file_binding_file_id_fkey` FOREIGN KEY (`file_id`) REFERENCES `sys_file_object`(`id`) ON DELETE RESTRICT ON UPDATE RESTRICT;
 
 -- AddForeignKey
 ALTER TABLE `sys_upload_session` ADD CONSTRAINT `sys_upload_session_file_id_fkey` FOREIGN KEY (`file_id`) REFERENCES `sys_file_object`(`id`) ON DELETE RESTRICT ON UPDATE RESTRICT;
 
+ALTER TABLE `sys_upload_session` ADD CONSTRAINT `sys_upload_session_tenant_id_fkey` FOREIGN KEY (`tenant_id`) REFERENCES `sys_tenant`(`id`) ON DELETE RESTRICT ON UPDATE RESTRICT;
+
 -- AddForeignKey
 ALTER TABLE `sys_upload_part` ADD CONSTRAINT `sys_upload_part_upload_session_id_fkey` FOREIGN KEY (`upload_session_id`) REFERENCES `sys_upload_session`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `sys_file_finalize_job` ADD CONSTRAINT `sys_file_finalize_job_file_id_fkey` FOREIGN KEY (`file_id`) REFERENCES `sys_file_object`(`id`) ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- AddForeignKey
+ALTER TABLE `sys_file_finalize_job` ADD CONSTRAINT `sys_file_finalize_job_upload_id_fkey` FOREIGN KEY (`upload_id`) REFERENCES `sys_upload_session`(`id`) ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- AddForeignKey
+ALTER TABLE `sys_file_scan_job` ADD CONSTRAINT `sys_file_scan_job_file_id_fkey` FOREIGN KEY (`file_id`) REFERENCES `sys_file_object`(`id`) ON DELETE RESTRICT ON UPDATE RESTRICT;
 
 -- AddForeignKey
 ALTER TABLE `sys_password_history` ADD CONSTRAINT `sys_password_history_user_id_fkey` FOREIGN KEY (`user_id`) REFERENCES `sys_user`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
@@ -674,6 +782,9 @@ ALTER TABLE `sys_user_role` ADD CONSTRAINT `sys_user_role_user_id_fkey` FOREIGN 
 ALTER TABLE `sys_user_role` ADD CONSTRAINT `sys_user_role_role_id_fkey` FOREIGN KEY (`role_id`) REFERENCES `sys_role`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE `sys_role` ADD CONSTRAINT `sys_role_tenant_id_fkey` FOREIGN KEY (`tenant_id`) REFERENCES `sys_tenant`(`id`) ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- AddForeignKey
 ALTER TABLE `sys_role_permission` ADD CONSTRAINT `sys_role_permission_role_id_fkey` FOREIGN KEY (`role_id`) REFERENCES `sys_role`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
@@ -710,6 +821,9 @@ ALTER TABLE `sys_role_elevated_data_scope_target` ADD CONSTRAINT `sys_role_eleva
 ALTER TABLE `sys_session` ADD CONSTRAINT `sys_session_user_id_fkey` FOREIGN KEY (`user_id`) REFERENCES `sys_user`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE `sys_session` ADD CONSTRAINT `sys_session_active_tenant_id_fkey` FOREIGN KEY (`active_tenant_id`) REFERENCES `sys_tenant`(`id`) ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- AddForeignKey
 ALTER TABLE `sys_audit_log` ADD CONSTRAINT `sys_audit_log_actor_id_fkey` FOREIGN KEY (`actor_id`) REFERENCES `sys_user`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
@@ -717,6 +831,12 @@ ALTER TABLE `sys_ops_ticket_evidence` ADD CONSTRAINT `sys_ops_ticket_evidence_ti
 
 -- AddForeignKey
 ALTER TABLE `sys_ops_ticket_execution` ADD CONSTRAINT `sys_ops_ticket_execution_ticket_id_fkey` FOREIGN KEY (`ticket_id`) REFERENCES `sys_ops_ticket`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `sys_user_tenant_membership` ADD CONSTRAINT `sys_user_tenant_membership_user_id_fkey` FOREIGN KEY (`user_id`) REFERENCES `sys_user`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `sys_user_tenant_membership` ADD CONSTRAINT `sys_user_tenant_membership_tenant_id_fkey` FOREIGN KEY (`tenant_id`) REFERENCES `sys_tenant`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE `sys_organization` ADD CONSTRAINT `sys_organization_tenant_id_fkey` FOREIGN KEY (`tenant_id`) REFERENCES `sys_tenant`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -732,3 +852,46 @@ ALTER TABLE `sys_department` ADD CONSTRAINT `sys_department_organization_id_tena
 
 -- AddForeignKey
 ALTER TABLE `sys_department` ADD CONSTRAINT `sys_department_parent_id_tenant_id_organization_id_fkey` FOREIGN KEY (`parent_id`, `tenant_id`, `organization_id`) REFERENCES `sys_department`(`id`, `tenant_id`, `organization_id`) ON DELETE RESTRICT ON UPDATE CASCADE;
+
+ALTER TABLE `sys_file_object` ADD CONSTRAINT `sys_file_object_org_scope_fkey` FOREIGN KEY (`organization_id`, `tenant_id`) REFERENCES `sys_organization`(`id`, `tenant_id`) ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+ALTER TABLE `sys_file_object` ADD CONSTRAINT `sys_file_object_dept_scope_fkey` FOREIGN KEY (`department_id`, `tenant_id`, `organization_id`) REFERENCES `sys_department`(`id`, `tenant_id`, `organization_id`) ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+ALTER TABLE `sys_upload_session` ADD CONSTRAINT `sys_upload_session_org_scope_fkey` FOREIGN KEY (`organization_id`, `tenant_id`) REFERENCES `sys_organization`(`id`, `tenant_id`) ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+ALTER TABLE `sys_upload_session` ADD CONSTRAINT `sys_upload_session_dept_scope_fkey` FOREIGN KEY (`department_id`, `tenant_id`, `organization_id`) REFERENCES `sys_department`(`id`, `tenant_id`, `organization_id`) ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- Membership scope is explicit; NULL organization/department is only valid for PLATFORM.
+ALTER TABLE `sys_user_tenant_membership` ADD CONSTRAINT `sys_user_tenant_membership_organization_id_tenant_id_fkey` FOREIGN KEY (`organization_id`, `tenant_id`) REFERENCES `sys_organization`(`id`, `tenant_id`) ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+ALTER TABLE `sys_user_tenant_membership` ADD CONSTRAINT `sys_membership_department_scope_fkey` FOREIGN KEY (`department_id`, `tenant_id`, `organization_id`) REFERENCES `sys_department`(`id`, `tenant_id`, `organization_id`) ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+ALTER TABLE `sys_user_tenant_membership` ADD CONSTRAINT `sys_user_tenant_membership_scope_boundary_chk` CHECK (
+    (`scope_type` = 'PLATFORM' AND `organization_id` IS NULL AND `department_id` IS NULL)
+    OR (`scope_type` = 'ORGANIZATION' AND `organization_id` IS NOT NULL AND `department_id` IS NULL)
+    OR (`scope_type` = 'DEPARTMENT' AND `organization_id` IS NOT NULL AND `department_id` IS NOT NULL)
+);
+
+CREATE TABLE `sys_event_outbox` (
+    `id` CHAR(36) NOT NULL,
+    `event_id` CHAR(36) NOT NULL,
+    `tenant_id` CHAR(36) NOT NULL,
+    `subject_type` VARCHAR(16) NOT NULL,
+    `subject_id` CHAR(36) NOT NULL,
+    `event_type` VARCHAR(128) NOT NULL,
+    `aggregate_type` VARCHAR(64) NOT NULL,
+    `aggregate_id` CHAR(36) NOT NULL,
+    `aggregate_version` INTEGER UNSIGNED NOT NULL DEFAULT 1,
+    `payload` JSON NOT NULL,
+    `status` ENUM('PENDING', 'PUBLISHING', 'PUBLISHED', 'DEAD_LETTER') NOT NULL DEFAULT 'PENDING',
+    `attempts` INTEGER UNSIGNED NOT NULL DEFAULT 0,
+    `next_retry_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `last_error` VARCHAR(512) NULL,
+    `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `published_at` DATETIME(3) NULL,
+    UNIQUE INDEX `sys_event_outbox_event_id_key`(`event_id`),
+    INDEX `sys_event_outbox_status_next_retry_at_idx`(`status`, `next_retry_at`),
+    INDEX `sys_event_outbox_tenant_subject_created_idx`(`tenant_id`, `subject_type`, `subject_id`, `created_at`),
+    INDEX `sys_event_outbox_aggregate_created_idx`(`aggregate_type`, `aggregate_id`, `created_at`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;

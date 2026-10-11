@@ -154,6 +154,7 @@ export class AuthController {
 
   @Post('tenant')
   @UseGuards(AuthGuard)
+  @SecurityOperation('auth.tenant.switch')
   @AuditAction('auth.tenant.switch')
   async switchTenant(@Body() body: SwitchTenantDto, @Req() request: FastifyRequest) {
     assertSameOrigin(request)
@@ -215,12 +216,13 @@ export class AuthController {
     assertSameOrigin(request)
     const { user, traceId } = request as FastifyRequest & {
       traceId?: string
-      user: { internalId: bigint; roles: Array<{ roleType: string }> }
+      user: { internalId: bigint; tenantId: string; roles: Array<{ roleType: string }> }
     }
     await this.auth.changePassword(user.internalId, body.currentPassword, body.newPassword, {
       traceId,
       ip: request.ip,
       userAgent: request.headers['user-agent'],
+      tenantId: user.tenantId,
       roleTypes: user.roles.map((role) => role.roleType),
     })
     return { code: API_CODE.SUCCESS, message: 'success', data: null }

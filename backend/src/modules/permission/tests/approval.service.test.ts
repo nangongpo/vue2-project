@@ -10,6 +10,7 @@ const uuid = (n: number) => `00000000-0000-4000-8000-${n.toString().padStart(12,
 function actor(n = 1, roleType = 'SECURITY'): ApprovalActor {
   return {
     internalId: BigInt(n),
+    tenantId: uuid(50),
     userId: uuid(n),
     status: 'ACTIVE',
     roles: [{ roleId: uuid(100 + n), roleType }],
@@ -54,7 +55,7 @@ function harness() {
     { id: 'session-1', userId: 10n, revokedAt: null },
     { id: 'session-2', userId: 10n, revokedAt: null },
   ]
-  const role = { id: 20n, roleId: uuid(20), status: 'ACTIVE', roleType: 'SECURITY' }
+  const role = { id: 20n, roleId: uuid(20), tenantId: uuid(50), status: 'ACTIVE', roleType: 'SECURITY' }
   const permission = {
     id: uuid(30),
     status: 'ACTIVE',
@@ -85,6 +86,8 @@ function harness() {
           })
       ),
       findUnique: vi.fn(async () => request && { ...request }),
+      findFirst: vi.fn(async () => request && { ...request }),
+      findFirstOrThrow: vi.fn(async () => ({ ...request })),
       findUniqueOrThrow: vi.fn(async () => ({ ...request })),
       updateMany: vi.fn(async ({ where, data }) => {
         if (request.status !== where.status || (where.expiresAt && request.expiresAt <= where.expiresAt.gt)) return { count: 0 }
@@ -164,6 +167,7 @@ function harness() {
       create: vi.fn(async ({ data }) => (scope = { id: uuid(91), revokedAt: null, ...data })),
       findUnique: vi.fn(async () => scope),
       findUniqueOrThrow: vi.fn(async () => scope),
+      findFirstOrThrow: vi.fn(async () => scope),
       updateMany: vi.fn(async ({ data }) => {
         if (!scope || scope.revokedAt) return { count: 0 }
         scope = { ...scope, ...data }

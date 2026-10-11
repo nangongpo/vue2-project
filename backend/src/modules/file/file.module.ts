@@ -11,9 +11,10 @@ import { FILE_SCANNER } from '#app/modules/file/file-scanner.js'
 import { FileScanService } from '#app/modules/file/file-scan.service.js'
 import { PermissionModule } from '#app/modules/permission/permission.module.js'
 import { FileWorkerService } from '#app/modules/file/file-worker.service.js'
+import { EventStreamModule } from '#app/events/event-stream.module.js'
 
 @Module({
-  imports: [DatabaseModule, SecurityModule, PermissionModule],
+  imports: [DatabaseModule, SecurityModule, PermissionModule, EventStreamModule],
   controllers: [FileController, FileAdminController],
   providers: [
     FileService,

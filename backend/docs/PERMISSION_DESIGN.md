@@ -194,6 +194,14 @@ system.button.field.sort.write
 
 `sys_data_resource` 只登记可配置角色数据范围的业务对象，例如 `file`。它不承载页面、按钮、API 或字段权限。
 
+### 6.3 授权有效期与续期
+
+普通角色权限、用户角色绑定和角色数据范围都必须设置明确的未来到期时间，禁止永久授权。服务端统一限制单次授权最长 90 天；前端仅提供天数输入组件，不能绕过服务端限制。
+
+授权到期后自动失效。续期必须重新提交授权变更、填写原因并保留审计记录；数据范围页面会对已过期范围提供“续期”入口，自动带入原资源和范围，使用者只需确认期限并补充原因。续期不恢复已撤销记录，而是创建新的、独立的有限期授权。
+
+数据库中的 `sys_role_data_scope.expires_at` 为必填字段。缺少到期时间、传入 `NULL`、传入过去时间或超过 90 天的请求必须拒绝。
+
 资源编码稳定且不可修改；资源名称和描述可修改；启用、停用使用明确路由：
 
 ```text
@@ -208,6 +216,38 @@ PATCH /permission/data-resources/:id/disable
 
 运行时业务查询必须调用 `DataScopeService`，将租户边界、有效数据范围和业务筛选条件组合为服务端查询条件。仅登记资源不会自动产生数据过滤；资源停用会立即使普通范围失效，但保留历史授权和审计记录。
 
+### 6.3 `SELF` 的显式配置
+
+当前系统保持“没有有效数据范围就拒绝”的运行逻辑。`SELF` 不作为运行时隐式兜底，而作为明确的数据范围授权配置：
+
+```text
+RoleDataScope.resource = file
+RoleDataScope.scopeType = SELF
+```
+
+运行时条件必须是：
+
+```text
+tenantId = session.activeTenantId
+AND ownerId = authenticatedUser.userId
+```
+
+配置要求：
+
+- 单租户、组织和部门为空时，为具备业务权限的角色显式配置资源级 `SELF`；
+- 单租户启用组织部门后，仍可使用 `SELF`，也可以调整为部门或组织范围；
+- 多租户下 `SELF` 始终附带当前会话租户条件；
+- 资源必须存在可信的所有者字段，例如 `ownerUserId` 或 `createdBy`；
+- 没有所有者字段的资源不能配置 `SELF`；
+- 没有 `SELF` 或其他有效数据范围时继续拒绝；
+- `SELF` 只控制记录范围，字段仍必须经过字段权限裁剪。
+
+数据范围优先级为：
+
+```text
+显式 CUSTOM/部门/组织/租户范围 > 显式 SELF > 拒绝
+```
+
 ## 七、运行时判定顺序
 
 请求进入后按以下顺序处理：
@@ -219,8 +259,8 @@ PATCH /permission/data-resources/:id/disable
 5. 页面请求校验页面权限及有效祖先节点；
 6. 按钮请求同时校验按钮所属页面、按钮权限和按钮状态；
 7. API 请求必须有独立 API 授权，页面/API 或按钮/API 绑定只作为调用边界检查；
-8. 字段拦截器执行读字段投影或写字段白名单检查；
-9. 业务查询通过数据范围服务生成最终过滤条件；
+8. 业务查询通过数据范围服务生成最终行级过滤条件；
+9. 在行级数据过滤完成后，字段拦截器执行读字段投影或写字段白名单检查；
 10. L2/L3 高风险操作执行 MFA、重新认证或审批控制，并写入不可变审计日志。
 
 禁止使用 `*`、权限码前缀匹配、页面名称匹配、路由猜测和“超级管理员旁路”。
@@ -249,7 +289,7 @@ PATCH /permission/data-resources/:id/disable
 
 按钮初始化时，操作标识来自代码中的显式 `actionKey`，不会从 `button.*` 权限码拆分生成。修改权限码、路由或按钮标识必须走受控迁移，旧权限不得直接复用。
 
-数据库初始化迁移位于 [`prisma/migrations/20260930000000_initial_schema/migration.sql`](../prisma/migrations/20260930000000_initial_schema/migration.sql)，由当前 Prisma schema 重新生成。`permission-preflight.sql` 和 `scripts/verify-permission-migration.js` 均为只读完整性校验，只检查现有数据表结构，不创建、删除或重置数据库。
+数据库初始化迁移位于 [`prisma/migrations/20261010000000_initial_security_schema/migration.sql`](../prisma/migrations/20261010000000_initial_security_schema/migration.sql)，由当前 Prisma schema 重新生成。`permission-preflight.sql` 和 `scripts/verify-permission-migration.js` 均为只读完整性校验，只检查迁移元数据和现有数据表结构，不创建、删除或重置数据库。
 
 ## 十、前端接入原则
 

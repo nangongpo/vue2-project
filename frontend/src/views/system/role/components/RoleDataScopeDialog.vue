@@ -21,13 +21,14 @@
       <el-button type="primary" @click="goApproval">去审批</el-button>
     </div>
 
-    <div v-else-if="!scopeLoaded" class="scope-gate">
-      <div class="scope-gate-title">查看数据范围需要安全验证</div>
-      <div class="scope-gate-text">需要安全管理员权限，并完成 5 分钟内的 MFA 和重新认证。</div>
-      <permission-button permission="system.data-scope.read" type="primary" :loading="loading" @click="load">
-        验证并查看
-      </permission-button>
-    </div>
+    <security-verification-gate
+      v-else-if="!scopeLoaded"
+      permission="system.data-scope.read"
+      title="查看数据范围需要安全验证"
+      description="需要安全管理员权限，并完成 5 分钟内的 MFA 和重新认证。"
+      button-text="验证并查看"
+      :loading="loading"
+      @verify="load" />
 
     <template v-else>
       <div class="scope-toolbar">
@@ -39,28 +40,35 @@
       <el-table v-loading="loading" :data="scopes" border class="scope-table">
         <el-table-column label="数据对象" min-width="160">
           <template slot-scope="{ row }">
-            <span>{{ row.resourceName || row.resource }}</span>
-            <span class="scope-code">{{ row.resource }}</span>
+            {{ row.resourceName }}（{{row.resource}}）
           </template>
         </el-table-column>
         <el-table-column label="范围" min-width="140">
           <template slot-scope="{ row }">{{ scopeLabel(row) }}</template>
         </el-table-column>
         <el-table-column label="到期" min-width="170">
-          <template slot-scope="{ row }">{{ row.expiresAt || '无到期时间' }}</template>
+          <template slot-scope="{ row }">{{ row.expiresAt }}</template>
         </el-table-column>
         <el-table-column label="状态" width="80">
           <template slot-scope="{ row }">
             {{ row.revokedAt ? '已撤销' : expired(row) ? '已过期' : '有效' }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="70">
+        <el-table-column label="操作" width="120">
           <template slot-scope="{ row }">
+            <permission-button
+              v-if="expired(row)"
+              permission="system.data-scope.update"
+              type="text"
+              :disabled="saving || !role || role.isActive === false"
+              @click.native="renew(row)">
+              续期
+            </permission-button>
             <permission-button
               permission="system.data-scope.revoke"
               type="text"
-              :disabled="!!row.revokedAt || saving || !role || !role.isActive"
-              @click="revoke(row)">
+              :disabled="!!row.revokedAt || saving || !role || role.isActive === false"
+              @click.native="revoke(row)">
               撤销
             </permission-button>
           </template>
@@ -69,7 +77,7 @@
 
       <template v-if="can('system.data-scope.update')">
         <div class="section-title">新增普通数据范围</div>
-        <el-form ref="scopeForm" :model="form" :rules="rules" label-width="76px" class="scope-form">
+        <el-form ref="scopeForm" :model="form" :rules="rules" label-width="80px" class="scope-form">
           <el-form-item label="数据对象" prop="resource">
             <el-select
               v-model="form.resource"
@@ -93,9 +101,7 @@
           <el-form-item label="原因" prop="reason">
             <el-input v-model.trim="form.reason" maxlength="255" placeholder="请输入操作原因" />
           </el-form-item>
-          <el-form-item label="到期时间">
-            <el-date-picker v-model="form.expiresAt" type="datetime" placeholder="可选" />
-          </el-form-item>
+          <authorization-expiry-field v-model="form.expiresAt" />
         </el-form>
       </template>
     </template>
@@ -119,9 +125,12 @@ import {
 } from '@/api/admin'
 import { requiredText, requestReason } from '@/views/system/permission/utils'
 import { hasAvailableAction } from '@/utils/available-action'
+import AuthorizationExpiryField from './AuthorizationExpiryField.vue'
+import SecurityVerificationGate from '@/components/SecurityVerificationGate.vue'
 
 export default {
   name: 'RoleDataScopeDialog',
+  components: { AuthorizationExpiryField, SecurityVerificationGate },
   props: { visible: Boolean, role: { type: Object, default: null } },
   data() {
     return {
@@ -178,6 +187,14 @@ export default {
       this.close()
       this.$router.push('/system/approval')
     },
+    renew(scope) {
+      if (this.saving || !this.can('system.data-scope.update') || !this.role?.isActive) return
+      this.form.resource = scope.resource
+      this.form.scopeType = scope.scopeType
+      this.form.expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+      this.form.reason = ''
+      this.$message.info('已填充续期内容，请填写原因后保存')
+    },
     async load() {
       if (!this.role || !this.can('system.data-scope.read')) {
         this.error = '缺少数据范围查询权限'
@@ -204,7 +221,7 @@ export default {
     async loadResourceOptions() {
       if (!this.isBusinessRole || !this.can('system.data-resource.read')) return
       try {
-        this.resourceOptions = await getDataResources('ACTIVE')
+      this.resourceOptions = await getDataResources({ status: 'ACTIVE' })
       } catch {
         this.resourceOptions = []
       }
@@ -212,9 +229,9 @@ export default {
     async grant() {
       if (this.saving || !this.can('system.data-scope.update') || !this.role?.isActive) return
       if (!(await this.$refs.scopeForm.validate().catch(() => false))) return
-      const expiresAt = this.form.expiresAt ? new Date(this.form.expiresAt) : null
-      if (expiresAt && (!Number.isFinite(+expiresAt) || expiresAt <= new Date())) {
-        this.$message.warning('到期时间必须在未来')
+      const expiresAt = new Date(this.form.expiresAt)
+      if (!Number.isFinite(expiresAt.getTime()) || expiresAt <= new Date()) {
+        this.$message.warning('请设置有效的授权到期时间')
         return
       }
       if (!(await this.$confirm(
@@ -229,7 +246,7 @@ export default {
           resource: this.form.resource,
           scopeType: this.form.scopeType,
           reason: this.form.reason,
-          ...(expiresAt ? { expiresAt: expiresAt.toISOString() } : {}),
+          expiresAt: expiresAt.toISOString(),
         })
         this.$message.success('数据范围已添加')
         await this.load()
@@ -241,10 +258,11 @@ export default {
     },
     async revoke(scope) {
       if (this.saving || !this.can('system.data-scope.revoke')) return
+      const resourceLabel = scope.resourceName || scope.resource || '未命名资源'
       const reason = await requestReason(
         this,
-        '撤销数据范围',
-        `确认撤销“${scope.resource}”的“${this.scopeLabel(scope)}”范围？请填写原因。`
+        '撤销数据范围授权',
+        `确认撤销“${resourceLabel}”的“${this.scopeLabel(scope)}”授权？请填写原因。`
       )
       if (!reason) return
       this.saving = true
@@ -303,13 +321,6 @@ export default {
 
 .scope-table {
   margin: 10px 0;
-}
-
-.scope-code {
-  display: block;
-  margin-top: 2px;
-  color: #909399;
-  font-size: 12px;
 }
 
 .section-title {

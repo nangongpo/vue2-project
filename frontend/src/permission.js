@@ -2,6 +2,18 @@ import router, { resetRouter } from './router'
 import store from './store'
 
 const whiteList = ['/login']
+let sessionRedirectPromise = null
+
+function clearInvalidSession() {
+  if (sessionRedirectPromise) return sessionRedirectPromise
+  sessionRedirectPromise = Promise.resolve()
+    .then(() => store.dispatch('user/resetToken'))
+    .then(() => resetRouter())
+    .finally(() => {
+      sessionRedirectPromise = null
+    })
+  return sessionRedirectPromise
+}
 
 router.beforeEach(async (to, from, next) => {
   // start progress bar
@@ -28,8 +40,7 @@ router.beforeEach(async (to, from, next) => {
     accessRoutes.forEach((item) => router.addRoute(item))
     next({ ...to, replace: true })
   } catch {
-    await store.dispatch('user/resetToken')
-    resetRouter()
+    await clearInvalidSession()
     next(`/login?redirect=${to.path}`)
   }
 })

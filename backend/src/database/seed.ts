@@ -13,6 +13,7 @@ import { PasswordService } from '#app/security/services/password.service.js'
 import { BUTTON_FIELD_PERMISSIONS } from '#app/security/policies/button-field-policy.js'
 import { DATA_FIELD_DEFINITIONS, DATA_FIELD_PERMISSIONS } from '#app/security/policies/static-field-definitions.js'
 import { PAGE_PERMISSION_BINDINGS } from '#app/database/page-permission-bindings.js'
+import { MAX_AUTHORIZATION_TTL_DAYS } from '#app/common/constants/authorization.js'
 
 try {
   loadEnvFile()
@@ -21,6 +22,17 @@ try {
 }
 const prisma = new PrismaClient()
 const passwords = new PasswordService()
+const requiredConfig = (name: string) => {
+  const value = process.env[name]?.trim()
+  if (!value) throw new Error(`缺少必填初始化配置: ${name}`)
+  return value
+}
+const defaultTenantCode = requiredConfig('DEFAULT_TENANT_CODE')
+const defaultTenantName = requiredConfig('DEFAULT_TENANT_NAME')
+const defaultOrganizationCode = requiredConfig('DEFAULT_ORGANIZATION_CODE')
+const defaultOrganizationName = requiredConfig('DEFAULT_ORGANIZATION_NAME')
+const defaultDepartmentCode = requiredConfig('DEFAULT_DEPARTMENT_CODE')
+const defaultDepartmentName = requiredConfig('DEFAULT_DEPARTMENT_NAME')
 const pages = [
   {
     code: 'system',
@@ -511,15 +523,45 @@ try {
         include: { roleTypes: { select: { roleType: true } } },
       })
       const defaultTenant = await tx.tenant.upsert({
-        where: { code: process.env.DEFAULT_TENANT_CODE || 'default-tenant' },
-        create: { code: process.env.DEFAULT_TENANT_CODE || 'default-tenant', name: process.env.DEFAULT_TENANT_NAME || '默认租户', status: 'ACTIVE' },
-        update: { name: process.env.DEFAULT_TENANT_NAME || '默认租户', status: 'ACTIVE' },
+        where: { code: defaultTenantCode },
+        create: { code: defaultTenantCode, name: defaultTenantName, status: 'ACTIVE' },
+        update: { name: defaultTenantName, status: 'ACTIVE' },
+        select: { id: true },
+      })
+      const defaultOrganization = await tx.organization.upsert({
+        where: { tenantId_code: { tenantId: defaultTenant.id, code: defaultOrganizationCode } },
+        create: {
+          tenantId: defaultTenant.id,
+          code: defaultOrganizationCode,
+          name: defaultOrganizationName,
+          status: 'ACTIVE',
+        },
+        update: { name: defaultOrganizationName, status: 'ACTIVE', parentId: null },
+        select: { id: true },
+      })
+      const defaultDepartment = await tx.department.upsert({
+        where: { tenantId_code: { tenantId: defaultTenant.id, code: defaultDepartmentCode } },
+        create: {
+          tenantId: defaultTenant.id,
+          organizationId: defaultOrganization.id,
+          code: defaultDepartmentCode,
+          name: defaultDepartmentName,
+          status: 'ACTIVE',
+        },
+        update: { name: defaultDepartmentName, status: 'ACTIVE', organizationId: defaultOrganization.id, parentId: null },
         select: { id: true },
       })
       for (const type of ['BUSINESS', 'SECURITY', 'SYSTEM', 'AUDIT'] as const) {
+        const roleDescriptions = {
+          BUSINESS: '负责授权业务数据的日常管理，仅可在明确的数据范围内操作，不得管理安全策略或管理员角色。',
+          SECURITY: '负责身份安全、权限策略、成员边界和高风险审批，不参与审计复核。',
+          SYSTEM: '负责系统配置、运行维护和技术运维，不参与安全审批和审计复核。',
+          AUDIT: '负责安全审计、合规检查和操作复核，以只读和监督为主，不参与授权执行。',
+        } as const
         const role = await tx.role.upsert({
-          where: { code: `builtin_${type.toLowerCase()}` },
+          where: { tenantId_code: { tenantId: defaultTenant.id, code: `builtin_${type.toLowerCase()}` } },
           create: {
+            tenantId: defaultTenant.id,
             code: `builtin_${type.toLowerCase()}`,
             name: {
               BUSINESS: '业务管理员',
@@ -527,11 +569,34 @@ try {
               SYSTEM: '系统管理员',
               AUDIT: '审计管理员',
             }[type],
+            description: roleDescriptions[type],
             roleType: type,
           },
-          update: type === 'BUSINESS' ? { status: 'ACTIVE' } : {},
+          update: {
+            tenantId: defaultTenant.id,
+            description: roleDescriptions[type],
+            ...(type === 'BUSINESS' ? { status: 'ACTIVE' } : {}),
+          },
         })
         if (role.roleType !== type) throw new Error('内置角色职责发生冲突，停止初始化')
+        if (type === 'BUSINESS') {
+          for (const resource of BUSINESS_RESOURCE_CODES) {
+            const selfScope = await tx.roleDataScope.findFirst({
+              where: { roleId: role.id, resource, scopeType: 'SELF', revokedAt: null },
+              select: { id: true },
+            })
+            if (!selfScope) {
+              await tx.roleDataScope.create({
+                data: {
+                  roleId: role.id,
+                  resource,
+                  scopeType: 'SELF',
+                  expiresAt: new Date(Date.now() + MAX_AUTHORIZATION_TTL_DAYS * 24 * 60 * 60 * 1000),
+                },
+              })
+            }
+          }
+        }
         const allowedPermissions = seededPermissions.filter((p) => roleAllowsPermission(type, p))
         for (const permission of allowedPermissions) {
           await tx.rolePermission.upsert({
@@ -556,13 +621,35 @@ try {
               password: account.hash,
               displayName: account.username!,
               tenantId: defaultTenant.id,
+              ...(type === 'BUSINESS'
+                ? { organizationId: defaultOrganization.id, departmentId: defaultDepartment.id }
+                : {}),
             },
-            update: { tenantId: defaultTenant.id },
+            update: {
+              tenantId: defaultTenant.id,
+              organizationId: type === 'BUSINESS' ? defaultOrganization.id : null,
+              departmentId: type === 'BUSINESS' ? defaultDepartment.id : null,
+            },
           })
           await tx.userTenantMembership.upsert({
             where: { userId_tenantId: { userId: user.id, tenantId: defaultTenant.id } },
-            create: { userId: user.id, tenantId: defaultTenant.id, status: 'ACTIVE', isDefault: true },
-            update: { status: 'ACTIVE', isDefault: true, expiresAt: null },
+            create: {
+              userId: user.id,
+              tenantId: defaultTenant.id,
+              scopeType: type === 'BUSINESS' ? 'DEPARTMENT' : 'PLATFORM',
+              organizationId: type === 'BUSINESS' ? defaultOrganization.id : null,
+              departmentId: type === 'BUSINESS' ? defaultDepartment.id : null,
+              status: 'ACTIVE',
+              isDefault: true,
+            },
+            update: {
+              status: 'ACTIVE',
+              isDefault: true,
+              expiresAt: null,
+              scopeType: type === 'BUSINESS' ? 'DEPARTMENT' : 'PLATFORM',
+              organizationId: type === 'BUSINESS' ? defaultOrganization.id : null,
+              departmentId: type === 'BUSINESS' ? defaultDepartment.id : null,
+            },
           })
           const conflicting = await tx.userRole.findFirst({
             where: {
@@ -581,6 +668,32 @@ try {
       }
     },
     { timeout: 30000, isolationLevel: 'Serializable' }
+  )
+  const seededTenant = await prisma.tenant.findUnique({
+    where: { code: defaultTenantCode },
+    select: {
+      id: true,
+      organizations: {
+        where: { code: defaultOrganizationCode, status: 'ACTIVE' },
+        select: {
+          id: true,
+          departments: {
+            where: { code: defaultDepartmentCode, status: 'ACTIVE' },
+            select: { id: true },
+          },
+        },
+      },
+    },
+  })
+  const seededOrganization = seededTenant?.organizations[0]
+  const seededDepartment = seededOrganization?.departments[0]
+  if (!seededTenant || !seededOrganization || !seededDepartment) {
+    throw new Error(
+      `初始化后置校验失败: tenant=${defaultTenantCode}, organization=${defaultOrganizationCode}, department=${defaultDepartmentCode}`
+    )
+  }
+  console.log(
+    `默认租户/组织/部门已初始化: tenant=${defaultTenantCode}, organization=${defaultOrganizationCode}, department=${defaultDepartmentCode}`
   )
   console.log('权限目录和独立管理员初始化完成；首次登录后必须绑定 MFA。')
 } finally {

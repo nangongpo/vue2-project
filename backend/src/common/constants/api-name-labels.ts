@@ -9,6 +9,7 @@ export type AvailableAction = { code: string; label: string }
  * `name` describes the API; `buttonLabel` is present only for management buttons.
  */
 export const API_DISPLAY_LABELS: Readonly<Record<string, ApiDisplayLabel>> = {
+  'file.upload.events': { name: '接收文件上传状态通知', buttonLabel: '接收上传状态通知' },
   'system.directory.create': { name: '新增页面目录', buttonLabel: '新增目录' },
   'system.directory.update': { name: '编辑页面目录', buttonLabel: '编辑目录' },
   'system.directory.delete': { name: '删除页面目录', buttonLabel: '删除目录' },
@@ -44,6 +45,14 @@ export const API_DISPLAY_LABELS: Readonly<Record<string, ApiDisplayLabel>> = {
   'system.user.reset-password': { name: '重置用户密码', buttonLabel: '重置密码' },
   'system.user.unlock': { name: '解除锁定用户', buttonLabel: '解锁' },
   'system.user.grant': { name: '分配用户角色', buttonLabel: '分配' },
+  'system.organization.read': { name: '查询组织和部门' },
+  'system.organization.create': { name: '新增组织', buttonLabel: '新增组织' },
+  'system.organization.update': { name: '编辑组织', buttonLabel: '编辑组织' },
+  'system.organization.status': { name: '启停组织', buttonLabel: '启停组织' },
+  'system.department.read': { name: '查询部门' },
+  'system.department.create': { name: '新增部门', buttonLabel: '新增部门' },
+  'system.department.update': { name: '编辑部门', buttonLabel: '编辑部门' },
+  'system.department.status': { name: '启停部门', buttonLabel: '启停部门' },
   'system.role.read': { name: '查询角色' },
   'system.role.create': { name: '新增角色', buttonLabel: '新增' },
   'system.role.update': { name: '编辑角色', buttonLabel: '编辑' },
@@ -94,6 +103,7 @@ export const API_DISPLAY_LABELS: Readonly<Record<string, ApiDisplayLabel>> = {
   'system.file.admin.restore': { name: '恢复文件', buttonLabel: '恢复文件' },
   'file.upload.initiate': { name: '创建文件上传会话', buttonLabel: '开始上传' },
   'file.upload.read': { name: '查询文件上传列表' },
+  'file.upload.resume': { name: '查询未完成上传' },
   'file.upload.part': { name: '上传文件分片', buttonLabel: '上传文件分片' },
   'file.upload.status': { name: '查询文件上传状态', buttonLabel: '查询上传状态' },
   'file.upload.complete': { name: '完成文件上传', buttonLabel: '完成文件上传' },
