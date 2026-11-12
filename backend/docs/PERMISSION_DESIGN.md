@@ -2,7 +2,7 @@
 
 本文档描述当前权限模块的职责边界、数据关系、请求流程和前后端接口。数据库字段以 [`prisma/schema.prisma`](../prisma/schema.prisma) 为准，权限目录以 [`src/security/policies/permission-catalog/`](../src/security/policies/permission-catalog/) 为准，初始化数据以 [`src/database/seed.ts`](../src/database/seed.ts) 和 [`src/database/page-permission-bindings.ts`](../src/database/page-permission-bindings.ts) 为准。
 
-本文档只负责授权架构、职责分离和数据范围判定。权限码命名以 [PERMISSION_CODE_STANDARD.md](PERMISSION_CODE_STANDARD.md) 为准；高危审批字段和状态以 [APPROVAL_CONTRACT.md](APPROVAL_CONTRACT.md) 为准；租户上下文以 [TENANCY_SECURITY.md](TENANCY_SECURITY.md) 为准。
+本文档只负责授权架构、职责分离和数据范围判定。字段模型、读写操作、响应投影和字段开发验收以 [DATA_FIELD_SECURITY.md](DATA_FIELD_SECURITY.md) 为准；权限码命名以 [PERMISSION_CODE_STANDARD.md](PERMISSION_CODE_STANDARD.md) 为准；高危审批字段和状态以 [APPROVAL_CONTRACT.md](APPROVAL_CONTRACT.md) 为准；租户上下文以 [TENANCY_SECURITY.md](TENANCY_SECURITY.md) 为准。
 
 ## 一、设计目标
 
@@ -174,21 +174,7 @@ API 的权限码、HTTP 方法和路由模板由服务端权限目录维护，�
 
 ### 6.1 字段权限
 
-字段权限控制返回字段和可修改字段，不等价于接口权限，也不等价于数据范围：
-
-```text
-<resource>.field.<field>.<read|write>
-```
-
-字段权限由字段定义和服务端策略生成。响应经过字段投影后，只返回当前主体有权读取的字段；写入接口还必须校验字段白名单、字段写权限和风险等级。
-
-管理对象自身的配置字段权限使用独立命名空间，例如：
-
-```text
-system.button.field.label.read
-system.button.field.label.write
-system.button.field.sort.write
-```
+字段权限控制返回字段和可修改字段，不等价于接口权限，也不等价于数据范围。完整模型、`readable`、`allowCreate`、`allowUpdate`、权限码、响应投影、管理接口和开发验收见 [DATA_FIELD_SECURITY.md](DATA_FIELD_SECURITY.md)。本文件只保留它与数据范围的边界：行级数据过滤必须先执行，字段投影不能扩大可访问记录。
 
 ### 6.2 数据范围资源
 

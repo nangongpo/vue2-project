@@ -2,7 +2,7 @@
   <el-dialog
     title="输入动态验证码"
     :visible.sync="visibleProxy"
-    width="420px"
+    width="360px"
     custom-class="otp-verification-dialog"
     append-to-body
     :show-close="false"

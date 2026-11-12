@@ -36,9 +36,9 @@ import { DataResourceService } from '#app/modules/permission/services/data-resou
     },
     {
       provide: ApprovalService,
-      useFactory: (prisma: PrismaService, http: HttpAdapterHost) =>
-        new ApprovalService(prisma, http),
-      inject: [PrismaService, HttpAdapterHost],
+      useFactory: (prisma: PrismaService, http: HttpAdapterHost, scopes: DataScopeService) =>
+        new ApprovalService(prisma, http, scopes),
+      inject: [PrismaService, HttpAdapterHost, DataScopeService],
     },
     {
       provide: DataScopeManagementService,

@@ -202,6 +202,8 @@ AND
 
 ### 2.5 数据字段权限
 
+数据字段的完整模型和执行规范见 [DATA_FIELD_SECURITY.md](DATA_FIELD_SECURITY.md)。本节只定义权限码格式。
+
 格式：
 
 ```text
@@ -217,15 +219,8 @@ system.role.field.roleType.read
 system.api.field.path.read
 ```
 
-规则：
-
-- `field` 是固定分隔段。
-- 字段名保留模型原字段名的大小写，例如 `displayName`、`createdAt`。
-- 字段定义声明 `writable: true` 时才生成 `write` 权限。
-- 只读字段只能生成 `read` 权限。
-- 字段风险等级存储在字段定义中，不拼接到权限码里。
-- 字段权限只控制字段读取和写入，不代表接口访问权限。
-- `_count` 等查询层临时别名不得直接作为字段权限名；必须使用稳定的业务字段名或单独的统计权限。
+- `field` 是固定分隔段，字段名保留模型原字段名的大小写，例如 `displayName`、`createdAt`。
+- `read` 和 `write` 只表示字段操作，不代表接口访问、数据范围或租户范围。
 
 特别注意：
 
@@ -317,14 +312,16 @@ API 目录同时声明该操作的 `riskBaseline` 和安全控制。API 型操�
 
 ### 3.2 数据字段
 
+本节只说明权限码的生成形式；字段数据库模型、初始化同步、角色绑定、接口参数、运行时校验和测试清单以 [DATA_FIELD_SECURITY.md](DATA_FIELD_SECURITY.md) 为准。
+
 数据字段权限由以下信息生成：
 
 ```text
 resource + ".field." + field + ".read"
-resource + ".field." + field + ".write   // writable=true 时生成
+resource + ".field." + field + ".write   // writeOperations 非空时生成
 ```
 
-字段名称、数据类型、关联模型和风险等级来自 Prisma 模型及受控覆盖项。客户端不能提交任意字段定义来扩大响应或写入权限。
+字段名称、数据类型、关联模型和风险等级来自 Prisma 模型及受控覆盖项。字段权限码只在字段目录或受控生成器中产生，客户端不能提交任意字段定义来扩大响应或写入权限。
 
 ### 3.3 生成前校验
 

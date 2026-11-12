@@ -28,6 +28,7 @@ export type AuthenticatedUser = {
   sessionExpiresAt?: Date | null
   /** 已认证会话必须始终绑定到唯一租户；未认证状态不使用此类型。 */
   tenantId: string
+  membershipId?: string | null
   departmentId?: string | null
   organizationId?: string | null
   tenancyMode?: 'SINGLE' | 'MULTI'

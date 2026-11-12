@@ -15,6 +15,8 @@
     "dev:captcha": "pnpm --filter captcha-service dev",
     "build:captcha": "pnpm --filter captcha-service build",
     "test:backend": "pnpm --filter backend test",
+    "test:frontend": "pnpm --filter frontend test",
+    "test:integration": "pnpm --filter backend test:integration",
     "coverage": "pnpm --filter backend coverage",
     "lint:frontend": "eslint frontend/src",
     "lint:backend": "eslint backend/src",

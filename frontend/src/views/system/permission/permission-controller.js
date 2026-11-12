@@ -84,7 +84,7 @@ export default {
       dataFieldRisk: '',
       dataFieldDialogVisible: false,
       editingDataField: null,
-      dataFieldForm: { resource: '', field: '', name: '', dataType: 'string', riskLevel: 'L1', writable: false },
+      dataFieldForm: { resource: '', field: '', name: '', dataType: 'string', riskLevel: 'L1', readable: true, writeOperations: [] },
       dataFieldTypes: [
         { value: 'string', label: '字符串' },
         { value: 'number', label: '数字' },
@@ -635,7 +635,11 @@ export default {
         name: field?.name || '',
         dataType: field?.dataType || 'string',
         riskLevel: field?.riskLevel || 'L1',
-        writable: Boolean(field?.writePermission),
+        readable: field?.readable !== false,
+        writeOperations: [
+          ...(field?.allowCreate ? ['CREATE'] : []),
+          ...(field?.allowUpdate ? ['UPDATE'] : []),
+        ],
       }
       this.dataFieldDialogVisible = true
     },
@@ -645,8 +649,12 @@ export default {
         return
       this.saving = true
       try {
-        if (creating) await createPermissionDataField(this.dataFieldForm)
-        else await updatePermissionDataField(this.editingDataField.id, this.dataFieldForm)
+        const payload = {
+          ...this.dataFieldForm,
+          readable: this.dataFieldForm.dataType === 'secret' ? false : this.dataFieldForm.readable,
+        }
+        if (creating) await createPermissionDataField(payload)
+        else await updatePermissionDataField(this.editingDataField.id, payload)
         this.dataFieldDialogVisible = false
         this.$message.success(creating ? '数据字段已新增' : '数据字段已保存')
         await this.loadFieldData(true)

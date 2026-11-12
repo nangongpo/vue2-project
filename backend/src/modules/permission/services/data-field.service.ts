@@ -6,6 +6,7 @@ import { PrismaService } from '#app/database/prisma.service.js'
 import { ok } from '#app/modules/permission/policies/policy.js'
 import { ENABLEMENT_STATUS_LABELS } from '#app/common/constants/enum-labels.js'
 import { sanitizeAuditDetail } from '#app/audit/utils/audit-sanitizer.js'
+import type { FieldWriteOperation } from '#app/security/policies/field-policy-types.js'
 
 type FieldMutationContext = {
   user: { internalId: bigint; userId: string; tenantId: string; roles?: unknown[] }
@@ -36,7 +37,8 @@ export class DataFieldService {
       name: string
       dataType: string
       riskLevel: FieldRiskLevel
-      writable?: boolean
+      readable: boolean
+      writeOperations?: readonly FieldWriteOperation[]
     },
     req: FieldMutationContext
   ) {
@@ -52,8 +54,12 @@ export class DataFieldService {
     if (!allowedTypes.includes(input.dataType)) throw new BadRequestException('字段数据类型无效')
     if (!Object.values(FieldRiskLevel).includes(input.riskLevel))
       throw new BadRequestException('字段风险等级无效')
+    const readable = input.readable
+    if (input.dataType === 'secret' && readable)
+      throw new BadRequestException('敏感字段禁止配置为可读')
     const readCode = `${resource}.field.${field}.read`
-    const writeCode = input.writable ? `${resource}.field.${field}.write` : null
+    const writeOperations = input.writeOperations?.length ? [...new Set(input.writeOperations)] : []
+    const writeCode = writeOperations.length ? `${resource}.field.${field}.write` : null
     return this.prisma.$transaction(
       async (tx) => {
         const existing = await tx.permissionField.findUnique({
@@ -92,6 +98,9 @@ export class DataFieldService {
             name,
             dataType: input.dataType,
             riskLevel: input.riskLevel,
+            readable,
+            allowCreate: writeOperations.includes('CREATE'),
+            allowUpdate: writeOperations.includes('UPDATE'),
             readPermissionId: readPermission.id,
             writePermissionId: writePermission?.id,
           },
@@ -107,9 +116,11 @@ export class DataFieldService {
           select: { id: true },
         })
         for (const role of roles) {
-          await tx.rolePermission.create({
-            data: { roleId: role.id, permissionId: readPermission.id, grantReason: '数据字段新增' },
-          })
+          if (readable) {
+            await tx.rolePermission.create({
+              data: { roleId: role.id, permissionId: readPermission.id, grantReason: '数据字段新增' },
+            })
+          }
           if (writePermission)
             await tx.rolePermission.create({
               data: { roleId: role.id, permissionId: writePermission.id, grantReason: '数据字段新增' },
@@ -149,6 +160,9 @@ export class DataFieldService {
           dataType: true,
           relationResource: true,
           relationModel: true,
+          readable: true,
+          allowCreate: true,
+          allowUpdate: true,
           riskLevel: true,
           status: true,
           readPermission: { select: { code: true } },
@@ -190,7 +204,13 @@ export class DataFieldService {
 
   async update(
     id: string,
-    input: { name: string; dataType: string; riskLevel: FieldRiskLevel },
+    input: {
+      name: string
+      dataType: string
+      riskLevel: FieldRiskLevel
+      readable: boolean
+      writeOperations?: readonly FieldWriteOperation[]
+    },
     req: FieldMutationContext
   ) {
     if (!input.name?.trim() || input.name.length > 128)
@@ -208,14 +228,73 @@ export class DataFieldService {
     if (!allowedTypes.includes(input.dataType)) throw new BadRequestException('字段数据类型无效')
     if (!Object.values(FieldRiskLevel).includes(input.riskLevel))
       throw new BadRequestException('字段风险等级无效')
+    const readable = input.readable
+    if (input.dataType === 'secret' && readable)
+      throw new BadRequestException('敏感字段禁止配置为可读')
     return this.prisma.$transaction(
       async (tx) => {
         const before = await tx.permissionField.findUnique({ where: { id } })
         if (!before) throw new NotFoundException('数据字段不存在')
+        const writeOperations = input.writeOperations?.length ? [...new Set(input.writeOperations)] : []
+        const writeCode = `${before.resource}.field.${before.field}.write`
+        let writePermissionId = before.writePermissionId
+        if (writeOperations.length && !writePermissionId) {
+          const writePermission = await tx.permission.create({
+            data: {
+              code: writeCode,
+              name: `${input.name.trim()}修改`,
+              resource: before.resource,
+              action: `field.${before.field}.write`,
+              type: PermissionType.FIELD,
+              roleTypes: { create: [{ roleType: RoleType.SECURITY }, { roleType: RoleType.SYSTEM }] },
+            },
+          })
+          writePermissionId = writePermission.id
+        }
+        if (!writeOperations.length && writePermissionId) {
+          await tx.rolePermission.deleteMany({ where: { permissionId: writePermissionId } })
+          await tx.permission.delete({ where: { id: writePermissionId } })
+          writePermissionId = null
+        }
         const after = await tx.permissionField.update({
           where: { id },
-          data: { name: input.name.trim(), dataType: input.dataType, riskLevel: input.riskLevel },
+          data: {
+            name: input.name.trim(),
+            dataType: input.dataType,
+            riskLevel: input.riskLevel,
+            readable,
+            allowCreate: writeOperations.includes('CREATE'),
+            allowUpdate: writeOperations.includes('UPDATE'),
+            writePermissionId,
+          },
         })
+        if (!readable) {
+          await tx.rolePermission.deleteMany({ where: { permissionId: before.readPermissionId } })
+        }
+        const roles = await tx.role.findMany({
+          where: { tenantId: req.user.tenantId, code: { in: ['builtin_security', 'builtin_system'] } },
+          select: { id: true },
+        })
+        for (const role of roles) {
+          if (readable) {
+            await tx.rolePermission.upsert({
+              where: { roleId_permissionId: { roleId: role.id, permissionId: before.readPermissionId } },
+              create: { roleId: role.id, permissionId: before.readPermissionId, grantReason: '数据字段策略更新' },
+              update: {},
+            })
+          } else {
+            await tx.rolePermission.deleteMany({
+              where: { roleId: role.id, permissionId: before.readPermissionId },
+            })
+          }
+          if (writePermissionId) {
+            await tx.rolePermission.upsert({
+              where: { roleId_permissionId: { roleId: role.id, permissionId: writePermissionId } },
+              create: { roleId: role.id, permissionId: writePermissionId, grantReason: '数据字段策略更新' },
+              update: {},
+            })
+          }
+        }
         await tx.auditLog.create({
           data: {
             tenantId: req.user.tenantId,

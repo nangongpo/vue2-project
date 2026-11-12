@@ -29,6 +29,7 @@ export class PermissionGuard implements CanActivate {
     // Only these handlers have a documented alternative boundary (public or self-owned).
     const exempt = new Set([
       'GET /api/v1/health',
+      'GET /api/v1/ready',
       'POST /api/v1/auth/login',
       'POST /api/v1/auth/login/complete',
       'POST /api/v1/auth/logout',
@@ -85,6 +86,8 @@ export class PermissionGuard implements CanActivate {
       ? await this.operationPolicies.resolve(operationCode, required)
       : resolveRiskDecision(required[0])
     if (operationCode) request.operationCode = operationCode
+    if (operationCode?.startsWith('system.file.') && !request.user.mfaEnabled)
+      throw new ForbiddenException('文件管理必须先绑定多因素认证')
     request.riskDecision = decision
     request.riskLevel = decision.riskLevel
     // Page metadata changes are classified by the target page in the permission

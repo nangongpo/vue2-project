@@ -1,3 +1,5 @@
+import { FileScanHistoryService } from '#app/modules/file/file-scan-history.service.js'
+import { FileScanExecutorService } from '#app/modules/file/file-scan-executor.service.js'
 import { Module } from '@nestjs/common'
 import { DatabaseModule } from '#app/database/database.module.js'
 import { SecurityModule } from '#app/security/security.module.js'
@@ -21,6 +23,8 @@ import { EventStreamModule } from '#app/events/event-stream.module.js'
     FileStorageService,
     FileAdminService,
     FileScanService,
+    FileScanExecutorService,
+    FileScanHistoryService,
     FileWorkerService,
     ClamAvFileScanner,
     { provide: FILE_SCANNER, useExisting: ClamAvFileScanner },

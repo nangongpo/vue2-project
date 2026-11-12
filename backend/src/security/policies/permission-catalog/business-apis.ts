@@ -19,9 +19,9 @@ const BUSINESS_READ_RISK: RiskBaseline = {
 }
 
 const BUSINESS_WRITE_RISK: RiskBaseline = {
-  riskLevel: 'L2',
-  requireMfa: true,
-  requireReauth: true,
+  riskLevel: 'L1',
+  requireMfa: false,
+  requireReauth: false,
   requireApproval: false,
   requireDualControl: false,
   auditRequired: true,
@@ -30,7 +30,7 @@ const BUSINESS_WRITE_RISK: RiskBaseline = {
 // 分片写入属于已通过 initiate 建立并绑定到当前用户的上传会话续传操作。
 // 分片接口仍执行登录态、接口权限、会话归属、状态和大小校验，但不应让大文件的每一片重复触发 L2 验证。
 const BUSINESS_UPLOAD_PART_RISK: RiskBaseline = {
-  riskLevel: 'L0',
+  riskLevel: 'L1',
   requireMfa: false,
   requireReauth: false,
   requireApproval: false,
@@ -64,7 +64,7 @@ const BUSINESS_API_SPECS = {
     method: 'POST', path: '/files/uploads/:uploadId/abort', resource: 'file', action: 'upload.abort', riskBaseline: BUSINESS_WRITE_RISK,
   },
   'file.download': {
-    method: 'GET', path: '/files/:fileId/download-url', resource: 'file', action: 'download', riskBaseline: BUSINESS_READ_RISK,
+    method: 'GET', path: '/files/:fileId/download-url', resource: 'file', action: 'download', riskBaseline: BUSINESS_WRITE_RISK,
   },
 } as const satisfies Record<string, BusinessApiSpec>
 

@@ -1,6 +1,16 @@
 # captcha-service
 
-独立的一次性验证码服务。目前提供 `SLIDER` 类型验证码：服务端生成挑战资源、保存答案上下文、校验滑动轨迹并签发一次性 `CaptchaToken`。
+独立的一次性验证码和风险评估服务。当前代码已实现 `SIMPLE_SLIDER`、`SLIDER`、`ROTATE`、`GRID_IMAGE_SELECT`、`CLICK_ORDER` 五种题型及独立 Web SDK；`TEXT_SELECT`、`AUDIO`、评分式 Assessment 和数据读取风控接入仍按架构文档分阶段补齐。
+
+主要文档（完整索引见 [docs/README.md](docs/README.md)）：
+
+- [`docs/REQUIREMENTS.md`](docs/REQUIREMENTS.md)：场景流程、风险决策、安全边界、协议和验收基线。
+- [`docs/CAPTCHA_TYPES.md`](docs/CAPTCHA_TYPES.md)：验证码类型、Payload、服务端 Engine 和 SDK Renderer 实现规范。
+- [`docs/SDK_UI_SPEC.md`](docs/SDK_UI_SPEC.md)：弹窗布局、题型交互、提示与计时、加载/失败和限频展示规范。
+- [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md)：环境变量、绑定和部署配置。
+- [`docs/CAPTCHA_RESOURCES.md`](docs/CAPTCHA_RESOURCES.md)：AI 候选图库、资源审核、版本发布和回滚规则。
+
+验证码资源的生产规范位于 [`docs/CAPTCHA_RESOURCES.md`](docs/CAPTCHA_RESOURCES.md)。生产图库使用 `resources/captcha/versions/<resourceVersion>` 和 `active.json` 管理，Provider 说明位于 [`resources/captcha/README.md`](resources/captcha/README.md)。未命中资源时仅允许开发环境回退到内置 SVG；接入对象存储时只替换 Provider，不改变 Challenge 协议和 SDK。
 
 浏览器只能访问 backend 的 `/api/v1/captcha/*` 接口，不能直接访问本服务的 `/internal/*` 接口。backend 使用服务身份和 HMAC-SHA256 签名调用本服务。
 
@@ -61,15 +71,17 @@ node captcha-service/dist/main.js
 | `CAPTCHA_TOKEN_TTL` | `120` | 一次性 Token 有效期，秒。 |
 | `CAPTCHA_MAX_TRACK_POINTS` | `300` | 单次轨迹最大点数。 |
 
-完整参数见 [`CONFIGURATION.md`](CONFIGURATION.md)。
+完整参数见 [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md)。
 
 ## 内部协议
 
 接口使用 PascalCase JSON：
 
+- `POST /internal/v1/assessments`：`CreateAssessment`（架构目标接口；当前实现尚未启用）
 - `POST /internal/v1/challenges`：`CreateChallenge`
 - `POST /internal/v1/verify`：`VerifyChallenge`
 - `POST /internal/v1/tokens/consume`：`ConsumeToken`
+- `POST /internal/v1/events`：`ReportEvent`（架构目标接口；当前实现尚未启用）
 
 请求包含 `ApiVersion`、`ProtocolVersion`、`ServiceId`、`Timestamp`、`SignatureMethod=HMAC-SHA256`、`SignatureVersion=1.0`、`SignatureNonce` 和 `Signature`。签名使用 RFC3986 规范化参数，并计算：
 

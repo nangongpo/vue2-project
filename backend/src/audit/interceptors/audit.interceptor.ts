@@ -39,7 +39,10 @@ export class AuditInterceptor implements NestInterceptor {
     const requestState = request as { auditRecorded?: boolean }
     const base = {
       traceId,
-      tenantId: request.user?.tenantId || '',
+      tenantId: request.user?.tenantId ?? null,
+      membershipId: request.user?.membershipId,
+      organizationId: request.user?.organizationId,
+      departmentId: request.user?.departmentId,
       actorId: request.user?.internalId,
       action,
       resource,
@@ -54,14 +57,14 @@ export class AuditInterceptor implements NestInterceptor {
           await this.audit.record({
             ...base,
             operationCode,
-            riskLevel,
+            riskLevel: request.riskLevel || riskLevel,
             result: 'SUCCESS',
             statusCode: response.statusCode,
             detail: {
               request: requestDetail,
               response: sanitizeAuditDetail(value),
               roleTypes: request.user?.roles?.map((role) => role.roleType),
-              riskDecision: decision,
+              riskDecision: request.riskDecision || decision,
             },
           })
         } catch {
@@ -76,7 +79,7 @@ export class AuditInterceptor implements NestInterceptor {
           await this.audit.record({
             ...base,
             operationCode,
-            riskLevel,
+            riskLevel: request.riskLevel || riskLevel,
             result: 'FAILURE',
             statusCode: error instanceof Error && 'status' in error && typeof error.status === 'number' ? error.status : 500,
             detail: {
@@ -86,7 +89,7 @@ export class AuditInterceptor implements NestInterceptor {
                   ? (error as { response?: unknown }).response
                   : { status: error instanceof Error && 'status' in error && typeof error.status === 'number' ? error.status : 500 }
               ),
-              riskDecision: decision,
+              riskDecision: request.riskDecision || decision,
               error: {
                 status: error instanceof Error && 'status' in error && typeof error.status === 'number' ? error.status : 500,
               },

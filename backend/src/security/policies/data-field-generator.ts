@@ -71,7 +71,10 @@ export function modelFieldDefinitions(modelName: string, resource: string): Data
           }
         : {}),
       riskLevel: override?.riskLevel ?? defaultDataFieldRisk(field),
-      ...(!sensitive && override?.writable === true ? { writable: true } : {}),
+      readable: !sensitive,
+      ...(!sensitive && override?.writeOperations?.length
+        ? { writeOperations: override.writeOperations }
+        : {}),
       status: sensitive ? 'DISABLED' : (override?.status ?? 'ACTIVE'),
     }
   })
@@ -109,7 +112,7 @@ export async function upsertGeneratedDataFields(
           },
         },
       })
-      const writePermission = field.writable
+      const writePermission = field.writeOperations?.length
         ? await tx.permission.upsert({
             where: { code: writeCode },
             create: {
@@ -154,6 +157,9 @@ export async function upsertGeneratedDataFields(
           relationField: field.relationField,
           riskLevel: field.riskLevel,
           status: field.status,
+          readable: field.readable !== false,
+          allowCreate: field.writeOperations?.includes('CREATE') || false,
+          allowUpdate: field.writeOperations?.includes('UPDATE') || false,
           readPermissionId: readPermission.id,
           writePermissionId: writePermission?.id,
         },
@@ -164,16 +170,22 @@ export async function upsertGeneratedDataFields(
           relationModel: field.relationModel,
           relationField: field.relationField,
           riskLevel: field.riskLevel,
+          status: field.status,
+          readable: field.readable !== false,
+          allowCreate: field.writeOperations?.includes('CREATE') || false,
+          allowUpdate: field.writeOperations?.includes('UPDATE') || false,
           readPermissionId: readPermission.id,
           writePermissionId: writePermission?.id,
         },
       })
+      const readableRoleTypes = field.readable === false ? [] : [...readRoleTypes]
+      const allowedRoleTypes = [...new Set([...readableRoleTypes, ...writeRoleTypes])]
       const roles = await tx.role.findMany({
-        where: { roleType: { in: [...new Set([...readRoleTypes, ...writeRoleTypes])] } },
+        where: { roleType: { in: allowedRoleTypes } },
         select: { id: true, roleType: true },
       })
       for (const role of roles) {
-        if (readRoleTypes.includes(role.roleType)) {
+        if (readableRoleTypes.includes(role.roleType)) {
           await tx.rolePermission.upsert({
             where: { roleId_permissionId: { roleId: role.id, permissionId: readPermission.id } },
             create: {
@@ -182,6 +194,10 @@ export async function upsertGeneratedDataFields(
               grantReason: '字段权限自动生成',
             },
             update: {},
+          })
+        } else {
+          await tx.rolePermission.deleteMany({
+            where: { roleId: role.id, permissionId: readPermission.id },
           })
         }
         if (writePermission && writeRoleTypes.includes(role.roleType)) {
@@ -199,7 +215,7 @@ export async function upsertGeneratedDataFields(
       await tx.rolePermission.deleteMany({
         where: {
           permissionId: { in: [readPermission.id, ...(writePermission ? [writePermission.id] : [])] },
-          role: { roleType: { notIn: [...new Set([...readRoleTypes, ...writeRoleTypes])] } },
+          role: { roleType: { notIn: allowedRoleTypes } },
         },
       })
       results.push(permissionField)

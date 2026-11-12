@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="300" height="180" viewBox="0 0 300 180">
+<defs><linearGradient id="bg" x2="0" y2="1"><stop stop-color="#0b3e51"/><stop offset="1" stop-color="#092a43"/></linearGradient><radialGradient id="halo"><stop stop-color="#83dbea" stop-opacity=".28"/><stop offset="1" stop-color="#83dbea" stop-opacity="0"/></radialGradient></defs>
+<path fill="url(#bg)" d="M0 0h300v180H0z"/><circle cx="150" cy="77" r="69" fill="url(#halo)"/>
+<g fill="none" stroke="#8bd3e7"><circle cx="150" cy="77" r="50" opacity=".18" stroke-width="2"/><circle cx="150" cy="77" r="44" stroke-dasharray="27 7 5 6" opacity=".55"/><circle cx="150" cy="77" r="37" opacity=".5"/><circle cx="150" cy="77" r="32" opacity=".2" stroke-width="3"/>
+<path d="M150 59l14 5v13c0 9-7 14-14 18-7-4-14-9-14-18V64z" fill="#d8edf4" fill-opacity=".16" stroke="#eafaff" stroke-width="2"/><path d="M139 78l22-9m-22 16 22-9" stroke="#eafaff" stroke-width="3"/></g>
+<text x="150" y="149" text-anchor="middle" fill="#fff" font-family="Arial,Microsoft YaHei,PingFang SC,sans-serif" font-size="16" font-weight="600">请稍后再试</text></svg>

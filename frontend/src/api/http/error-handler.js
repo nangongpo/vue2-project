@@ -6,10 +6,16 @@ import { responseHandler } from './response-handler'
 
 export const isDev = import.meta.env.DEV
 
-let securityStepUpHandler = null
+// 热更新请求模块时 App 不一定重新挂载，保留全局弹窗的注册状态。
+const securityStepUpState = import.meta.hot?.data?.securityStepUpState || { handler: null }
+if (import.meta.hot) {
+  import.meta.hot.dispose((data) => {
+    data.securityStepUpState = securityStepUpState
+  })
+}
 
 export function setSecurityStepUpHandler(handler) {
-  securityStepUpHandler = typeof handler === 'function' ? handler : null
+  securityStepUpState.handler = typeof handler === 'function' ? handler : null
 }
 
 function codeFromStatus(status) {
@@ -80,14 +86,15 @@ export function createErrorHandler(request) {
     const needsSecurityStepUp = code === REQUEST_CODE.SECURITY_STEP_UP_REQUIRED
     if (needsSecurityStepUp) {
       normalizedError.code = REQUEST_CODE.SECURITY_STEP_UP_REQUIRED
-      normalizedError.silent = true
-      if (securityStepUpHandler && !error?.config?.__stepUpRetried) {
-        return securityStepUpHandler({
+      const handler = securityStepUpState.handler
+      if (handler && !error?.config?.__stepUpRetried) {
+        normalizedError.silent = true
+        return Promise.resolve().then(() => handler({
           riskLevel: normalizedError.data?.riskLevel,
           operationCode: normalizedError.data?.operationCode,
           requiredFactors: normalizedError.data?.requiredFactors || [],
           error: normalizedError,
-        }).then((verified) => {
+        })).then((verified) => {
           if (!verified) return Promise.reject(normalizedError)
           const retryConfig = {
             ...error.config,

@@ -4,6 +4,7 @@
 -- 每个结果集都应为空；结果集有记录时，仅表示数据库存在通用结构问题。
 -- 本脚本和 verify-permission-migration.js 只检查数据库元数据完整性，
 -- 以及租户成员授权边界的必要结构，不检查 seed 业务数据，也不依赖迁移文件名称。
+-- CHECK 的创建定义只在 migration.sql 中维护；本文件仅检查存在且已启用。
 
 -- 1. Prisma migration 不得存在未完成或已回滚记录。
 SELECT migration_name, started_at, finished_at, rolled_back_at
@@ -82,6 +83,8 @@ WHERE NOT EXISTS (
   WHERE table_schema = DATABASE()
     AND table_name = 'sys_user_tenant_membership'
     AND constraint_name = 'sys_user_tenant_membership_scope_boundary_chk'
+    AND constraint_type = 'CHECK'
+    AND enforced = 'YES'
 );
 
 -- 7. 角色必须绑定明确租户，禁止用 NULL 角色归属扩大授权范围。

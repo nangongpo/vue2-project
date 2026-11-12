@@ -2,7 +2,7 @@
 
 ## 1. 目的和适用范围
 
-本文档是文件模块的唯一业务、安全和验收依据，适用于：
+本文档是文件模块的唯一业务、安全和验收依据，字段权限的通用模型以 [DATA_FIELD_SECURITY.md](DATA_FIELD_SECURITY.md) 为准，适用于：
 
 - 业务页面上传、分片上传和断点续传；
 - 文件最终化、病毒扫描和安全状态管理；
@@ -43,6 +43,20 @@
 ### 3.4 Worker 和事件模块
 
 Worker 负责最终化、扫描、重试、超时恢复和清理。事件模块负责通过 Outbox、Redis 和 SSE 发布状态通知。事件通知失败不得回滚已经提交的业务状态。
+
+### 3.5 前端通用上传组件
+
+前端统一使用 `frontend/src/components/FileUploader.vue` 接入上传能力。业务页面只能提供明确的 `purpose`，以及经业务授权的 `resourceType`、`resourceId` 和 `fieldName`，并监听组件发出的文件选择、上传完成、状态变化和错误事件。
+
+组件负责分片上传、服务端会话续传、有限重试、SSE 状态订阅和轮询兜底；业务页面不得复制这些流程、拼接上传接口或根据前端状态判断文件是否可用。组件也不得决定租户、组织、部门、数据范围、字段权限或文件安全状态，这些判断全部由服务端重新执行。
+
+组件接入必须满足：
+
+- 不把令牌、对象 Key、扫描结果原文或可授权信息写入浏览器存储；
+- 不接受前端传入的 `tenantId`，不允许通过组件属性扩大数据范围；
+- `resourceType`、`resourceId` 和 `fieldName` 只用于声明业务上下文，不能替代后端资源存在性和权限校验；
+- SSE 仅接收同源状态通知，终态后关闭 SSE 和轮询；
+- 组件测试必须覆盖业务参数构造、错误恢复、断点续传和终态资源释放。
 
 ## 4. 数据隔离模型
 
@@ -272,9 +286,11 @@ Worker 获取并锁定 `FINALIZING` 任务后，必须：
 
 ### 8.2 扫描 Worker
 
-扫描 Worker 必须从隔离区读取文件，通过受控的本地 Unix Socket 或内网 TCP 调用 `clamd`，保存扫描结果、病毒库版本、引擎版本和策略版本。
+扫描 Worker 必须只读访问私有不可变文件：首次扫描从隔离区打开原文件，后续扫描可直接打开已发布的私有对象，通过受控的本地 Unix Socket 或内网 TCP 调用 `clamd`。所有大小的文件扫描均不创建内容副本。保存扫描结论、引擎版本和应用策略版本；病毒库版本另行扩展，不能将引擎或策略版本冒充病毒库版本。
 
 扫描不能在 HTTP 请求或审批事务中执行。禁止使用未持久化的后台 Promise 代替任务记录。
+
+扫描历史的任务与执行记录模型、审批关联、查询接口、权限及验收要求见 [FILE_SCAN_HISTORY_DESIGN.md](FILE_SCAN_HISTORY_DESIGN.md)。实现及验证范围见该文档第 9 节。
 
 扫描服务不可用、病毒库过期、超时、结果不确定或审计失败时，文件保持隔离，不得转为 `READY`。
 
@@ -297,7 +313,7 @@ GET /api/v1/files/uploads/:uploadId/events
 - SSE 和轮询都不能修改上传状态；
 - 进入终态后关闭 SSE、轮询定时器和页面监听器。
 
-轮询是实时通知失败时的兜底机制，不得因 SSE 失败而让上传任务失败。详细连接治理和多实例要求见 [SSE_DESIGN.md](SSE_DESIGN.md)。
+轮询是实时通知失败时的兜底机制，不得因 SSE 失败而让上传任务失败。详细连接治理和多实例要求见 [SSE_DESIGN.md](SSE_DESIGN.md)。前端统一由 `FileUploader` 组件封装该切换，业务页面不得重复实现。
 
 ## 10. 系统文件管理
 
@@ -310,9 +326,15 @@ GET /api/v1/files/:fileId
 
 必须按系统权限、租户、组织、部门、行级数据范围和字段权限过滤。列表和详情使用独立字段策略，不得因为列表可见就默认返回全部安全字段。
 
-服务端计算并返回 `availableActions`。前端不能自行根据状态、角色名称或固定中文文案判断按钮。
+文件管理列表仅返回表格和操作按钮所需字段：文件 ID、展示名称、原始名称、大小、创建时间、状态名称及样式、扫描状态名称及样式、上传人的用户名及显示名、业务关联摘要和 `availableActions`。租户 ID、上传人 ID、上传会话和详情专用字段不随列表返回。
+
+文件详情仅返回弹窗展示字段：文件 ID、展示名称、原始名称、大小、声明及检测类型、中文分类 `classificationLabel`、创建和更新时间、SHA-256、扫描引擎、策略版本、扫描说明及业务关联。业务关联只包含页面展示字段和渲染所需 ID，不返回租户、创建人等内部字段。详情不返回原始分类编码、状态、上传人、上传会话或操作按钮。
+
+列表的 `availableActions` 由服务端计算。前端不能自行根据状态、角色名称或固定中文文案判断按钮。
 
 ### 10.2 重新扫描、拒绝、删除和恢复
+
+按文件业务关联、安全状态和操作影响动态分级，详细规则及实现范围见 [FILE_OPERATION_RISK_DESIGN.md](FILE_OPERATION_RISK_DESIGN.md)。
 
 ```http
 POST /api/v1/files/:fileId/rescan
@@ -321,11 +343,17 @@ POST /api/v1/files/:fileId/delete
 POST /api/v1/files/:fileId/restore
 ```
 
-高风险操作统一采用：
+后端在文件行锁内查询真实关联并重新判定风险：L2 通过近期重新认证及 MFA 后直接执行；L3 采用：
 
 ```text
 申请 → 审批 → 执行 → 复核
 ```
+
+上述四个操作统一返回最小结果 `data: { status, riskLevel }`：`status` 为 `EXECUTED`（状态变更/扫描任务提交成功）或 `PENDING_APPROVAL`（待审批），`riskLevel` 为 `L2` 或 `L3`。不返回完整文件或审批对象。审批处理在授权审批页面继续进行；`EXECUTED` 不代表扫描已通过。
+
+重扫及恢复请求允许附带 `releaseReason`，明确申请解除安全封禁并始终进入 L3。未提供时不解除既有封禁；即使扫描 CLEAN，文件仍不可用。人工拒绝与病毒命中分别保存来源，不再将人工拒绝伪装为病毒扫描结果。解除必须关联已执行审批，且新扫描通过后才清除封禁。
+
+删除保存删除前状态、保留安全证据；保留/调查锁定禁止删除。L3 审批绑定服务器生成的目标快照，文件、关联或策略变化使旧审批失效。L2/L3 请求使用持久化命令记录防止重复执行；审计和状态变更/审批创建在同一事务提交。
 
 申请人不得审批自己的申请，审批、执行和复核人员不得违反职责分离要求。恢复后的文件必须重新进入隔离和扫描，不得直接恢复为 `READY`。
 
@@ -341,7 +369,7 @@ POST /api/v1/files/:fileId/restore
 | `file.upload.resume` | 查询本人未完成会话 | 仅当前用户、当前租户、当前组织和当前部门 |
 | `file.upload.status` | 查询上传状态 | 会话绑定当前用户 |
 | `file.upload.events` | 接收状态通知 | 仅通知，不改变状态 |
-| `file.upload.initiate` | 创建上传会话 | 重新认证、MFA、限流、幂等、审计 |
+| `file.upload.initiate` | 创建上传会话 | L1、登录及业务授权、限流、幂等、审计；组织策略可增强 |
 | `file.upload.part` | 上传分片 | 会话绑定、大小校验、限流 |
 | `file.upload.complete` | 提交完成 | 条件更新、幂等、审计 |
 | `file.upload.abort` | 中止会话 | 归属校验、状态校验、审计 |
@@ -352,15 +380,16 @@ POST /api/v1/files/:fileId/restore
 ```text
 system.file.admin.read
 system.file.admin.detail
-system.file.admin.task.read
 system.file.admin.scan
 system.file.admin.reject
 system.file.admin.delete
 system.file.admin.restore
-system.file.admin.download
+system.file.audit.read
 ```
 
 系统权限只决定允许执行的管理动作，不能跳过租户、组织、部门、数据范围、字段权限和业务下载条件。
+
+系统文件管理使用 `system.file`；安全管理员、系统管理员可在当前租户内管理安全元数据。审计管理员使用独立只读资源 `system.file.audit`，仅查看审计所需元数据。两类资源均不授予跨租户范围，文件内容、对象存储路径和下载能力仍单独受控。
 
 ### 11.3 字段权限
 

@@ -4,9 +4,30 @@ import { API_CODE } from '#app/common/constants/api-code.js'
 import { RedisService } from '#app/cache/services/redis.service.js'
 import { AuditService } from '#app/audit/services/audit.service.js'
 export type CaptchaPoint = { x: number; y: number; t: number }
+export type CaptchaAnswer = {
+  finalX?: number
+  finalAngle?: number
+  selectedIndexes?: number[]
+  selectedText?: string
+  points?: CaptchaPoint[]
+  trackWidth?: number
+  interactions?: Array<Record<string, unknown>>
+}
+export type CaptchaMode = 'EMBED' | 'POPUP'
+export type CaptchaType =
+  | 'SIMPLE_SLIDER'
+  | 'SLIDER'
+  | 'ROTATE'
+  | 'GRID_IMAGE_SELECT'
+  | 'CLICK_ORDER'
+  | 'TEXT_SELECT'
+  | 'AUDIO'
 type Attempt = {
   username: string
-  scene: 'login'
+  scene: string
+  action: string
+  captchaType?: CaptchaType
+  mode?: CaptchaMode
   challengeId?: string
   tokenHash?: string
   expiresAt: number
@@ -14,9 +35,7 @@ type Attempt = {
 const encode = (v: string) =>
   encodeURIComponent(v).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)
 const value = (input: unknown) =>
-  Array.isArray(input) || (input !== null && typeof input === 'object')
-    ? JSON.stringify(input)
-    : String(input)
+  Array.isArray(input) || (input !== null && typeof input === 'object') ? JSON.stringify(input) : String(input)
 function sign(body: Record<string, unknown>, secret: string) {
   const canonical = Object.keys(body)
     .filter((k) => k !== 'Signature' && body[k] !== undefined)
@@ -31,24 +50,21 @@ function sign(body: Record<string, unknown>, secret: string) {
 @Injectable()
 export class CaptchaService {
   constructor(private readonly redis: RedisService, private readonly audit?: AuditService) {}
-  private readonly baseUrl = (process.env.CAPTCHA_SERVICE_URL || 'http://127.0.0.1:3100').replace(
-    /\/$/,
-    ''
-  )
+  private readonly baseUrl = (process.env.CAPTCHA_SERVICE_URL || 'http://127.0.0.1:3100').replace(/\/$/, '')
   private readonly timeout = Number(process.env.CAPTCHA_SERVICE_TIMEOUT_MS || 2000)
-  private common(action: string, attemptId: string) {
+  private common(action: string, attemptId: string, sceneId = 'login') {
     return {
       ApiVersion: '1',
       ProtocolVersion: '1.0',
       RequestId: randomUUID(),
       ServiceId: process.env.CAPTCHA_SERVICE_ID || 'backend-admin',
-      Action: action,
+      Operation: action,
       Timestamp: String(Math.floor(Date.now() / 1000)),
       SignatureMethod: 'HMAC-SHA256',
       SignatureVersion: '1.0',
       SignatureNonce: randomUUID(),
       TraceId: randomUUID(),
-      SceneId: 'login',
+      SceneId: sceneId,
       AttemptId: attemptId,
     }
   }
@@ -72,12 +88,15 @@ export class CaptchaService {
       return payload.Code === 'RATE_LIMITED'
         ? 'captcha.rate_limited'
         : payload.Code === 'SERVICE_AUTH_FAILED'
-          ? 'captcha.service_auth_failed'
+        ? 'captcha.service_auth_failed'
         : payload.Code === 'SERVICE_UNAVAILABLE'
-            ? 'captcha.redis_unavailable'
-            : path.endsWith('/verify') && ['ANSWER_INVALID', 'TRACK_INVALID', 'CHALLENGE_EXPIRED', 'CHALLENGE_NOT_FOUND', 'CONTEXT_MISMATCH'].includes(String(payload.Code || ''))
-              ? 'captcha.verify.failed'
-            : 'captcha.protocol_rejected'
+        ? 'captcha.redis_unavailable'
+        : path.endsWith('/verify') &&
+          ['ANSWER_INVALID', 'TRACK_INVALID', 'CHALLENGE_EXPIRED', 'CHALLENGE_NOT_FOUND', 'CONTEXT_MISMATCH'].includes(
+            String(payload.Code || '')
+          )
+        ? 'captcha.verify.failed'
+        : 'captcha.protocol_rejected'
     }
     if (path.endsWith('/challenges')) return 'captcha.challenge.created'
     if (path.endsWith('/verify')) return payload.Verified === true ? 'captcha.verify.success' : 'captcha.verify.failed'
@@ -110,7 +129,7 @@ export class CaptchaService {
           service: 'captcha-service',
           instance: process.env.CAPTCHA_INSTANCE_ID || process.env.HOSTNAME || 'unknown',
           environment: process.env.NODE_ENV || 'development',
-          action: String(input.body.Action || ''),
+          operation: String(input.body.Operation || ''),
           code: input.payload.Code || 'SUCCESS',
           requestId: requestId ? this.auditHash(requestId) : undefined,
           attemptId: input.body.AttemptId ? this.auditHash(input.body.AttemptId) : undefined,
@@ -121,12 +140,14 @@ export class CaptchaService {
         },
       })
     } catch (error) {
-      console.error(JSON.stringify({
-        service: 'backend',
-        operationCode: 'audit.write.failed',
-        dependency: 'database',
-        error: error instanceof Error ? error.message : String(error),
-      }))
+      console.error(
+        JSON.stringify({
+          service: 'backend',
+          operationCode: 'audit.write.failed',
+          dependency: 'database',
+          error: error instanceof Error ? error.message : String(error),
+        })
+      )
     }
   }
   private attemptKey(id: string) {
@@ -135,9 +156,7 @@ export class CaptchaService {
   private async rateLimit(scope: string, identity: string, envName: string, fallback: number) {
     const limit = Number(process.env[envName] || fallback)
     const windowSeconds = Number(process.env.CAPTCHA_RATE_WINDOW_SECONDS || 60)
-    const key = `security:captcha:rate:${scope}:${createHash('sha256')
-      .update(identity)
-      .digest('hex')}`
+    const key = `security:captcha:rate:${scope}:${createHash('sha256').update(identity).digest('hex')}`
     const count = await this.redis.increment(key, windowSeconds)
     if (count === null) throw new ServiceUnavailableException('验证码限频服务不可用')
     if (count > limit) throw new HttpException('验证码请求过于频繁，请稍后重试', 429)
@@ -145,61 +164,90 @@ export class CaptchaService {
   private async readAttempt(attemptId: string) {
     const raw = await this.redis.get(this.attemptKey(attemptId))
     if (!raw)
-      throw new HttpException(
-        { code: API_CODE.CAPTCHA_INVALID, message: '验证码流程已失效，请重新获取验证码' },
-        400
-      )
+      throw new HttpException({ code: API_CODE.CAPTCHA_INVALID, message: '验证码流程已失效，请重新获取验证码' }, 400)
     try {
       const attempt = JSON.parse(raw) as Attempt
       if (attempt.expiresAt < Date.now()) throw new Error('expired')
       return attempt
     } catch {
-      throw new HttpException(
-        { code: API_CODE.CAPTCHA_INVALID, message: '验证码流程已失效，请重新获取验证码' },
-        400
-      )
+      throw new HttpException({ code: API_CODE.CAPTCHA_INVALID, message: '验证码流程已失效，请重新获取验证码' }, 400)
     }
   }
-  async createChallenge(username: string, ip?: string, userAgent?: string) {
+  async createChallenge(
+    username: string,
+    ip?: string,
+    userAgent?: string,
+    options: {
+      attemptId?: string
+      previousChallengeId?: string
+      sceneId?: string
+      action?: string
+      mode?: CaptchaMode
+      captchaType?: CaptchaType
+    } = {}
+  ) {
     const normalized = this.normalizeUsername(username)
     await this.rateLimit('challenge-ip', ip || 'unknown', 'CAPTCHA_CHALLENGE_RATE_LIMIT', 10)
-    await this.rateLimit(
-      'challenge-user',
-      normalized.toLowerCase(),
-      'CAPTCHA_CHALLENGE_RATE_LIMIT',
-      10
+    await this.rateLimit('challenge-user', normalized.toLowerCase(), 'CAPTCHA_CHALLENGE_RATE_LIMIT', 10)
+    if (Boolean(options.attemptId) !== Boolean(options.previousChallengeId))
+      throw new HttpException({ code: API_CODE.CAPTCHA_INVALID, message: '刷新必须提供原验证码流程' }, 400)
+    const previous = options.attemptId ? await this.readAttempt(options.attemptId) : undefined
+    if (
+      previous &&
+      (previous.username !== normalized ||
+        previous.mode !== options.mode ||
+        previous.scene !== (options.sceneId || 'login') ||
+        previous.action !== (options.action || 'LOGIN') ||
+        previous.challengeId !== options.previousChallengeId ||
+        previous.tokenHash)
     )
-    const attemptId = randomUUID()
-    const ttl = Number(process.env.CAPTCHA_CHALLENGE_TTL || 120)
+      throw new HttpException({ code: API_CODE.CAPTCHA_INVALID, message: '验证码刷新上下文不一致' }, 400)
+    const attemptId = options.attemptId || randomUUID()
+    const ttl = previous
+      ? Math.ceil((previous.expiresAt - Date.now()) / 1000)
+      : Number(process.env.CAPTCHA_CHALLENGE_TTL || 120)
+    if (ttl <= 0) throw new HttpException({ code: API_CODE.CAPTCHA_INVALID, message: '验证码流程已过期' }, 400)
     const attempt: Attempt = {
       username: normalized,
-      scene: 'login',
-      expiresAt: Date.now() + ttl * 1000,
+      scene: options.sceneId || 'login',
+      action: options.action || 'LOGIN',
+      captchaType: options.captchaType,
+      mode: options.mode || 'POPUP',
+      expiresAt: previous?.expiresAt || Date.now() + ttl * 1000,
     }
-    if (!(await this.redis.set(this.attemptKey(attemptId), JSON.stringify(attempt), ttl)))
+    if (!previous && !(await this.redis.set(this.attemptKey(attemptId), JSON.stringify(attempt), ttl)))
       throw new ServiceUnavailableException('验证码服务暂不可用')
     try {
       const result = await this.request<Record<string, unknown>>('/internal/v1/challenges', {
-        ...this.common('CreateChallenge', attemptId),
+        ...this.common('CreateChallenge', attemptId, attempt.scene),
+        Action: attempt.action,
+        Mode: attempt.mode,
+        CaptchaType: attempt.captchaType,
+        PreviousChallengeId: options.previousChallengeId,
         Subject: normalized,
         ClientIp: ip || 'unknown',
         UserAgent: userAgent || 'unknown',
       })
-      const updated = { ...attempt, challengeId: String(result.ChallengeId) }
+      const updated: Attempt = {
+        ...attempt,
+        challengeId: String(result.ChallengeId),
+        captchaType: String(result.CaptchaType) as CaptchaType,
+        mode: String(result.Mode) as CaptchaMode,
+      }
       await this.redis.set(this.attemptKey(attemptId), JSON.stringify(updated), ttl)
       return {
         attemptId,
         challengeId: result.ChallengeId,
-        sceneId: 'login',
+        sceneId: attempt.scene,
         captchaType: result.CaptchaType,
         mode: result.Mode,
         typeVersion: result.TypeVersion,
         resourceVersion: result.ResourceVersion,
-        expiresIn: result.ExpiresIn,
+        expiresIn: Math.min(Number(result.ExpiresIn), ttl),
         payload: result.Payload,
       }
     } catch (error) {
-      await this.redis.getAndDelete(this.attemptKey(attemptId))
+      if (!previous) await this.redis.getAndDelete(this.attemptKey(attemptId))
       throw error
     }
   }
@@ -208,9 +256,12 @@ export class CaptchaService {
     challengeId: string
     ip?: string
     userAgent?: string
-    points: CaptchaPoint[]
-    finalX: number
-    trackWidth: number
+    answer?: CaptchaAnswer
+    captchaType?: CaptchaType
+    action?: string
+    points?: CaptchaPoint[]
+    finalX?: number
+    trackWidth?: number
   }) {
     await this.rateLimit('verify-ip', input.ip || 'unknown', 'CAPTCHA_VERIFY_RATE_LIMIT', 30)
     await this.rateLimit('verify-attempt', input.attemptId, 'CAPTCHA_VERIFY_RATE_LIMIT', 30)
@@ -218,14 +269,18 @@ export class CaptchaService {
     if (attempt.challengeId !== input.challengeId)
       throw new HttpException({ code: API_CODE.CAPTCHA_INVALID, message: '验证码流程无效' }, 400)
     const body = {
-      ...this.common('VerifyChallenge', input.attemptId),
+      ...this.common('VerifyChallenge', input.attemptId, attempt.scene),
       ChallengeId: input.challengeId,
       Subject: attempt.username,
       ClientIp: input.ip || 'unknown',
       UserAgent: input.userAgent || 'unknown',
-      Points: input.points,
-      FinalX: input.finalX,
-      TrackWidth: input.trackWidth,
+      CaptchaType: input.captchaType || attempt.captchaType,
+      Action: input.action || attempt.action,
+      Answer: input.answer || {
+        points: input.points,
+        finalX: input.finalX,
+        trackWidth: input.trackWidth,
+      },
     }
     const result = await this.request<Record<string, unknown>>('/internal/v1/verify', body)
     const token = String(result.CaptchaToken || '')
@@ -245,12 +300,7 @@ export class CaptchaService {
       expiresIn: result.ExpiresIn,
     }
   }
-  async consumeToken(
-    token: string | undefined,
-    attemptId: string | undefined,
-    username: string,
-    ip?: string
-  ) {
+  async consumeToken(token: string | undefined, attemptId: string | undefined, username: string, ip?: string) {
     if (!token || !attemptId) return false
     const attempt = await this.readAttempt(attemptId)
     if (attempt.username !== this.normalizeUsername(username) || !attempt.tokenHash) return false
@@ -258,7 +308,9 @@ export class CaptchaService {
     if (tokenHash !== attempt.tokenHash) return false
     try {
       const result = await this.request<{ Valid?: boolean }>('/internal/v1/tokens/consume', {
-        ...this.common('ConsumeToken', attemptId),
+        ...this.common('ConsumeToken', attemptId, attempt.scene),
+        Action: attempt.action,
+        CaptchaType: attempt.captchaType,
         CaptchaToken: token,
         Subject: attempt.username,
         ClientIp: ip || 'unknown',
@@ -270,10 +322,7 @@ export class CaptchaService {
       throw error
     }
   }
-  private async request<T = Record<string, unknown>>(
-    path: string,
-    body: Record<string, unknown>
-  ): Promise<T> {
+  private async request<T = Record<string, unknown>>(path: string, body: Record<string, unknown>): Promise<T> {
     const secret = process.env.CAPTCHA_SERVICE_SECRET
     if (!secret) throw new ServiceUnavailableException('验证码服务密钥未配置')
     let timer: ReturnType<typeof setTimeout> | undefined
@@ -305,11 +354,25 @@ export class CaptchaService {
             : status >= 500
             ? API_CODE.INTERNAL_ERROR
             : API_CODE.CAPTCHA_INVALID
-        await this.auditEvent({ path, body, payload, result: 'FAILURE', statusCode: status, durationMs: Date.now() - startedAt })
+        await this.auditEvent({
+          path,
+          body,
+          payload,
+          result: 'FAILURE',
+          statusCode: status,
+          durationMs: Date.now() - startedAt,
+        })
         throw new HttpException({ code, message: payload.Message || '验证码服务校验失败' }, status)
       }
       const eventResult = this.operationCode(path, payload, 'SUCCESS').endsWith('.failed') ? 'FAILURE' : 'SUCCESS'
-      await this.auditEvent({ path, body, payload, result: eventResult, statusCode: response.status, durationMs: Date.now() - startedAt })
+      await this.auditEvent({
+        path,
+        body,
+        payload,
+        result: eventResult,
+        statusCode: response.status,
+        durationMs: Date.now() - startedAt,
+      })
       return payload as T
     } catch (error) {
       if (error instanceof HttpException) throw error

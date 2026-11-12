@@ -129,6 +129,8 @@ export class PageRouteChangePayload {
 }
 export class FileActionPayload {
   @IsUUID() fileId!: string
+  @IsOptional() @IsString() @Matches(/^[a-f0-9]{64}$/) targetSnapshot?: string
+  @IsOptional() @IsString() @MaxLength(255) @Matches(/\S/) releaseReason?: string
 }
 export class ScopeTarget {
   @IsIn(['USER', 'DEPARTMENT', 'ORGANIZATION', 'TENANT']) targetType!:

@@ -32,7 +32,7 @@ export const DATA_FIELD_DEFINITIONS: readonly DataFieldDefinition[] = [
     name: '登录账号',
     dataType: 'string',
     riskLevel: 'L2',
-    writable: true,
+    writeOperations: ['CREATE'],
   },
   {
     resource: 'system.user',
@@ -40,7 +40,7 @@ export const DATA_FIELD_DEFINITIONS: readonly DataFieldDefinition[] = [
     name: '显示名称',
     dataType: 'string',
     riskLevel: 'L1',
-    writable: true,
+    writeOperations: ['CREATE', 'UPDATE'],
   },
   { resource: 'system.user', field: 'statusLabel', name: '用户状态', dataType: 'string', riskLevel: 'L1' },
   { resource: 'system.user', field: 'isActive', name: '是否启用', dataType: 'boolean', riskLevel: 'L1' },
@@ -89,7 +89,8 @@ export const DATA_FIELD_DEFINITIONS: readonly DataFieldDefinition[] = [
     name: '密码',
     dataType: 'secret',
     riskLevel: 'L3',
-    writable: true,
+    readable: false,
+    writeOperations: ['CREATE'],
   },
   {
     resource: 'system.role',
@@ -104,7 +105,6 @@ export const DATA_FIELD_DEFINITIONS: readonly DataFieldDefinition[] = [
     name: '角色编码',
     dataType: 'string',
     riskLevel: 'L3',
-    writable: true,
   },
   {
     resource: 'system.role',
@@ -112,7 +112,7 @@ export const DATA_FIELD_DEFINITIONS: readonly DataFieldDefinition[] = [
     name: '角色名称',
     dataType: 'string',
     riskLevel: 'L1',
-    writable: true,
+    writeOperations: ['CREATE', 'UPDATE'],
   },
   {
     resource: 'system.role',
@@ -120,7 +120,7 @@ export const DATA_FIELD_DEFINITIONS: readonly DataFieldDefinition[] = [
     name: '角色描述',
     dataType: 'string',
     riskLevel: 'L1',
-    writable: true,
+    writeOperations: ['CREATE', 'UPDATE'],
   },
   {
     resource: 'system.role',
@@ -207,6 +207,10 @@ export const DATA_FIELD_DEFINITIONS: readonly DataFieldDefinition[] = [
     dataType: 'string',
     riskLevel: 'L1',
   },
+  { resource: 'system.audit', field: 'tenantId', name: '租户 ID', dataType: 'string', riskLevel: 'L2' },
+  { resource: 'system.audit', field: 'membershipId', name: '成员关系 ID', dataType: 'string', riskLevel: 'L2' },
+  { resource: 'system.audit', field: 'organizationId', name: '组织 ID', dataType: 'string', riskLevel: 'L2' },
+  { resource: 'system.audit', field: 'departmentId', name: '部门 ID', dataType: 'string', riskLevel: 'L2' },
   {
     resource: 'system.audit',
     field: 'action',
@@ -1010,22 +1014,6 @@ export const DATA_FIELD_DEFINITIONS: readonly DataFieldDefinition[] = [
   },
   {
     resource: 'system.file',
-    field: 'tenantId',
-    name: '租户 ID',
-    dataType: 'string',
-    riskLevel: 'L2',
-  },
-  { resource: 'system.file', field: 'organizationId', name: '组织 ID', dataType: 'string', riskLevel: 'L2' },
-  { resource: 'system.file', field: 'departmentId', name: '部门 ID', dataType: 'string', riskLevel: 'L2' },
-  {
-    resource: 'system.file',
-    field: 'ownerUserId',
-    name: '所属用户 ID',
-    dataType: 'string',
-    riskLevel: 'L2',
-  },
-  {
-    resource: 'system.file',
     field: 'originalName',
     name: '原始文件名',
     dataType: 'string',
@@ -1054,13 +1042,6 @@ export const DATA_FIELD_DEFINITIONS: readonly DataFieldDefinition[] = [
   },
   {
     resource: 'system.file',
-    field: 'extension',
-    name: '文件扩展名',
-    dataType: 'string',
-    riskLevel: 'L1',
-  },
-  {
-    resource: 'system.file',
     field: 'size',
     name: '文件大小',
     dataType: 'string',
@@ -1075,16 +1056,9 @@ export const DATA_FIELD_DEFINITIONS: readonly DataFieldDefinition[] = [
   },
   {
     resource: 'system.file',
-    field: 'classification',
-    name: '文件密级',
-    dataType: 'enum',
-    riskLevel: 'L2',
-  },
-  {
-    resource: 'system.file',
-    field: 'status',
-    name: '文件状态',
-    dataType: 'enum',
+    field: 'classificationLabel',
+    name: '文件密级名称',
+    dataType: 'string',
     riskLevel: 'L2',
   },
   {
@@ -1095,13 +1069,6 @@ export const DATA_FIELD_DEFINITIONS: readonly DataFieldDefinition[] = [
     riskLevel: 'L1',
   },
   { resource: 'system.file', field: 'statusTone', name: '文件状态样式', dataType: 'string', riskLevel: 'L1' },
-  {
-    resource: 'system.file',
-    field: 'scanStatus',
-    name: '病毒扫描状态',
-    dataType: 'enum',
-    riskLevel: 'L2',
-  },
   {
     resource: 'system.file',
     field: 'scanStatusLabel',
@@ -1140,13 +1107,6 @@ export const DATA_FIELD_DEFINITIONS: readonly DataFieldDefinition[] = [
   },
   {
     resource: 'system.file',
-    field: 'deletedBy',
-    name: '删除人',
-    dataType: 'string',
-    riskLevel: 'L3',
-  },
-  {
-    resource: 'system.file',
     field: 'createdAt',
     name: '创建时间',
     dataType: 'datetime',
@@ -1156,13 +1116,6 @@ export const DATA_FIELD_DEFINITIONS: readonly DataFieldDefinition[] = [
     resource: 'system.file',
     field: 'updatedAt',
     name: '更新时间',
-    dataType: 'datetime',
-    riskLevel: 'L1',
-  },
-  {
-    resource: 'system.file',
-    field: 'deletedAt',
-    name: '删除时间',
     dataType: 'datetime',
     riskLevel: 'L1',
   },
@@ -1184,62 +1137,85 @@ export const DATA_FIELD_DEFINITIONS: readonly DataFieldDefinition[] = [
     relationModel: 'FileBinding',
     riskLevel: 'L2',
   },
-  {
-    resource: 'system.file',
-    field: 'uploads',
-    name: '上传会话',
-    dataType: 'array',
-    relationResource: 'system.file.upload',
-    relationModel: 'UploadSession',
-    riskLevel: 'L2',
-  },
-  {
-    resource: 'system.file',
-    field: 'scanResult',
-    name: '扫描结果',
-    dataType: 'object',
-    relationResource: 'system.file.scan-result',
-    relationModel: 'FileScanResult',
-    riskLevel: 'L2',
-  },
+  ...([
+    ['id', '文件 ID', 'string', 'L1'],
+    ['tenantId', '租户 ID', 'string', 'L2'],
+    ['organizationId', '组织 ID', 'string', 'L2'],
+    ['departmentId', '部门 ID', 'string', 'L2'],
+    ['ownerUserId', '所属用户 ID', 'string', 'L2'],
+    ['originalName', '原始文件名', 'string', 'L1'],
+    ['status', '文件状态', 'enum', 'L1'],
+    ['scanStatus', '扫描状态', 'enum', 'L1'],
+    ['scanDetail', '扫描详情', 'string', 'L2'],
+    ['createdAt', '上传时间', 'datetime', 'L1'],
+    ['updatedAt', '更新时间', 'datetime', 'L1'],
+  ] as const).map(([field, name, dataType, riskLevel]) => ({
+    resource: 'system.file.audit', field, name, dataType, riskLevel,
+  })),
   ...([
     ['id', '文件关联 ID', 'string', 'L1'],
-    ['fileId', '关联文件 ID', 'string', 'L1'],
-    ['tenantId', '租户 ID', 'string', 'L2'],
     ['resourceType', '业务资源类型', 'string', 'L1'],
     ['resourceId', '业务资源 ID', 'string', 'L2'],
     ['fieldName', '业务字段名', 'string', 'L1'],
     ['visibility', '可见性', 'enum', 'L2'],
-    ['createdBy', '关联创建人', 'string', 'L2'],
-    ['createdAt', '创建时间', 'datetime', 'L1'],
   ] as const).map(([field, name, dataType, riskLevel]) => ({
     resource: 'system.file.binding', field, name, dataType, riskLevel,
   })),
+
   ...([
-    ['id', '上传会话 ID', 'string', 'L1'],
-    ['status', '上传会话状态', 'enum', 'L2'],
-    ['purpose', '上传用途', 'string', 'L1'],
-    ['createdAt', '创建时间', 'datetime', 'L1'],
-    ['updatedAt', '更新时间', 'datetime', 'L1'],
-  ] as const).map(([field, name, dataType, riskLevel]) => ({
-    resource: 'system.file.upload', field, name, dataType, riskLevel,
-  })),
+    ['id', '扫描任务 ID', 'string'], ['createdAt', '任务创建时间', 'datetime'],
+    ['startedAt', '首次执行时间', 'datetime'], ['finishedAt', '任务结束时间', 'datetime'],
+    ['statusLabel', '任务状态', 'string'], ['statusTone', '任务状态样式', 'string'],
+    ['isTerminal', '任务已结束', 'boolean'], ['attemptCount', '执行次数', 'number'],
+    ['historyAvailable', '完整历史可用', 'boolean'], ['sha256', '扫描内容摘要', 'string'], ['size', '扫描内容大小', 'string'],
+  ] as const).map(([field, name, dataType]) => ({ resource: 'system.file.scan-job', field, name, dataType, riskLevel: 'L1' as const })),
+  { resource: 'system.file.scan-job', field: 'triggers', name: '扫描触发来源', dataType: 'array', relationResource: 'system.file.scan-trigger', relationModel: 'FileScanTrigger', riskLevel: 'L1' },
   ...([
-    ['verdict', '扫描结论', 'enum', 'L2'],
-    ['detail', '扫描详情', 'string', 'L2'],
-    ['engineVersion', '扫描引擎版本', 'string', 'L2'],
-    ['policyVersion', '扫描策略版本', 'string', 'L2'],
-  ] as const).map(([field, name, dataType, riskLevel]) => ({
-    resource: 'system.file.scan-result', field, name, dataType, riskLevel,
-  })),
+    ['sourceLabel', '触发类型', 'string'], ['approvalId', '关联审批', 'string'], ['requestedByName', '扫描申请人', 'string'],
+    ['executedByName', '扫描执行人', 'string'], ['reason', '触发原因', 'string'], ['createdAt', '触发时间', 'datetime'], ['reused', '复用已有任务', 'boolean'],
+  ] as const).map(([field, name, dataType]) => ({ resource: 'system.file.scan-trigger', field, name, dataType, riskLevel: field === 'reason' ? 'L2' as const : 'L1' as const })),
+  ...([
+    ['id', '执行记录 ID', 'string'], ['attemptNo', '执行序号', 'number'], ['statusLabel', '执行状态', 'string'],
+    ['stageLabel', '执行阶段', 'string'], ['verdictLabel', '扫描结论', 'string'], ['scanDetail', '扫描说明', 'string'],
+    ['scanEngineVersion', '引擎版本', 'string'], ['policyVersion', '策略版本', 'string'], ['startedAt', '执行开始时间', 'datetime'],
+    ['finishedAt', '执行结束时间', 'datetime'], ['durationMs', '执行耗时', 'number'], ['errorCode', '错误编码', 'string'], ['errorMessage', '错误说明', 'string'],
+  ] as const).map(([field, name, dataType]) => ({ resource: 'system.file.scan-attempt', field, name, dataType, riskLevel: ['errorMessage', 'scanDetail'].includes(field) ? 'L2' as const : 'L1' as const })),
+
 ]
+
+/**
+ * 每个资源的字段名必须唯一；不同资源可以使用相同字段名。
+ * 重复字段会导致字段权限码和响应裁剪规则不确定，加载目录时直接失败。
+ */
+function validateFieldDefinitions(definitions: readonly DataFieldDefinition[]) {
+  const fieldsByResource = new Map<string, Set<string>>()
+  for (const definition of definitions) {
+    const fields = fieldsByResource.get(definition.resource) || new Set<string>()
+    if (fields.has(definition.field)) {
+      throw new Error(`数据字段重复：${definition.resource}.${definition.field}`)
+    }
+    if (definition.dataType === 'secret' && definition.readable !== false) {
+      throw new Error(`敏感字段必须禁止读取：${definition.resource}.${definition.field}`)
+    }
+    if (definition.writeOperations?.some((operation) => operation !== 'CREATE' && operation !== 'UPDATE')) {
+      throw new Error(`数据字段写入操作无效：${definition.resource}.${definition.field}`)
+    }
+    if (new Set(definition.writeOperations || []).size !== (definition.writeOperations || []).length) {
+      throw new Error(`数据字段写入操作重复：${definition.resource}.${definition.field}`)
+    }
+    fields.add(definition.field)
+    fieldsByResource.set(definition.resource, fields)
+  }
+}
+
+validateFieldDefinitions(DATA_FIELD_DEFINITIONS)
 
 export const DATA_FIELD_PERMISSIONS = DATA_FIELD_DEFINITIONS.flatMap((field) => {
   const prefix = `${field.resource}.field.${field.field}`
   const permissions = [
     { code: `${prefix}.read`, name: `${field.name}查看`, action: `field.${field.field}.read` },
   ]
-  if (field.writable)
+  if (field.writeOperations?.length)
     permissions.push({
       code: `${prefix}.write`,
       name: `${field.name}修改`,

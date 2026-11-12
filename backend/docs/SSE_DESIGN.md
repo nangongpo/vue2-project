@@ -11,7 +11,8 @@
 所有 SSE 接口必须遵循：
 
 - [TENANCY_SECURITY.md](TENANCY_SECURITY.md)：单租户、多租户、租户、组织、部门和 `NULL` 语义；
-- [PERMISSION_DESIGN.md](PERMISSION_DESIGN.md)：数据资源、显式 `SELF`、数据范围和字段权限顺序；
+- [PERMISSION_DESIGN.md](PERMISSION_DESIGN.md)：数据资源、显式 `SELF` 和数据范围顺序；
+- [DATA_FIELD_SECURITY.md](DATA_FIELD_SECURITY.md)：事件 payload 的字段投影和字段权限执行；
 - [API_DESIGN.md](API_DESIGN.md)：公共 HTTP、认证、错误、审计和响应规范。
 
 全局规则只有上述文档中的定义有效。SSE 文档不得重新解释或弱化这些规则。

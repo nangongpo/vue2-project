@@ -488,7 +488,7 @@ export class AuthService {
     const membership = activeTenantId && this.prisma.userTenantMembership
       ? await this.prisma.userTenantMembership.findFirst({
           where: { userId: user.id, tenantId: activeTenantId, status: 'ACTIVE' },
-          select: { departmentId: true, organizationId: true },
+          select: { id: true, departmentId: true, organizationId: true },
         })
       : null
     const now = new Date()
@@ -602,6 +602,7 @@ export class AuthService {
       mfaEnabled: user.mfaEnabled,
       mfaRequired: adminTypes.size > 0,
       tenantId: activeTenantId || (() => { throw new UnauthorizedException('当前会话未确定有效租户') })(),
+      membershipId: membership?.id || null,
       departmentId: membership?.departmentId || null,
       organizationId: membership?.organizationId || null,
       tenancyMode: this.tenancyMode(),

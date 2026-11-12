@@ -1,6 +1,6 @@
 # frontend
 
-后台管理前端，基于 Vue 2.7、Vite 8.3、Element UI 和 Vue Router。前端只访问 backend 的公开 API，不直接访问数据库、Redis 或 `captcha-service`。
+后台管理前端，基于 Vue 2.7、Vite 8.3、Element UI 和 Vue Router。
 
 ## 环境要求
 

@@ -97,6 +97,82 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  async getAndDeleteIfValue(key: string, expected: string) {
+    if (!this.client) return null
+    try {
+      const result = await this.client.eval(
+        `local value = redis.call('get', KEYS[1])
+          if value == ARGV[1] then
+            redis.call('del', KEYS[1])
+            return value
+          end
+          return false`,
+        1,
+        key,
+        expected
+      )
+      return typeof result === 'string' ? result : null
+    } catch (error) {
+      console.error('[captcha-redis] compare-and-delete failed:', (error as Error).message)
+      return null
+    }
+  }
+
+  /** Publish the new challenge and retire its predecessor in one Redis operation. */
+  async publishChallenge(activeKey: string, newKey: string, previousKey: string, value: string, ttl: number) {
+    if (!this.client) return null
+    try {
+      const result = await this.client.eval(
+        `
+        local current = redis.call('get', KEYS[1])
+        if ARGV[1] == '' then
+          if current then return 0 end
+        elseif current ~= ARGV[1] then return 0 end
+        local count = tonumber(redis.call('get', KEYS[3]) or '0')
+        if ARGV[1] ~= '' and count >= tonumber(ARGV[4]) then return 0 end
+        redis.call('set', KEYS[2], ARGV[2], 'EX', ARGV[3])
+        redis.call('set', KEYS[1], KEYS[2], 'EX', ARGV[3])
+        if ARGV[1] ~= '' then
+          redis.call('del', ARGV[1])
+          redis.call('set', KEYS[3], count + 1, 'EX', ARGV[3])
+        end
+        return 1`,
+        3,
+        activeKey,
+        newKey,
+        `${activeKey}:refresh`,
+        previousKey,
+        value,
+        String(ttl),
+        String(process.env.CAPTCHA_REFRESH_LIMIT || 10)
+      )
+      return result === 1
+    } catch {
+      return null
+    }
+  }
+
+  async consumeChallenge(activeKey: string, key: string, expected: string) {
+    if (!this.client) return null
+    try {
+      const result = await this.client.eval(
+        `
+        if redis.call('get', KEYS[1]) ~= KEYS[2] then return false end
+        local raw = redis.call('get', KEYS[2])
+        if raw ~= ARGV[1] then return false end
+        redis.call('del', KEYS[1], KEYS[2])
+        return raw`,
+        2,
+        activeKey,
+        key,
+        expected
+      )
+      return typeof result === 'string' ? result : null
+    } catch {
+      return null
+    }
+  }
+
   async incrementJsonField(key: string, field: string, max: number) {
     if (!this.client) return null
     try {

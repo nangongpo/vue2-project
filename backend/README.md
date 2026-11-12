@@ -31,11 +31,12 @@ openssl rand -hex 32
 
 ```bash
 pnpm --filter backend db:generate
-pnpm --filter backend db:migrate --name init
+pnpm --filter backend db:verify-init
+pnpm --filter backend db:deploy
 pnpm --filter backend db:seed
 ```
 
-数据库清理、迁移和生产发布规范见 [`docs/DATABASE_OPERATIONS.md`](docs/DATABASE_OPERATIONS.md)。
+初始化基线说明见 [`prisma/README.md`](prisma/README.md)。数据库清理、迁移和生产发布规范见 [`docs/DATABASE_OPERATIONS.md`](docs/DATABASE_OPERATIONS.md)。可通过 `pnpm --filter backend test:integration:init` 在独立本机临时库验证完整初始化，不重置当前业务库。
 
 启动服务：
 

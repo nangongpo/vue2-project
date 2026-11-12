@@ -57,9 +57,10 @@
         <el-table-column label="创建时间" width="170">
           <template slot-scope="scope">{{ formatDate(scope.row.createdAt) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="260" fixed="right">
+        <el-table-column label="操作" width="330" fixed="right">
           <template slot-scope="scope">
             <permission-button permission="system.file.admin.detail" type="text" @click="showDetail(scope.row)">详情</permission-button>
+            <permission-button permission="system.file.admin.scan-history.read" type="text" @click="showHistory(scope.row)">扫描历史</permission-button>
             <permission-button :row="scope.row" action="rescan" type="text" @click="rescan(scope.row)" />
             <permission-button :row="scope.row" action="reject" type="text" @click="reject(scope.row)" />
             <permission-button :row="scope.row" action="delete" type="text" class="danger-text" @click="remove(scope.row)" />
@@ -77,7 +78,7 @@
         @current-change="loadFiles" />
     </el-card>
 
-    <el-dialog title="文件详情" :visible.sync="detailVisible" width="760px" :close-on-click-modal="false">
+    <el-dialog title="文件详情" :visible.sync="detailVisible" width="760px" custom-class="file-detail-dialog" :close-on-click-modal="false">
       <el-descriptions v-if="selectedFile" :column="2" border size="small">
         <el-descriptions-item label="文件 ID" :span="2">{{ selectedFile.id }}</el-descriptions-item>
         <el-descriptions-item label="展示名称">{{ selectedFile.safeName }}</el-descriptions-item>
@@ -85,9 +86,11 @@
         <el-descriptions-item label="大小">{{ formatSize(selectedFile.size) }}</el-descriptions-item>
         <el-descriptions-item label="声明类型">{{ selectedFile.declaredMime || '—' }}</el-descriptions-item>
         <el-descriptions-item label="检测类型">{{ selectedFile.detectedMime || '未检测' }}</el-descriptions-item>
-        <el-descriptions-item label="分类">{{ selectedFile.classification || 'INTERNAL' }}</el-descriptions-item>
+        <el-descriptions-item label="分类">{{ selectedFile.classificationLabel || '—' }}</el-descriptions-item>
+        <el-descriptions-item label="创建时间">{{ selectedFile.createdAt ? formatDate(selectedFile.createdAt) : '—' }}</el-descriptions-item>
+        <el-descriptions-item label="更新时间">{{ selectedFile.updatedAt ? formatDate(selectedFile.updatedAt) : '—' }}</el-descriptions-item>
         <el-descriptions-item label="SHA-256" :span="2"><span class="hash">{{ selectedFile.sha256 || '未生成' }}</span></el-descriptions-item>
-        <el-descriptions-item label="扫描引擎">{{ selectedFile.scanEngineVersion || '—' }}</el-descriptions-item>
+        <el-descriptions-item label="扫描引擎版本">{{ selectedFile.scanEngineVersion || '—' }}</el-descriptions-item>
         <el-descriptions-item label="策略版本">{{ selectedFile.policyVersion || '—' }}</el-descriptions-item>
         <el-descriptions-item label="扫描说明" :span="2">{{ selectedFile.scanDetail || '—' }}</el-descriptions-item>
       </el-descriptions>
@@ -99,6 +102,34 @@
       </div>
       <span slot="footer"><el-button @click="detailVisible = false">关闭</el-button></span>
     </el-dialog>
+    <el-dialog :title="actionTitle" :visible.sync="actionVisible" width="520px" :close-on-click-modal="false" :close-on-press-escape="!actionBusy" :show-close="!actionBusy">
+      <el-form label-position="top">
+        <el-form-item label="操作原因" required>
+          <el-input v-model="actionReason" type="textarea" :rows="3" maxlength="255" show-word-limit :disabled="actionBusy" />
+        </el-form-item>
+        <template v-if="actionType === 'rescan' || actionType === 'restore'">
+          <el-checkbox v-model="releaseRequested" :disabled="actionBusy">同时申请解除安全封禁（需独立审批）</el-checkbox>
+          <el-form-item v-if="releaseRequested" label="安全解除依据" required>
+            <el-input v-model="releaseReason" type="textarea" :rows="3" maxlength="255" placeholder="填写调查结论与解除依据；扫描通过后才可恢复使用" :disabled="actionBusy" />
+          </el-form-item>
+        </template>
+      </el-form>
+      <span slot="footer">
+        <el-button :disabled="actionBusy" @click="actionVisible = false">取消</el-button>
+        <el-button type="primary" :loading="actionBusy" @click="submitAction">提交</el-button>
+      </span>
+    </el-dialog>
+    <el-drawer
+      title="扫描历史"
+      :visible.sync="historyVisible"
+      size="900px"
+      custom-class="file-history-drawer"
+      :wrapper-closable="false">
+      <div class="history-content">
+        <h3 v-if="historyFile" class="history-file-name">{{ historyFile.safeName || historyFile.originalName }}</h3>
+        <file-scan-history v-if="historyVisible && historyFile && canReadHistory" :key="historyFile.id" :file-id="historyFile.id" />
+      </div>
+    </el-drawer>
   </div>
 </template>
 
@@ -111,17 +142,24 @@ import {
   rescanManagedFile,
   restoreManagedFile,
 } from '@/api/file-management'
+import FileScanHistory from '@/components/FileScanHistory.vue'
 import { dateFormat } from '@/utils/date'
 
 export default {
   name: 'SystemFileManagement',
+  components: { FileScanHistory },
+  computed: { canReadHistory() { return this.$store.getters.menu_list.includes('system.file.admin.scan-history.read') } },
   data() {
     return {
       loading: false,
+      actionVisible: false, actionBusy: false, actionType: '', actionTitle: '', actionFile: null,
+      actionReason: '', releaseRequested: false, releaseReason: '',
       files: [],
       total: 0,
       detailVisible: false,
       selectedFile: null,
+      historyVisible: false,
+      historyFile: null,
       statusOptions: [],
       scanStatusOptions: [],
       query: { keyword: '', status: '', scanStatus: '', page: 1, pageSize: 10 },
@@ -144,35 +182,43 @@ export default {
       } finally { this.loading = false }
     },
     search() { this.query.page = 1; this.loadFiles() },
+    showHistory(file) { this.historyFile = file; this.historyVisible = true },
     async showDetail(file) {
       try {
         this.selectedFile = await getManagedFile(file.id)
         this.detailVisible = true
       } catch (error) { this.$message.error(error.message || '文件详情加载失败') }
     },
-    async rescan(file) {
-      const reason = await this.reason('重新扫描文件', '重新扫描将重新调用病毒扫描服务，请填写原因。')
-      if (!reason) return
-      try { await rescanManagedFile(file.id, reason); this.$message.success('已提交重新扫描审批，请到授权审批页面继续处理'); await this.loadFiles() } catch (error) { this.$message.error(error.message || '提交重新扫描审批失败') }
+    openAction(file, type, title) {
+      this.actionFile = file
+      this.actionType = type
+      this.actionTitle = title
+      this.actionReason = ''
+      this.releaseRequested = false
+      this.releaseReason = ''
+      this.actionVisible = true
     },
-    async reject(file) {
-      const reason = await this.reason('拒绝文件', '文件将被标记为违规并禁止业务使用，请填写原因。')
-      if (!reason) return
-      try { await rejectManagedFile(file.id, reason); this.$message.success('已提交文件拒绝审批，请到授权审批页面继续处理'); await this.loadFiles() } catch (error) { this.$message.error(error.message || '提交文件拒绝审批失败') }
+    rescan(file) { this.openAction(file, 'rescan', '重新扫描文件') },
+    reject(file) { this.openAction(file, 'reject', '拒绝文件') },
+    remove(file) { this.openAction(file, 'delete', '删除文件') },
+    restore(file) { this.openAction(file, 'restore', '恢复文件') },
+    async submitAction() {
+      if (this.actionBusy || !this.actionFile) return
+      if (!this.actionReason.trim()) return this.$message.warning('请填写操作原因')
+      if (this.releaseRequested && !this.releaseReason.trim()) return this.$message.warning('请填写安全解除依据')
+      const actions = { rescan: rescanManagedFile, reject: rejectManagedFile, delete: deleteManagedFile, restore: restoreManagedFile }
+      this.actionBusy = true
+      try {
+        const result = await actions[this.actionType](this.actionFile.id, this.actionReason.trim(),
+          this.releaseRequested ? this.releaseReason.trim() : undefined)
+        if (result.status === 'PENDING_APPROVAL') this.$message.success('已提交审批，请到授权审批页面继续处理')
+        else this.$message.success(this.actionType === 'rescan' || this.actionType === 'restore' ? '操作已执行，等待安全扫描结果' : '操作已执行')
+        this.actionVisible = false
+        await this.loadFiles()
+      } catch (error) { this.$message.error(error.message || '文件操作失败') }
+      finally { this.actionBusy = false }
     },
-    async remove(file) {
-      const reason = await this.reason('删除文件', '删除采用逻辑删除并进入后续生命周期清理，请填写原因。')
-      if (!reason) return
-      try { await deleteManagedFile(file.id, reason); this.$message.success('已提交文件删除审批，请到授权审批页面继续处理'); await this.loadFiles() } catch (error) { this.$message.error(error.message || '提交文件删除审批失败') }
-    },
-    async restore(file) {
-      const reason = await this.reason('恢复文件', '恢复后文件仍需重新扫描，扫描通过前不能使用。')
-      if (!reason) return
-      try { await restoreManagedFile(file.id, reason); this.$message.success('已提交文件恢复审批，请到授权审批页面继续处理'); await this.loadFiles() } catch (error) { this.$message.error(error.message || '提交文件恢复审批失败') }
-    },
-    reason(title, message) {
-      return this.$prompt(message, title, { inputPlaceholder: '请输入操作原因', inputValidator: (value) => value && value.trim() ? true : '操作原因不能为空' }).then((result) => result.value.trim()).catch(() => '')
-    },
+
     formatDate(value) { return dateFormat(value) },
     formatSize(value) {
       const size = Number(value || 0)
@@ -189,6 +235,11 @@ export default {
 
 <style lang="scss" scoped>
 .page-container { padding: 20px; }
+::v-deep .file-detail-dialog { max-width: calc(100vw - 32px); }
+::v-deep .file-history-drawer { max-width: calc(100vw - 32px); }
+::v-deep .file-history-drawer .el-drawer__header { margin-bottom: 0; padding: 18px 20px; border-bottom: 1px solid #ebeef5; color: #303133; }
+.history-content { padding: 16px 20px 20px; }
+.history-file-name { margin: 0 0 20px; font-size: 20px; font-weight: 600; line-height: 1.5; color: #303133; overflow-wrap: anywhere; }
 .toolbar { display: flex; gap: 10px; margin-bottom: 16px; }
 .toolbar .el-input { width: 260px; }
 .toolbar .el-select { width: 150px; }

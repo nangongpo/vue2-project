@@ -5,11 +5,14 @@ const OPS_TICKET_READ_POLICY: PermissionRolePolicy = {
   type: 'ROLE_ALLOWLIST',
   roleTypes: ['SECURITY', 'SYSTEM', 'AUDIT'],
 }
+
 const OPS_TICKET_OPERATE_POLICY: PermissionRolePolicy = {
   type: 'ROLE_ALLOWLIST',
   roleTypes: ['SECURITY', 'SYSTEM'],
 }
+
 const OPS_TICKET_REVIEW_POLICY: PermissionRolePolicy = { type: 'SINGLE_ROLE', roleType: 'AUDIT' }
+
 const APPROVAL_READ_POLICY: PermissionRolePolicy = {
   type: 'ROLE_ALLOWLIST',
   roleTypes: ['SECURITY', 'AUDIT'],
@@ -39,17 +42,14 @@ export const DATA_FIELD_ROLE_POLICIES: Readonly<Record<string, readonly RoleType
   'system.approval': ['SECURITY', 'AUDIT'],
   'system.approval.actor': ['SECURITY', 'AUDIT'],
   'system.file': ['SECURITY', 'SYSTEM'],
+  'system.file.scan-job': ['SECURITY', 'SYSTEM'],
+  'system.file.scan-trigger': ['SECURITY', 'SYSTEM'],
+  'system.file.scan-attempt': ['SECURITY', 'SYSTEM'],
   'system.file.binding': ['SECURITY', 'SYSTEM'],
-  'system.file.scan-result': ['SECURITY', 'SYSTEM'],
-  'system.file.upload': ['SECURITY', 'SYSTEM'],
+  'system.file.audit': ['AUDIT'],
   'system.health.service': ['SECURITY', 'SYSTEM'],
   'system.ops-ticket.evidence': ['SECURITY', 'SYSTEM', 'AUDIT'],
   'system.ops-ticket.execution': ['SECURITY', 'SYSTEM', 'AUDIT'],
 }
 
-export {
-  APPROVAL_READ_POLICY,
-  OPS_TICKET_OPERATE_POLICY,
-  OPS_TICKET_READ_POLICY,
-  OPS_TICKET_REVIEW_POLICY,
-}
+export { APPROVAL_READ_POLICY, OPS_TICKET_OPERATE_POLICY, OPS_TICKET_READ_POLICY, OPS_TICKET_REVIEW_POLICY }

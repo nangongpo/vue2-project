@@ -194,6 +194,7 @@ describe('permission catalog route contracts', () => {
       'system.audit': ['AUDIT'],
       'system.approval': ['SECURITY', 'AUDIT'],
       'system.file': ['SECURITY', 'SYSTEM'],
+      'system.file.audit': ['AUDIT'],
     })
     expect(MANAGEMENT_PERMISSION_ROLE_POLICIES['system.audit.review']).toEqual({
       type: 'SINGLE_ROLE',
@@ -208,7 +209,10 @@ describe('permission catalog route contracts', () => {
       ['system.approval.review', ['AUDIT']],
       ['system.ops-ticket.read', ['SECURITY', 'SYSTEM', 'AUDIT']],
       ['system.ops-ticket.execute', ['SECURITY', 'SYSTEM']],
+      ['system.ops-ticket.review', ['AUDIT']],
       ['system.health.read', ['SYSTEM']],
+      ['system.file.audit.read', ['AUDIT']],
+      ['system.file.admin.delete', ['SECURITY', 'SYSTEM']],
       ['system.role.grant', ['SECURITY']],
       ['system.audit.field.action.read', ['AUDIT']],
       ['system.approval.field.kind.read', ['SECURITY', 'AUDIT']],

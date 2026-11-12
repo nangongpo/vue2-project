@@ -1,35 +1,13 @@
-import { BadRequestException, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common'
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
-import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto'
+import { randomUUID, timingSafeEqual } from 'node:crypto'
 import { PrismaService } from '#app/database/prisma.service.js'
 import { API_CODE } from '#app/common/constants/api-code.js'
 import { normalizePagination, paginationData } from '#app/common/pagination.js'
 import type { AuditExportQuery, AuditPageQuery, AuditRecordInput } from '#app/audit/types.js'
 import { normalizeAuditAction } from '#app/audit/utils/audit-action.js'
 import { sanitizeAuditDetail } from '#app/audit/utils/audit-sanitizer.js'
-
-const canonicalize = (value: unknown): unknown => {
-  if (typeof value === 'bigint') return value.toString()
-  if (value instanceof Date) return value.toISOString()
-  if (Array.isArray(value)) return value.map(canonicalize)
-  if (value && typeof value === 'object') {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>)
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([key, nested]) => [key, canonicalize(nested)])
-    )
-  }
-  return value
-}
-
-const integrityHash = (input: Record<string, unknown>) => {
-  const secret = process.env.AUDIT_INTEGRITY_SECRET
-  if (!secret || secret.length < 32)
-    throw new ServiceUnavailableException('审计完整性密钥未配置或长度不足')
-  return createHmac('sha256', secret)
-    .update(JSON.stringify(canonicalize(input)))
-    .digest('hex')
-}
+import { auditIntegrityHash } from '#app/audit/utils/audit-integrity.js'
 
 const equalDigest = (left: string | null, right: string) => {
   if (!left || !/^[a-f0-9]{64}$/i.test(left)) return false
@@ -42,13 +20,16 @@ const equalDigest = (left: string | null, right: string) => {
 export class AuditService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async record(input: AuditRecordInput) {
+  async record(input: AuditRecordInput, db: Prisma.TransactionClient = this.prisma) {
     const id = randomUUID()
     const createdAt = new Date()
     const record = {
       id,
       traceId: input.traceId,
       tenantId: input.tenantId ?? null,
+      membershipId: input.membershipId ?? null,
+      organizationId: input.organizationId ?? null,
+      departmentId: input.departmentId ?? null,
       actorId: input.actorId ?? null,
       action: input.action,
       operationCode: input.operationCode ?? null,
@@ -63,11 +44,11 @@ export class AuditService {
       detail: sanitizeAuditDetail(input.detail),
       createdAt,
     }
-    await this.prisma.auditLog.create({
+    await db.auditLog.create({
       data: {
         ...record,
         detail: record.detail as Prisma.InputJsonValue,
-        integrityHash: integrityHash(record),
+        integrityHash: auditIntegrityHash(record),
       },
     })
   }
@@ -111,6 +92,10 @@ export class AuditService {
         select: {
           id: true,
           traceId: true,
+          tenantId: true,
+          membershipId: true,
+          organizationId: true,
+          departmentId: true,
           action: true,
           operationCode: true,
           riskLevel: true,
@@ -147,6 +132,10 @@ export class AuditService {
       select: {
         id: true,
         traceId: true,
+        tenantId: true,
+        membershipId: true,
+        organizationId: true,
+        departmentId: true,
         action: true,
         operationCode: true,
         riskLevel: true,
@@ -174,7 +163,7 @@ export class AuditService {
     const item = await this.prisma.auditLog.findUnique({ where: { id, tenantId } })
     if (!item) throw new NotFoundException('审计记录不存在')
     const { integrityHash: storedHash, ...payload } = item
-    const expectedHash = integrityHash(payload)
+    const expectedHash = auditIntegrityHash(payload)
     return {
       code: API_CODE.SUCCESS,
       message: 'success',
@@ -212,6 +201,10 @@ export class AuditService {
       take: 1001,
       select: {
         id: true,
+        tenantId: true,
+        membershipId: true,
+        organizationId: true,
+        departmentId: true,
         traceId: true,
         action: true,
         operationCode: true,
@@ -227,28 +220,37 @@ export class AuditService {
       },
     })
     if (items.length > 1000) throw new BadRequestException('单次最多导出 1000 条，请缩小筛选范围')
+    const formulaPrefixes = new Set(['=', '+', '@', '-'])
     const cell = (value: unknown) => {
-      let text = value instanceof Date ? value.toISOString() : String(value ?? '')
-      if (/^\s*[=+@-]/.test(text)) text = `'${text}`
-      return `"${text.replaceAll('"', '""')}"`
+      const text = value instanceof Date ? value.toISOString() : String(value ?? '')
+      const firstVisibleCharacter = text.trimStart().charAt(0)
+      const safeText = formulaPrefixes.has(firstVisibleCharacter) ? `'${text}` : text
+      const escapedText = safeText.replaceAll('"', '""')
+      return `"${escapedText}"`
     }
+    // 导出列集中定义，新增字段只需增加一项，避免表头与数据依赖位置对应。
+    const columns = [
+      ['ID', (item: typeof items[number]) => item.id],
+      ['TraceID', (item: typeof items[number]) => item.traceId],
+      ['时间', (item: typeof items[number]) => item.createdAt],
+      ['租户ID', (item: typeof items[number]) => item.tenantId],
+      ['成员关系ID', (item: typeof items[number]) => item.membershipId],
+      ['组织ID', (item: typeof items[number]) => item.organizationId],
+      ['部门ID', (item: typeof items[number]) => item.departmentId],
+      ['用户UUID', (item: typeof items[number]) => item.actor?.userId],
+      ['账号', (item: typeof items[number]) => item.actor?.username],
+      ['操作', (item: typeof items[number]) => normalizeAuditAction(item)],
+      ['风险等级', (item: typeof items[number]) => item.riskLevel],
+      ['资源', (item: typeof items[number]) => item.resource],
+      ['方法', (item: typeof items[number]) => item.method],
+      ['路径', (item: typeof items[number]) => item.path],
+      ['结果', (item: typeof items[number]) => item.result],
+      ['状态码', (item: typeof items[number]) => item.statusCode],
+      ['IP', (item: typeof items[number]) => item.ip],
+    ] as const
     const rows = [
-      ['ID', 'TraceID', '时间', '用户UUID', '账号', '操作', '风险等级', '资源', '方法', '路径', '结果', '状态码', 'IP'],
-      ...items.map((item) => [
-        item.id,
-        item.traceId,
-        item.createdAt,
-        item.actor?.userId,
-        item.actor?.username,
-        normalizeAuditAction(item),
-        item.riskLevel,
-        item.resource,
-        item.method,
-        item.path,
-        item.result,
-        item.statusCode,
-        item.ip,
-      ]),
+      columns.map(([header]) => header),
+      ...items.map((item) => columns.map(([, value]) => value(item))),
     ]
     return {
       code: API_CODE.SUCCESS,

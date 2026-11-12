@@ -9,6 +9,8 @@
 | 脚本 | 作用 | 使用范围 |
 | --- | --- | --- |
 | `db:generate` | 生成 Prisma Client，不修改数据库。 | 开发、构建和 CI。 |
+| `db:verify-init` | 调用现有校验脚本的 `--source` 模式，检查迁移源文件；单一基线时比较 schema 一致性。 | 开发、构建和 CI；不连接数据库。 |
+| `test:integration:init` | 通过现有集成测试入口，在独立临时库验证迁移、约束、两次 seed 和权限目录，随后清理。 | 仅本机 MySQL，需要创建/删除临时数据库权限；不修改当前业务库。 |
 | `db:migrate` | 执行 `prisma migrate dev`，检查迁移漂移；检测到 Prisma Schema 变化时生成迁移，并应用待执行迁移。发生漂移时可能要求重置数据库。 | 仅开发环境。 |
 | `db:deploy` | 只应用仓库中已有的未执行迁移。 | 预发布和生产迁移入口。 |
 | `db:reset` | 删除并重建当前数据库中的表和数据。 | 仅本地专用开发库，禁止生产。 |
@@ -57,6 +59,7 @@ awk 'match($0,/CONSTRAINT `[^`]+`/) { name=substr($0,RSTART+12,RLENGTH-13); if (
 nvm use
 node -v
 pnpm --filter backend db:generate
+pnpm --filter backend db:verify-init
 pnpm --filter backend db:migrate --name describe_the_change
 ```
 
@@ -112,5 +115,9 @@ pnpm --filter backend db:migrate
 `db:deploy` 没有业务级自动回滚，MySQL DDL 也不应假设具备完整事务回滚能力。迁移失败时保留现场并检查 `_prisma_migrations`，不要编辑已应用的迁移或执行 `db:reset`；回滚应使用经验证的备份恢复，或提交新的前向修复迁移。
 
 当前仓库只保留一个可从空库执行的初始化迁移：`prisma/migrations/20261010000000_initial_security_schema/migration.sql`。本地开发环境可直接执行 `db:reset`；新环境或已清空的数据库可执行 `db:deploy`。已有旧 `_prisma_migrations` 记录的数据库不得直接删除迁移历史后重新部署；生产环境切换到新基线前必须先备份、执行 preflight，并由 DBA 按实际表结构和迁移记录制定一次性基线切换方案。
+
+2026-11-12 基线合并包含审计上下文、字段读写控制、扫描历史和文件操作风险模型；共 38 张应用表。`schema.prisma` 已补齐原 SQL 中的成员组织/部门复合外键和文件租户更新限制，无法由 Prisma 表达的成员范围 CHECK 只在基线 SQL 中维护创建定义。`permission-preflight.sql` 检查约束存在且启用；`verify-permission-migration.js` 默认执行同一只读预检，`--source` 模式执行离线检查。单一基线时校验命令会拒绝 schema 与初始化 SQL 不一致的提交。详细初始化步骤见 [prisma/README.md](../prisma/README.md)。
+
+此次合并面向新库，不自动对现有数据库执行数据回填或迁移历史重写。旧库仍须完成旧版本所需的字段授权回填、历史封禁证据保存等升级步骤；不能将建表基线当作旧库升级脚本。结构及旧数据升级验证后，再制定基线登记方案；保留原迁移执行证据，不用删除历史记录掩盖差异。
 
 任何生产数据库变更都必须关联变更单、备份记录、执行人和验证结果；无法证明目标环境、回滚材料或权限边界时，停止操作并升级审批。

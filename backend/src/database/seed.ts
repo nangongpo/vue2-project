@@ -15,6 +15,12 @@ import { DATA_FIELD_DEFINITIONS, DATA_FIELD_PERMISSIONS } from '#app/security/po
 import { PAGE_PERMISSION_BINDINGS } from '#app/database/page-permission-bindings.js'
 import { MAX_AUTHORIZATION_TTL_DAYS } from '#app/common/constants/authorization.js'
 
+const NON_READABLE_FIELD_READ_CODES = new Set(
+  DATA_FIELD_DEFINITIONS
+    .filter((field) => field.readable === false)
+    .map((field) => `${field.resource}.field.${field.field}.read`)
+)
+
 try {
   loadEnvFile()
 } catch {
@@ -189,8 +195,11 @@ try {
     async (tx) => {
       const dataResourceNames: Record<string, string> = {
         file: '文件',
+        'system.file': '系统文件管理',
+        'system.file.audit': '文件审计信息',
       }
-      for (const resource of BUSINESS_RESOURCE_CODES) {
+      const dataScopeResources = new Set([...BUSINESS_RESOURCE_CODES, 'system.file', 'system.file.audit'])
+      for (const resource of dataScopeResources) {
         await tx.dataResource.upsert({
           where: { code: resource },
           create: {
@@ -332,8 +341,8 @@ try {
             }
             await tx.functionApi.upsert({
               where: { functionId_apiId: { functionId: node.id, apiId: apiPermission.id } },
-              create: { functionId: node.id, apiId: apiPermission.id },
-              update: {},
+              create: { functionId: node.id, apiId: apiPermission.id, required: binding.required !== false },
+              update: { required: binding.required !== false },
             })
           } else {
             const code = `button.${entry.code}`
@@ -453,6 +462,10 @@ try {
             relationModel: field.relationModel,
             relationField: field.relationField,
             riskLevel: field.riskLevel,
+            status: field.status || 'ACTIVE',
+            readable: field.readable !== false,
+            allowCreate: field.writeOperations?.includes('CREATE') || false,
+            allowUpdate: field.writeOperations?.includes('UPDATE') || false,
             readPermissionId: readPermission.id,
             writePermissionId: writePermission?.id,
           },
@@ -463,6 +476,10 @@ try {
             relationModel: field.relationModel,
             relationField: field.relationField,
             riskLevel: field.riskLevel,
+            status: field.status || 'ACTIVE',
+            readable: field.readable !== false,
+            allowCreate: field.writeOperations?.includes('CREATE') || false,
+            allowUpdate: field.writeOperations?.includes('UPDATE') || false,
             readPermissionId: readPermission.id,
             writePermissionId: writePermission?.id,
           },
@@ -481,6 +498,23 @@ try {
         },
         data: { status: 'DISABLED' },
       })
+      // 文件管理响应已收紧；同步禁用不再公开的旧字段及其读写权限。
+      const fileResponseResources = ['system.file', 'system.file.binding', 'system.file.upload', 'system.file.scan-result']
+      for (const resource of fileResponseResources) {
+        const fields = DATA_FIELD_DEFINITIONS.filter((field) => field.resource === resource)
+        await tx.permissionField.updateMany({
+          where: { resource, field: { notIn: fields.map((field) => field.field) } },
+          data: { status: 'DISABLED' },
+        })
+        await tx.permission.updateMany({
+          where: {
+            resource,
+            type: 'FIELD',
+            code: { notIn: DATA_FIELD_PERMISSIONS.filter((field) => field.code.startsWith(`${resource}.field.`)).map((field) => field.code) },
+          },
+          data: { status: 'DISABLED' },
+        })
+      }
       // Materialize the code-owned role policy into the normalized relation
       // table. This makes runtime authorization database-backed and keeps
       // reseeding idempotent when a permission audience changes.
@@ -597,7 +631,33 @@ try {
             }
           }
         }
-        const allowedPermissions = seededPermissions.filter((p) => roleAllowsPermission(type, p))
+        const managementScopeResource = type === 'AUDIT'
+          ? 'system.file.audit'
+          : type === 'SECURITY' || type === 'SYSTEM'
+          ? 'system.file'
+          : null
+        if (managementScopeResource) {
+          const tenantScopeExpiry = new Date(Date.now() + MAX_AUTHORIZATION_TTL_DAYS * 24 * 60 * 60 * 1000)
+          const tenantScope = await tx.roleDataScope.findFirst({
+            where: { roleId: role.id, resource: managementScopeResource, scopeType: 'TENANT', revokedAt: null },
+            select: { id: true },
+          })
+          if (tenantScope) {
+            await tx.roleDataScope.update({ where: { id: tenantScope.id }, data: { expiresAt: tenantScopeExpiry } })
+          } else {
+            await tx.roleDataScope.create({
+              data: {
+                roleId: role.id,
+                resource: managementScopeResource,
+                scopeType: 'TENANT',
+                expiresAt: tenantScopeExpiry,
+              },
+            })
+          }
+        }
+        const allowedPermissions = seededPermissions.filter((p) =>
+          roleAllowsPermission(type, p) && !NON_READABLE_FIELD_READ_CODES.has(p.code)
+        )
         for (const permission of allowedPermissions) {
           await tx.rolePermission.upsert({
             where: { roleId_permissionId: { roleId: role.id, permissionId: permission.id } },

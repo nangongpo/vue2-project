@@ -1,5 +1,5 @@
 import { Transform, Type } from 'class-transformer'
-import { IsEnum, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator'
+import { IsUUID, IsEnum, IsInt, IsOptional, IsString, Matches, Max, MaxLength, Min } from 'class-validator'
 import { FileObjectStatus, FileScanStatus } from '@prisma/client'
 import { PaginationQueryDto } from '#app/common/dto/pagination.dto.js'
 
@@ -17,4 +17,9 @@ export class FileAdminQueryDto extends PaginationQueryDto {
 
 export class FileAdminReasonDto {
   @IsString() @MaxLength(255) reason!: string
+  @IsOptional() @IsString() @MaxLength(255) @Matches(/\S/) releaseReason?: string
+}
+
+export class ScanHistoryQueryDto extends PaginationQueryDto {
+  @IsOptional() @IsUUID() approvalId?: string
 }

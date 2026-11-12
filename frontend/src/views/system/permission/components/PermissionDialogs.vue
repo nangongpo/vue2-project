@@ -237,8 +237,14 @@
               :label="item.label"
               :value="item.value" /></el-select
         ></el-form-item>
-        <el-form-item v-if="!editingDataField" label="允许写入">
-          <el-switch v-model="dataFieldForm.writable" />
+        <el-form-item label="允许读取">
+          <el-switch v-model="dataFieldForm.readable" :disabled="dataFieldForm.dataType === 'secret'" />
+        </el-form-item>
+        <el-form-item label="允许写入">
+          <el-checkbox-group v-model="dataFieldForm.writeOperations">
+            <el-checkbox label="CREATE">创建时写入</el-checkbox>
+            <el-checkbox label="UPDATE">修改时写入</el-checkbox>
+          </el-checkbox-group>
         </el-form-item>
         <el-alert
           title="字段名和读取/写入权限码不可编辑，避免影响已有角色授权。"

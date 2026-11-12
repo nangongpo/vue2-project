@@ -70,6 +70,24 @@ describe('PermissionGuard', () => {
     }
   })
 
+  it('allows the readiness endpoint without authorization metadata', async () => {
+    const ready = fixture([], {
+      method: 'GET',
+      routeOptions: { url: '/api/v1/ready' },
+      user: undefined,
+    })
+    await expect(ready.guard.canActivate(ready.context)).resolves.toBe(true)
+    for (const request of [
+      { method: 'POST', routeOptions: { url: '/api/v1/ready' } },
+      { method: 'GET', routeOptions: { url: '/api/v1/ready/:id' } },
+    ]) {
+      const denied = fixture([], request)
+      await expect(denied.guard.canActivate(denied.context)).rejects.toBeInstanceOf(
+        ForbiddenException
+      )
+    }
+  })
+
   it('matches the explicit code, method and Fastify template, not the concrete URL', async () => {
     const { guard, context } = fixture()
     await expect(guard.canActivate(context)).resolves.toBe(true)

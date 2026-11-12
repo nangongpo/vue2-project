@@ -45,7 +45,7 @@ export default {
       )
     },
   },
-  mounted() {
+  created() {
     setSecurityStepUpHandler((context) => this.openSecurityStepUp(context))
   },
   watch: {

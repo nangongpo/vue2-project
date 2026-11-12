@@ -3,7 +3,10 @@ import type { RiskDecision } from '#app/security/policies/risk-policy.js'
 
 export type AuditRecordInput = {
   traceId: string
-  tenantId?: string
+  tenantId?: string | null
+  membershipId?: string | null
+  organizationId?: string | null
+  departmentId?: string | null
   actorId?: bigint
   action: string
   operationCode?: string
@@ -63,6 +66,9 @@ export type AuditRequest = {
   user?: {
     internalId?: bigint
     tenantId?: string
+    membershipId?: string | null
+    organizationId?: string | null
+    departmentId?: string | null
     roles?: readonly { roleType: string }[]
   }
   routeOptions?: { url?: string }

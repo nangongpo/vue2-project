@@ -16,12 +16,13 @@ export type SeedPageCode =
   | 'page.business.file-upload'
 
 export type PagePermissionBinding =
-  | { type: 'PAGE_API'; apiCode: ApiDefinition['code'] }
+  | { type: 'PAGE_API'; apiCode: ApiDefinition['code']; required?: boolean }
   | { type: 'BUTTON_API'; apiCode: ApiDefinition['code']; actionKey: string }
 
-const pageApi = (apiCode: ApiDefinition['code']): PagePermissionBinding => ({
+const pageApi = (apiCode: ApiDefinition['code'], required = true): PagePermissionBinding => ({
   type: 'PAGE_API',
   apiCode,
+  ...(!required ? { required: false } : {}),
 })
 
 const buttonApi = (apiCode: ApiDefinition['code'], actionKey: string): PagePermissionBinding => ({
@@ -114,10 +115,14 @@ export const PAGE_PERMISSION_BINDINGS: Readonly<Record<SeedPageCode, readonly Pa
     buttonApi('system.approval.execute', 'execute'),
     buttonApi('system.approval.cancel', 'cancel'),
     buttonApi('system.approval.review', 'review'),
+    pageApi('system.file.admin.scan-history.read', false),
+    pageApi('system.file.admin.scan-history.detail', false),
+    pageApi('system.file.admin.scan-history.attempts', false),
   ],
   'page.system.audit': [
     pageApi('system.audit.read'),
     pageApi('system.audit.detail'),
+    pageApi('system.file.audit.read'),
     buttonApi('system.audit.integrity', 'integrity'),
     buttonApi('system.audit.export', 'export'),
   ],
@@ -139,6 +144,9 @@ export const PAGE_PERMISSION_BINDINGS: Readonly<Record<SeedPageCode, readonly Pa
   'page.system.file': [
     pageApi('system.file.admin.read'),
     pageApi('system.file.admin.detail'),
+    pageApi('system.file.admin.scan-history.read', false),
+    pageApi('system.file.admin.scan-history.detail', false),
+    pageApi('system.file.admin.scan-history.attempts', false),
     buttonApi('system.file.admin.scan', 'scan'),
     buttonApi('system.file.admin.reject', 'reject'),
     buttonApi('system.file.admin.delete', 'delete'),

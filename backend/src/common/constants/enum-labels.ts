@@ -123,6 +123,10 @@ export const OPS_TICKET_EXECUTION_RESULT_LABELS: Record<string, string> = {
   FAILED: '失败',
 }
 
+export const FILE_CLASSIFICATION_LABELS: Record<string, string> = {
+  INTERNAL: '内部',
+}
+
 export const FILE_STATUS_LABELS: Record<string, string> = {
   QUARANTINED: '隔离',
   READY: '可用',

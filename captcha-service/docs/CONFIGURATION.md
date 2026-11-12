@@ -37,16 +37,19 @@ pnpm dev:captcha
 | `CAPTCHA_CONSUME_RATE_LIMIT` | `30` | 同一主体每分钟消费 Token 次数。 |
 | `CAPTCHA_EVENT_RATE_LIMIT` | `120` | 每个事件维度每分钟上报次数。 |
 | `CAPTCHA_CHALLENGE_TTL` | `120` | Challenge 有效期，单位秒。 |
+| `CAPTCHA_REFRESH_LIMIT` | `10` | 同一 Attempt 的原子刷新次数上限。触发限频/刷新失败时展示 SDK 重试界面，不绕过服务端限制。 |
 | `CAPTCHA_TOKEN_TTL` | `120` | CaptchaToken 有效期，单位秒。 |
 | `CAPTCHA_MAX_TRACK_POINTS` | `300` | 单次轨迹最大点数。 |
-| `CAPTCHA_CANVAS_WIDTH` | `360` | SVG 背景宽度。 |
-| `CAPTCHA_CANVAS_HEIGHT` | `120` | SVG 背景高度。 |
+| `CAPTCHA_CANVAS_WIDTH` | 已停用 | 不再覆盖固定 300px 画布宽度。 |
+| `CAPTCHA_CANVAS_HEIGHT` | 已停用 | 不再覆盖固定 180px 画布高度。 |
 | `CAPTCHA_TRACK_WIDTH` | `360` | 滑动轨道宽度。 |
 | `CAPTCHA_BUTTON_WIDTH` | `42` | 滑块按钮宽度。 |
 | `CAPTCHA_PIECE_SIZE` | `44` | 拼图块尺寸。 |
 | `SWAGGER_ENABLED` | `true` | 是否启用 Swagger 文档；设为 `false` 时 `/docs` 和 `/docs-json` 返回 404。 |
 | `SWAGGER_ADMIN_USERNAME` | `admin` | 访问 Swagger 文档的管理员用户名。 |
 | `SWAGGER_ADMIN_PASSWORD` | 无默认生产密码 | 访问 Swagger 文档的管理员密码；生产环境至少 16 位且不能使用默认值。 |
+
+界面尺寸和前端时序是固定规范，见 [SDK_UI_SPEC.md](SDK_UI_SPEC.md)，不是环境变量：弹窗 318 × 318px、画布 300 × 180px、刷新最少加载 500ms、成功停留 2 秒。`CAPTCHA_TRACK_WIDTH` / `CAPTCHA_BUTTON_WIDTH` 为服务端逻辑轨道参数，不等于 CSS 手柄尺寸；SDK 必须按有效行程换算。
 
 ## 凭证匹配
 
@@ -88,7 +91,7 @@ SWAGGER_ADMIN_PASSWORD=至少 16 位的文档管理员密码
 需要多个 backend 或多个 Prefix 时使用 `CAPTCHA_SERVICE_BINDINGS`。值是 JSON 数组，例如：
 
 ```env
-CAPTCHA_SERVICE_BINDINGS=[{"serviceId":"backend-admin","secret":"replace-with-secret","prefix":"yaxbgo","status":"ACTIVE","scenes":{"login":{"allowedCaptchaTypes":["SLIDER"],"defaultCaptchaType":"SLIDER","allowedModes":["EMBED","POPUP"],"defaultMode":"POPUP","ttl":120,"status":"ACTIVE"}}}]
+CAPTCHA_SERVICE_BINDINGS=[{"serviceId":"backend-admin","secret":"replace-with-secret","prefix":"yaxbgo","status":"ACTIVE","scenes":{"login":{"allowedCaptchaTypes":["SLIDER"],"defaultCaptchaType":"SLIDER","allowedModes":["POPUP"],"defaultMode":"POPUP","ttl":120,"status":"ACTIVE"}}}]
 ```
 
 JSON 中的 `secret` 应通过密钥管理系统注入，不建议直接写入普通配置文件。使用该配置后，`CAPTCHA_SERVICE_ID`、`CAPTCHA_SERVICE_SECRET` 和 `CAPTCHA_PREFIX` 仅作为单绑定回退配置。

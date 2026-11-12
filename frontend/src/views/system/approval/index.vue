@@ -68,6 +68,7 @@
               </el-tag>
             </el-descriptions-item>
             <el-descriptions-item label="到期时间">{{ formatDate(detail.expiresAt) }}</el-descriptions-item>
+            <el-descriptions-item v-if="detail.payload && detail.payload.releaseReason" label="安全封禁解除依据">{{ detail.payload.releaseReason }}</el-descriptions-item>
             <el-descriptions-item v-for="stage in stages" :key="stage.actor" :label="stage.label">{{
               formatActor(detail[stage.actor]) }} · {{ formatDate(detail[stage.time]) }}
               <p v-if="detail[stage.note]">{{ detail[stage.note] }}</p>
@@ -82,6 +83,7 @@
               <pre>{{ JSON.stringify(detail.payload, null, 2) }}</pre>
             </el-collapse-item>
           </el-collapse>
+          <file-scan-history v-if="detailVisible && detail.payload && detail.payload.fileId && canReadScanHistory" :file-id="detail.payload.fileId" :approval-id="detail.id" />
         </template>
         <div v-else-if="!detailError" class="approval-detail-placeholder">
           <i class="el-icon-loading"></i>
@@ -140,6 +142,7 @@
 </template>
 
 <script>
+import FileScanHistory from '@/components/FileScanHistory.vue'
 import {
   getApprovals,
   getApprovalTargetOptions,
@@ -195,7 +198,7 @@ const emptyForm = () => ({
 })
 export default {
   name: 'SystemPermissionApproval',
-  components: KIND_FORM_COMPONENTS,
+  components: { ...KIND_FORM_COMPONENTS, FileScanHistory },
   data() {
     return {
       kinds: [],
@@ -237,6 +240,7 @@ export default {
     }
   },
   computed: {
+    canReadScanHistory() { return this.$store.getters.menu_list.includes('system.file.admin.scan-history.read') },
     canCreate() {
       return this.kinds.length > 0
     },

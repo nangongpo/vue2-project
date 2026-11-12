@@ -63,23 +63,13 @@ describe('file module permission boundary', () => {
     const fields = (resource: string) =>
       DATA_FIELD_DEFINITIONS.filter((field) => field.resource === resource).map((field) => field.field)
 
-    expect(fields('system.file')).toEqual(expect.arrayContaining([
-      'id',
-      'tenantId',
-      'ownerUserId',
-      'originalName',
-      'sha256',
-      'classification',
-      'status',
-      'scanStatus',
-      'scanDetail',
-      'owner',
-      'bindings',
-      'uploads',
-      'scanResult',
-    ]))
-    expect(fields('system.file.binding')).toEqual(expect.arrayContaining(['id', 'fileId', 'resourceType', 'resourceId', 'visibility']))
-    expect(fields('system.file.upload')).toEqual(expect.arrayContaining(['id', 'status', 'purpose', 'createdAt', 'updatedAt']))
-    expect(fields('system.file.scan-result')).toEqual(['verdict', 'detail', 'engineVersion', 'policyVersion'])
+    expect(fields('system.file').sort()).toEqual([
+      'id', 'originalName', 'safeName', 'declaredMime', 'detectedMime', 'size', 'sha256',
+      'classificationLabel', 'statusLabel', 'statusTone', 'scanStatusLabel', 'scanStatusTone',
+      'availableActions', 'scanDetail', 'scanEngineVersion', 'policyVersion', 'createdAt', 'updatedAt', 'owner', 'bindings',
+    ].sort())
+    expect(fields('system.file.binding').sort()).toEqual(['id', 'resourceType', 'resourceId', 'fieldName', 'visibility'].sort())
+    expect(fields('system.file.upload')).toEqual([])
+    expect(fields('system.file.scan-result')).toEqual([])
   })
 })

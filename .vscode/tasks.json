@@ -1,0 +1,63 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "captcha-service: dev",
+      "type": "shell",
+      "command": "source /Users/nangongpo/.nvm/nvm.sh && nvm use && pnpm --filter captcha-service dev",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "panel": "dedicated",
+        "group": "captcha-service",
+        "reveal": "always",
+        "clear": false
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "backend: dev",
+      "type": "shell",
+      "command": "source /Users/nangongpo/.nvm/nvm.sh && nvm use && pnpm --filter backend dev",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "panel": "dedicated",
+        "group": "backend",
+        "reveal": "always",
+        "clear": false
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "frontend: dev",
+      "type": "shell",
+      "command": "source /Users/nangongpo/.nvm/nvm.sh && nvm use && pnpm --filter frontend dev",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "panel": "dedicated",
+        "group": "frontend",
+        "reveal": "always",
+        "clear": false
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "dev: all services",
+      "dependsOn": [
+        "captcha-service: dev",
+        "backend: dev",
+        "frontend: dev"
+      ],
+      "dependsOrder": "parallel",
+      "runOptions": {
+        "runOn": "folderOpen"
+      },
+      "problemMatcher": []
+    }
+  ]
+}

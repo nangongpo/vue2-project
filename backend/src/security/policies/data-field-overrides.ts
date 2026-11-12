@@ -3,7 +3,7 @@ import type { DataFieldOverride } from '#app/security/policies/field-policy-type
 /**
  * 自动生成字段的人工覆盖项。
  *
- * 普通字段不需要配置；只有中文名称、风险等级或可写性与默认规则不同时才添加。
+ * 普通字段不需要配置；只有中文名称、风险等级、可读性或写入操作与默认规则不同时才添加。
  */
 export const DATA_FIELD_OVERRIDES: Readonly<Record<string, DataFieldOverride>> = {
   'system.user.roles': {
@@ -11,8 +11,8 @@ export const DATA_FIELD_OVERRIDES: Readonly<Record<string, DataFieldOverride>> =
     relationModel: 'Role',
     relationField: 'role',
   },
-  // 'system.department.code': { name: '部门编码', riskLevel: 'L2', writable: true },
-  // 'system.department.name': { name: '部门名称', writable: true },
+  // 'system.department.code': { name: '部门编码', riskLevel: 'L2', writeOperations: ['UPDATE'] },
+  // 'system.department.name': { name: '部门名称', writeOperations: ['UPDATE'] },
   // 'system.department.status': { name: '部门状态', riskLevel: 'L3' },
 }
 

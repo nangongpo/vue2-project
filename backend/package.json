@@ -15,6 +15,7 @@
     "start": "node dist/main.js",
     "postinstall": "prisma generate",
     "db:generate": "prisma generate",
+    "db:verify-init": "node scripts/verify-permission-migration.js --source",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "db:reset": "prisma migrate reset --force",
@@ -22,6 +23,14 @@
     "permission:verify": "pnpm build && node scripts/verify-permission-migration.js",
     "permission:fields": "node --conditions=development --import tsx src/scripts/generate-data-fields.ts",
     "test": "vitest run",
+    "test:auth": "vitest run src/security/tests/auth.service.test.ts src/security/tests/auth.controller.test.ts src/security/tests/mfa.service.test.ts src/security/tests/password.service.test.ts src/security/tests/password-policy.service.test.ts src/security/tests/csrf.test.ts src/security/tests/rate-limit.guard.test.ts src/security/tests/idempotency.guard.test.ts",
+    "test:authorization": "vitest run src/security/tests/permission.guard.test.ts src/security/tests/effective-permissions.test.ts src/security/tests/operation-policy.service.test.ts src/security/tests/permission-catalog.test.ts src/security/tests/page-permission-bindings.test.ts src/modules/role/tests/*.test.ts src/modules/permission/tests/permission.service.test.ts src/modules/permission/tests/page-api-options.test.ts src/modules/permission/tests/frontend-contract.test.ts",
+    "test:data-boundary": "vitest run src/security/tests/data-scope.service.test.ts src/common/tests/data-field-security.interceptor.test.ts src/modules/permission/tests/data-resource-policy.test.ts src/modules/file/tests/file-module-policy.test.ts",
+    "test:workflow": "vitest run src/modules/permission/tests/approval.service.test.ts",
+    "test:audit": "vitest run src/audit/tests/*.test.ts src/common/tests/api-code.test.ts src/common/tests/api-response.interceptor.test.ts src/common/tests/trace-id.interceptor.test.ts",
+    "test:events": "vitest run src/events/*.test.ts",
+    "test:integration": "node scripts/run-local-integration.mjs",
+    "test:integration:init": "node scripts/run-local-integration.mjs prisma-initialization.test.ts",
     "coverage": "vitest run --coverage"
   },
   "dependencies": {

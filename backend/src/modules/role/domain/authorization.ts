@@ -25,7 +25,7 @@ export type ActorRequest = {
   ip?: string
   method?: string
   url?: string
-  headers: { 'user-agent'?: string }
+  headers: { 'user-agent'?: string; 'idempotency-key'?: string }
 }
 export const actorFrom = (request: ActorRequest): Actor => ({
   internalId: request.user.internalId,

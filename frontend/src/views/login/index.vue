@@ -5,18 +5,10 @@
         <h1>{{ title }}</h1>
         <p class="intro-copy">后台管理系统</p>
         <div class="management-points">
-          <div class="management-point">
-            <span class="point-icon">✓</span><span>用户与角色管理</span>
-          </div>
-          <div class="management-point">
-            <span class="point-icon">✓</span><span>权限与资源管理</span>
-          </div>
-          <div class="management-point">
-            <span class="point-icon">✓</span><span>审批与运维工单</span>
-          </div>
-          <div class="management-point">
-            <span class="point-icon">✓</span><span>审计日志与系统监控</span>
-          </div>
+          <div class="management-point"><span class="point-icon">✓</span><span>用户与角色管理</span></div>
+          <div class="management-point"><span class="point-icon">✓</span><span>权限与资源管理</span></div>
+          <div class="management-point"><span class="point-icon">✓</span><span>审批与运维工单</span></div>
+          <div class="management-point"><span class="point-icon">✓</span><span>审计日志与系统监控</span></div>
         </div>
       </section>
 
@@ -33,8 +25,7 @@
             id="username"
             autocomplete="username"
             placeholder="请输入账号"
-            @input="handleUsernameInput"
-            @blur="prepareCaptcha" />
+            @input="handleUsernameInput" />
         </div>
 
         <div class="input-group password-group">
@@ -53,37 +44,21 @@
           <button
             :class="[
               'login-btn',
-              { 'is-loading': loginBusy, 'is-disabled': loginBusy || captchaCooldownSeconds > 0 },
+              {
+                'is-loading': loginBusy || captchaLoading,
+                'is-disabled': loginBusy || captchaLoading || captchaCooldownSeconds > 0,
+              },
             ]"
-            :disabled="loginBusy || captchaCooldownSeconds > 0"
+            :disabled="loginBusy || captchaLoading || captchaCooldownSeconds > 0"
             type="primary"
             style="width: 100%"
             @click="handleLogin">
             <span class="btn-loading-icon"></span>
-            {{
-              loadingText ||
-              (captchaCooldownSeconds ? `${captchaCooldownSeconds} 秒后可重新验证` : '验证并登录')
-            }}
+            {{ loadingText || (captchaCooldownSeconds ? `${captchaCooldownSeconds} 秒后可重新验证` : '验证并登录') }}
           </button>
         </div>
       </section>
     </div>
-
-    <el-dialog
-      title="完成验证后登录"
-      :visible.sync="captchaDialogVisible"
-      width="420px"
-      custom-class="captcha-dialog"
-      append-to-body
-      :close-on-click-modal="false"
-      :close-on-press-escape="false"
-      :destroy-on-close="true"
-      @close="handleCaptchaDialogClose">
-      <div class="captcha-dialog-body">
-        <p class="captcha-dialog-tip">请拖动拼图完成验证，验证通过后将自动登录</p>
-        <div ref="captchaContainer" class="captcha-container"></div>
-      </div>
-    </el-dialog>
 
     <otp-verification-dialog
       ref="otpVerificationDialog"
@@ -117,7 +92,11 @@
         :error="mfaEnrollmentError"
         @next="startMfaEnrollment"
         @confirm-step="mfaEnrollmentStep = 3"
-        @previous="mfaEnrollmentStep = 2; mfaEnrollmentOtp = ''; mfaEnrollmentError = ''"
+        @previous="
+          mfaEnrollmentStep = 2
+          mfaEnrollmentOtp = ''
+          mfaEnrollmentError = ''
+        "
         @confirm="confirmMfaEnrollment"
         @reset="resetMfaEnrollment" />
       <span slot="footer" class="dialog-footer">
@@ -128,7 +107,7 @@
 </template>
 
 <script>
-import { createTianaiCaptcha } from '@/utils/tianaiCaptcha'
+import { createCaptcha } from '@/utils/captcha'
 import { REQUEST_CODE } from '@/api/http/codes'
 import { createCaptchaChallenge, verifyCaptcha } from '@/api/user'
 import { axiosPost } from '@/api/index'
@@ -152,17 +131,14 @@ export default {
       mfaEnrollmentError: '',
       otpDialogVisible: false,
       loadingText: '',
-      captchaDialogVisible: false,
       captchaLoading: false,
-      captchaInitStartedAt: 0,
       captchaCooldownSeconds: 0,
       captchaCooldownTimer: null,
       captchaVerified: false,
       captchaResult: null,
-      captchaChallenge: null,
       captchaUsername: '',
       loginError: '',
-      sliderCaptcha: null,
+      captchaSdk: null,
       loginModel: {
         username: '',
         password: '',
@@ -260,75 +236,55 @@ export default {
       this.loginError = ''
       this.captchaVerified = false
       this.captchaResult = null
-      this.captchaChallenge = null
       this.captchaUsername = ''
-      if (this.sliderCaptcha) this.sliderCaptcha.destroy()
-      this.sliderCaptcha = null
     },
     blockSecurityDialogClose(done) {
       if (!this.securityPending && typeof done === 'function') done()
     },
-    async prepareCaptcha() {
-      const username = (this.loginModel.username || '').trim()
-      if (!username || !this.captchaDialogVisible) return
-      if (this.captchaChallenge && this.captchaUsername === username && this.sliderCaptcha) return
-      this.captchaLoading = true
-      this.captchaInitStartedAt = Date.now()
-      if (this.sliderCaptcha) this.sliderCaptcha.destroy()
-      this.sliderCaptcha = null
-      this.captchaChallenge = null
-      this.captchaUsername = username
-      this.captchaVerified = false
-      this.captchaResult = null
-      this.initSliderCaptcha()
-      try {
-        this.captchaChallenge = await createCaptchaChallenge({ username })
-        if (this.sliderCaptcha && this.sliderCaptcha.SetChallenge) {
-          this.sliderCaptcha.SetChallenge(this.captchaChallenge.payload)
-        }
-      } catch (error) {
-        this.loginError = error && error.message ? error.message : '验证码服务暂不可用'
-        this.captchaVerified = false
-        this.captchaResult = null
-        this.captchaChallenge = null
-        this.captchaUsername = ''
-        if (this.sliderCaptcha) this.sliderCaptcha.destroy()
-        this.sliderCaptcha = null
-        this.captchaDialogVisible = false
-        if (error && error.code === REQUEST_CODE.RATE_LIMITED) this.handleCaptchaCooldown(error)
-      } finally {
-        this.captchaLoading = false
-      }
-    },
-    initSliderCaptcha() {
-      if (!this.$refs.captchaContainer) return
-      if (this.sliderCaptcha) this.sliderCaptcha.destroy()
-      this.sliderCaptcha = createTianaiCaptcha(this.$refs.captchaContainer, {
-        resetDelay: 260,
-        verify: (result) => {
-          if (!this.captchaChallenge) {
-            const error = new Error('验证码尚未加载，请稍后重试')
+    initCaptchaSdk() {
+      this.captchaSdk = createCaptcha({
+        mode: 'POPUP',
+        loadChallenge: (previous) => {
+          const username = (this.loginModel.username || '').trim()
+          if (!username) {
+            const error = new Error('请输入账号后再进行安全验证')
             error.code = REQUEST_CODE.CAPTCHA_INVALID
             return Promise.reject(error)
           }
-          return verifyCaptcha({
-            attemptId: this.captchaChallenge.attemptId,
-            challengeId: this.captchaChallenge.challengeId,
-            points: result.points,
-            finalX: result.finalX,
-            trackWidth: result.trackWidth,
-          })
-        },
-        onSuccess: (result) => {
-          this.captchaVerified = true
-          this.captchaResult = result
-          this.captchaDialogVisible = false
-          this.submitLogin()
-        },
-        onFail: (error) => {
-          if (!this.captchaChallenge) return
+          this.captchaUsername = username
+          this.captchaLoading = true
           this.captchaVerified = false
           this.captchaResult = null
+          return createCaptchaChallenge({
+            attemptId: previous?.attemptId,
+            previousChallengeId: previous?.challengeId,
+            username,
+            sceneId: 'login',
+            action: 'LOGIN',
+            mode: 'POPUP',
+          })
+        },
+        verify: (answer, challenge) =>
+          verifyCaptcha({
+            attemptId: challenge.attemptId,
+            challengeId: challenge.challengeId,
+            captchaType: challenge.captchaType,
+            action: challenge.action || 'LOGIN',
+            answer,
+          }),
+        onSuccess: (result) => {
+          this.captchaLoading = false
+          this.captchaVerified = true
+          this.captchaResult = result
+          this.submitLogin()
+        },
+        onFail: (error, context) => {
+          this.captchaLoading = false
+          this.captchaVerified = false
+          this.captchaResult = null
+          // Loading failures stay inside the SDK's retry view, including rate limits.
+          if (context?.phase === 'load') return
+          this.loginError = error && error.message ? error.message : '验证码验证失败，请重试'
           if (error && error.code === REQUEST_CODE.RATE_LIMITED) {
             this.handleCaptchaCooldown(error)
             return
@@ -341,23 +297,25 @@ export default {
             this.handleCaptchaAttemptExpired(error)
           }
         },
+        onClose: () => {
+          this.captchaLoading = false
+        },
       })
     },
     async handleLogin() {
-      if (
-        this.loading ||
-        this.captchaDialogVisible ||
-        this.otpDialogVisible ||
-        this.captchaCooldownSeconds > 0
-      )
-        return
+      if (this.loading || this.captchaLoading || this.otpDialogVisible || this.captchaCooldownSeconds > 0) return
       this.loginError = ''
       if (!this.loginModel.username.trim() || !this.loginModel.password) {
         this.loginError = '请输入账号和密码'
         return
       }
-      this.captchaDialogVisible = true
-      this.$nextTick(() => this.prepareCaptcha())
+      this.captchaLoading = true
+      try {
+        await this.captchaSdk.open({ source: 'LOGIN_RISK', action: 'LOGIN' })
+      } catch (error) {
+        this.captchaLoading = false
+        this.loginError = error && error.message ? error.message : '验证码服务暂不可用'
+      }
     },
     async submitLogin() {
       this.loadingText = '正在登录...'
@@ -389,16 +347,16 @@ export default {
           ? ''
           : errorMessage || '登录失败，请重试'
         const needsCaptcha =
-          error &&
-          (error.code === REQUEST_CODE.CAPTCHA_REQUIRED ||
-            error.code === REQUEST_CODE.CAPTCHA_INVALID)
+          error && (error.code === REQUEST_CODE.CAPTCHA_REQUIRED || error.code === REQUEST_CODE.CAPTCHA_INVALID)
         if (needsCaptcha) {
           this.captchaVerified = false
           this.captchaResult = null
-          this.captchaChallenge = null
-          this.captchaDialogVisible = true
           this.otpDialogVisible = false
-          this.$nextTick(() => this.prepareCaptcha())
+          this.captchaLoading = true
+          this.captchaSdk.open({ source: 'LOGIN_RISK', action: 'LOGIN' }).catch((captchaError) => {
+            this.captchaLoading = false
+            this.loginError = captchaError && captchaError.message ? captchaError.message : '验证码服务暂不可用'
+          })
         } else if (requiresOtp || invalidOtp) {
           this.otpDialogVisible = true
         } else if (requiresEnrollment) {
@@ -407,35 +365,21 @@ export default {
         } else {
           this.captchaVerified = false
           this.captchaResult = null
-          this.captchaChallenge = null
-          if (this.sliderCaptcha) this.sliderCaptcha.destroy()
-          this.sliderCaptcha = null
         }
       } finally {
         this.resetLoginLoading()
       }
     },
-    handleCaptchaDialogClose() {
-      if (this.captchaVerified) return
-      if (this.sliderCaptcha) this.sliderCaptcha.destroy()
-      this.sliderCaptcha = null
-      this.captchaChallenge = null
-      this.captchaResult = null
-      this.captchaLoading = false
-    },
     clearLoginError() {
       this.loginError = ''
     },
     handleCaptchaAttemptExhausted(error) {
-      const message =
-        error && error.message ? error.message : '行为验证码已失效，请重新发起登录验证'
+      const message = error && error.message ? error.message : '行为验证码已失效，请重新发起登录验证'
       this.captchaVerified = false
       this.captchaResult = null
-      this.captchaChallenge = null
       this.captchaUsername = ''
-      if (this.sliderCaptcha) this.sliderCaptcha.destroy()
-      this.sliderCaptcha = null
-      this.captchaDialogVisible = false
+      this.captchaLoading = false
+      this.captchaSdk.close()
       this.startCaptchaCooldown(message)
       this.$alert(message, '行为验证码已失效', {
         type: 'warning',
@@ -445,26 +389,21 @@ export default {
       }).catch(() => {})
     },
     handleCaptchaAttemptExpired(error) {
-      const message =
-        error && error.message ? error.message : '验证码已失效，请点击登录重新获取验证码'
+      const message = error && error.message ? error.message : '验证码已失效，请点击登录重新获取验证码'
       this.captchaVerified = false
       this.captchaResult = null
-      this.captchaChallenge = null
       this.captchaUsername = ''
       this.loginError = message
-      if (this.sliderCaptcha) this.sliderCaptcha.destroy()
-      this.sliderCaptcha = null
-      this.captchaDialogVisible = false
+      this.captchaLoading = false
+      this.captchaSdk.close()
     },
     handleCaptchaCooldown(error) {
       const message = error && error.message ? error.message : '验证请求过于频繁，请稍后再试'
       this.captchaVerified = false
       this.captchaResult = null
-      this.captchaChallenge = null
       this.captchaUsername = ''
-      if (this.sliderCaptcha) this.sliderCaptcha.destroy()
-      this.sliderCaptcha = null
-      this.captchaDialogVisible = false
+      this.captchaLoading = false
+      this.captchaSdk.close()
       this.startCaptchaCooldown(message)
       this.$alert(message, '暂时无法继续验证', {
         type: 'warning',
@@ -502,14 +441,16 @@ export default {
       this.loginError = ''
       const username = (this.loginModel.username || '').trim()
       if (this.captchaUsername && username !== this.captchaUsername) {
-        this.captchaChallenge = null
         this.captchaVerified = false
         this.captchaResult = null
       }
     },
   },
+  mounted() {
+    this.initCaptchaSdk()
+  },
   beforeDestroy() {
-    if (this.sliderCaptcha) this.sliderCaptcha.destroy()
+    if (this.captchaSdk) this.captchaSdk.destroy()
     if (this.captchaCooldownTimer) clearInterval(this.captchaCooldownTimer)
   },
 }

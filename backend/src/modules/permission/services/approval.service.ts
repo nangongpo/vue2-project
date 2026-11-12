@@ -9,6 +9,8 @@ import { HttpAdapterHost } from '@nestjs/core'
 import { ApprovalRequest, Permission, Prisma, Role } from '@prisma/client'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { PrismaService } from '#app/database/prisma.service.js'
+import { FILE_OPERATION_CODES, lockedFileTarget, type FileOperationKind } from '#app/modules/file/file-operation-policy.js'
+import { DataScopeService } from '#app/security/services/data-scope.service.js'
 import { sanitizeAuditDetail } from '#app/audit/utils/audit-sanitizer.js'
 import {
   APPROVAL_DEADLINE_STATUS_LABELS,
@@ -188,7 +190,8 @@ const TARGET_FOREIGN_KEY = {
 export class ApprovalService {
   private readonly executionHandlers = new Map<string, ApprovalExecutionHandler>()
 
-  constructor(private readonly prisma: PrismaService, private readonly http?: HttpAdapterHost) {}
+  constructor(private readonly prisma: PrismaService, private readonly http?: HttpAdapterHost,
+    private readonly fileScopes: DataScopeService = new DataScopeService(prisma)) {}
 
   registerExecutionHandler(kind: ApprovalKindInput, handler: ApprovalExecutionHandler) {
     this.executionHandlers.set(kind, handler)
@@ -406,7 +409,8 @@ export class ApprovalService {
     input: CreateApprovalDto,
     actor: ApprovalActor,
     context: ApprovalContext = {},
-    external = false
+    external = false,
+    suppliedTx?: Tx
   ) {
     this.authorize(actor, 'create', input.kind)
     const dto = approvalDto(CreateApprovalDto, input)
@@ -414,14 +418,21 @@ export class ApprovalService {
     const createdAt = new Date()
     const expiresAt = new Date(dto.expiresAt)
     this.expiry(expiresAt, createdAt, true, dto.kind)
-    return this.transaction(async (tx) => {
+    const run = async (tx: Tx) => {
       await this.assertIndependentSecurityApprover(tx, actor.userId)
       if (external) this.assertExternalTargetRefs(dto.kind, dto.payload)
       const payload = approvalPayload(
         dto.kind,
         await this.resolveTargetRefs(tx, dto.kind, dto.payload, actor.userId, actor.tenantId)
       )
-      await this.validateTarget(tx, dto.kind, payload, [actor.userId], actor.tenantId)
+      if (dto.kind in FILE_OPERATION_CODES) {
+        const filePayload = payload as FileActionPayload
+        await this.assertFileScope(tx, filePayload, actor)
+        const target = await lockedFileTarget(tx, filePayload.fileId, actor.tenantId, dto.kind as FileOperationKind)
+        // Always derive the snapshot on the server, including externally submitted approvals.
+        filePayload.targetSnapshot = target.snapshot
+      }
+      await this.validateTarget(tx, dto.kind, payload, [actor.userId], actor.tenantId, actor)
       const item = await tx.approvalRequest.create({
         data: {
           tenantId: actor.tenantId,
@@ -437,7 +448,8 @@ export class ApprovalService {
       })
       await this.audit(tx, actor, context, 'create', item.id, null, item)
       return ok(item)
-    })
+    }
+    return suppliedTx ? run(suppliedTx) : this.transaction(run)
   }
 
   /**
@@ -449,7 +461,8 @@ export class ApprovalService {
     payload: Record<string, unknown>,
     reason: string,
     actor: ApprovalActor,
-    context: ApprovalContext = {}
+    context: ApprovalContext = {},
+    tx?: Tx
   ) {
     const ttl = APPROVAL_TTL_MS[kind] || APPROVAL_MAX_TTL_MS
     return this.create(
@@ -460,7 +473,9 @@ export class ApprovalService {
         payload,
       },
       actor,
-      context
+      context,
+      false,
+      tx
     )
   }
 
@@ -756,6 +771,8 @@ export class ApprovalService {
         throw new ForbiddenException('审计复核人必须独立于申请人、审批人和执行人')
       }
       const payload = approvalPayload(before.kind, before.payload)
+      if (step === 'execute' && before.kind in FILE_OPERATION_CODES && (payload as FileActionPayload).releaseReason && sameActor(before.applicantId, actor.userId))
+        throw new ForbiddenException('安全解除的执行人必须独立于申请人')
       const actors = [
         ...new Set(
           [before.applicantId, before.approverId, before.executorId, actor.userId].filter(
@@ -765,7 +782,7 @@ export class ApprovalService {
       ]
       if (step === 'review')
         await this.assertNotBeneficiary(tx, before.kind, payload, [actor.userId])
-      else await this.validateTarget(tx, before.kind, payload, actors, actor.tenantId)
+      else await this.validateTarget(tx, before.kind, payload, actors, actor.tenantId, actor)
       const now = new Date()
       const data: Prisma.ApprovalRequestUpdateManyMutationInput = {
         status: next[step],
@@ -964,19 +981,30 @@ export class ApprovalService {
       throw new ForbiddenException('禁止处理可使本人受益的角色或接口变更')
   }
 
+  private async assertFileScope(tx: Tx, payload: FileActionPayload, actor: ApprovalActor) {
+    const scope = await this.fileScopes.where(actor, 'system.file', tx)
+    const target = await tx.fileObject.findFirst({ where: { AND: [scope, { id: payload.fileId, tenantId: actor.tenantId }] }, select: { id: true } })
+    if (!target) throw new NotFoundException('目标文件不存在')
+  }
+
   private async validateTarget(
     tx: Tx,
     kind: string,
     payload: ReturnType<typeof approvalPayload>,
     actors: string[],
-    tenantId: string
+    tenantId: string,
+    actor: ApprovalActor,
   ) {
     await this.assertNotBeneficiary(tx, kind, payload, actors)
     const now = new Date()
     if (['FILE_DELETE', 'FILE_REJECT', 'FILE_RESTORE', 'FILE_RESCAN'].includes(kind)) {
       const input = payload as FileActionPayload
-      const file = await tx.fileObject.findFirst({ where: { id: input.fileId, tenantId } })
-      if (!file) throw new NotFoundException('目标文件不存在')
+      await this.assertFileScope(tx, input, actor)
+      const target = await lockedFileTarget(tx, input.fileId, tenantId, kind as FileOperationKind)
+      const file = target.file
+      if (!input.targetSnapshot || input.targetSnapshot !== target.snapshot)
+        throw new ConflictException('文件、业务关联或风险策略已变化，请重新申请审批')
+      if (kind === 'FILE_DELETE' && file.retentionLocked) throw new ForbiddenException('文件处于保留或调查锁定状态，禁止删除')
       if (kind === 'FILE_DELETE' && file.status === 'DELETED') throw new ConflictException('文件已经删除')
       if (kind === 'FILE_REJECT' && file.status === 'DELETED') throw new ConflictException('已删除文件不能拒绝')
       if (kind === 'FILE_RESTORE' && file.status !== 'DELETED') throw new ConflictException('只有已删除文件可以恢复')

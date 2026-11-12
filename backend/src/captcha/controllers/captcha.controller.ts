@@ -1,44 +1,42 @@
-import {
-  Body,
-  Controller,
-  ForbiddenException,
-  HttpCode,
-  HttpStatus,
-  Inject,
-  Post,
-  Req,
-} from '@nestjs/common'
-import { Type } from 'class-transformer'
-import {
-  ArrayMaxSize,
-  ArrayMinSize,
-  IsArray,
-  IsNumber,
-  IsString,
-  MaxLength,
-  MinLength,
-  ValidateNested,
-} from 'class-validator'
+import { Body, Controller, ForbiddenException, HttpCode, HttpStatus, Inject, Post, Req } from '@nestjs/common'
+import { IsIn, IsObject, IsOptional, IsString, MaxLength, MinLength } from 'class-validator'
 import { FastifyRequest } from 'fastify'
 import { API_CODE } from '#app/common/constants/api-code.js'
-import { CaptchaPoint, CaptchaService } from '#app/captcha/services/captcha.service.js'
+import { CaptchaAnswer, CaptchaMode, CaptchaService, CaptchaType } from '#app/captcha/services/captcha.service.js'
 
 class CreateCaptchaDto {
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(64)
+  attemptId?: string
+
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(64)
+  previousChallengeId?: string
+
   @IsString()
   @MinLength(1)
   @MaxLength(64)
   username!: string
-}
 
-class CaptchaPointDto implements CaptchaPoint {
-  @IsNumber()
-  x!: number
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  sceneId?: string
 
-  @IsNumber()
-  y!: number
+  @IsString()
+  @MaxLength(64)
+  action!: string
 
-  @IsNumber()
-  t!: number
+  @IsIn(['EMBED', 'POPUP'])
+  mode!: CaptchaMode
+
+  @IsOptional()
+  @IsIn(['SIMPLE_SLIDER', 'SLIDER', 'ROTATE', 'GRID_IMAGE_SELECT', 'CLICK_ORDER', 'TEXT_SELECT', 'AUDIO'])
+  captchaType?: CaptchaType
 }
 
 class VerifyCaptchaDto {
@@ -52,18 +50,15 @@ class VerifyCaptchaDto {
   @MaxLength(64)
   challengeId!: string
 
-  @IsArray()
-  @ArrayMinSize(8)
-  @ArrayMaxSize(300)
-  @ValidateNested({ each: true })
-  @Type(() => CaptchaPointDto)
-  points!: CaptchaPointDto[]
+  @IsIn(['SIMPLE_SLIDER', 'SLIDER', 'ROTATE', 'GRID_IMAGE_SELECT', 'CLICK_ORDER', 'TEXT_SELECT', 'AUDIO'])
+  captchaType?: CaptchaType
 
-  @IsNumber()
-  finalX!: number
+  @IsString()
+  @MaxLength(64)
+  action!: string
 
-  @IsNumber()
-  trackWidth!: number
+  @IsObject()
+  answer!: CaptchaAnswer
 }
 
 @Controller('captcha')
@@ -79,11 +74,14 @@ export class CaptchaController {
   @Post('challenges')
   async create(@Body() body: CreateCaptchaDto, @Req() request: FastifyRequest) {
     this.assertHttps(request)
-    const data = await this.captcha.createChallenge(
-      body.username,
-      request.ip,
-      request.headers['user-agent']
-    )
+    const data = await this.captcha.createChallenge(body.username, request.ip, request.headers['user-agent'], {
+      sceneId: body.sceneId,
+      action: body.action,
+      mode: body.mode,
+      captchaType: body.captchaType,
+      attemptId: body.attemptId,
+      previousChallengeId: body.previousChallengeId,
+    })
     return { code: API_CODE.SUCCESS, message: 'success', data }
   }
 
@@ -96,9 +94,9 @@ export class CaptchaController {
       challengeId: body.challengeId,
       ip: request.ip,
       userAgent: request.headers['user-agent'],
-      points: body.points,
-      finalX: body.finalX,
-      trackWidth: body.trackWidth,
+      answer: body.answer,
+      captchaType: body.captchaType,
+      action: body.action,
     })
     return { code: API_CODE.SUCCESS, message: 'success', data }
   }

@@ -18,6 +18,8 @@ export const FILE_STATUS = Object.freeze({
 export const FILE_SCAN_STATUS = Object.freeze({
   PENDING: 'PENDING',
   CLEAN: 'CLEAN',
+  INFECTED: 'INFECTED',
+  ERROR: 'ERROR',
 })
 
 const TERMINAL_UPLOAD_STATUSES = new Set([
@@ -36,7 +38,23 @@ export function resolveFileUploadStatus(input = {}) {
   const fileStatus = input.fileStatus || FILE_STATUS.QUARANTINED
   const scanStatus = input.scanStatus || FILE_SCAN_STATUS.PENDING
   const ready = uploadStatus === FILE_UPLOAD_STATUS.COMPLETED && fileStatus === FILE_STATUS.READY && scanStatus === FILE_SCAN_STATUS.CLEAN
-  const terminal = ready || TERMINAL_UPLOAD_STATUSES.has(uploadStatus) || TERMINAL_FILE_STATUSES.has(fileStatus)
+  const infected = scanStatus === FILE_SCAN_STATUS.INFECTED
+  const terminal = ready || infected || TERMINAL_UPLOAD_STATUSES.has(uploadStatus) || TERMINAL_FILE_STATUSES.has(fileStatus)
+
+  let text = '文件正在处理中'
+  if (ready) text = '扫描通过，文件已可用'
+  else if (fileStatus === FILE_STATUS.DELETED) text = '文件已删除，不可使用'
+  else if (infected) text = '检测到病毒，文件已拒绝，不可使用'
+  else if (fileStatus === FILE_STATUS.REJECTED) text = '文件已拒绝，不可使用'
+  else if (uploadStatus === FILE_UPLOAD_STATUS.ABORTED) text = '上传已中止'
+  else if (uploadStatus === FILE_UPLOAD_STATUS.EXPIRED) text = '上传会话已过期，请重新上传'
+  else if (uploadStatus === FILE_UPLOAD_STATUS.FAILED) text = scanStatus === FILE_SCAN_STATUS.ERROR
+    ? '安全扫描异常，文件暂不可用，请联系管理员处理'
+    : '文件处理失败，请重新上传或联系管理员'
+  else if (uploadStatus === FILE_UPLOAD_STATUS.FINALIZING) text = '正在校验文件'
+  else if (uploadStatus === FILE_UPLOAD_STATUS.SCANNING || fileStatus === FILE_STATUS.QUARANTINED) text = scanStatus === FILE_SCAN_STATUS.ERROR
+    ? '安全扫描异常，正在自动重试'
+    : '等待安全扫描'
 
   return {
     uploadStatus,
@@ -44,15 +62,8 @@ export function resolveFileUploadStatus(input = {}) {
     scanStatus,
     ready,
     terminal,
-    text: ready
-      ? '扫描通过，文件已可用'
-      : uploadStatus === FILE_UPLOAD_STATUS.FAILED
-      ? '处理失败，可重试'
-      : terminal
-      ? `处理结束：${fileStatus}`
-      : fileStatus === FILE_STATUS.QUARANTINED
-      ? '等待安全扫描'
-      : '文件正在处理中',
+    text,
+    tone: ready ? 'success' : terminal ? 'error' : 'info',
   }
 }
 

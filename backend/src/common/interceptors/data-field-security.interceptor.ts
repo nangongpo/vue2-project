@@ -18,6 +18,7 @@ import {
   securityStepUpException,
   type RiskLevel,
 } from '#app/security/policies/risk-policy.js'
+import type { FieldWriteOperation } from '#app/security/policies/field-policy-types.js'
 
 type RequestMethod = 'GET' | 'POST' | 'PATCH'
 
@@ -26,6 +27,7 @@ type DataFieldRequest = {
   body?: Record<string, unknown>
   user?: {
     permissions?: string[]
+    mfaEnabled?: boolean
     mfaVerifiedAt?: Date | null
     reauthenticatedAt?: Date | null
   }
@@ -41,6 +43,9 @@ type FieldDefinition = {
   relationField?: string | null
   readCode: string
   writeCode?: string
+  readable: boolean
+  allowCreate: boolean
+  allowUpdate: boolean
   riskLevel: RiskLevel
   status: PermissionStatus
 }
@@ -61,9 +66,12 @@ export class DataFieldSecurityInterceptor implements NestInterceptor {
       switchMap((definitionGraph) => {
         const definitions = definitionGraph.get(resource) || []
         if ((request.method === 'PATCH' || request.method === 'POST') && request.body) {
+          const operation: FieldWriteOperation = request.method === 'POST' ? 'CREATE' : 'UPDATE'
           const writable = new Map(
             definitions
-              .filter((definition) => definition.writeCode)
+              .filter((definition) => definition.writeCode && (
+                operation === 'CREATE' ? definition.allowCreate : definition.allowUpdate
+              ))
               .map((definition) => [definition.field, definition.writeCode!])
           )
           const changed = Object.keys(request.body)
@@ -93,7 +101,19 @@ export class DataFieldSecurityInterceptor implements NestInterceptor {
         }
         return next
           .handle()
-          .pipe(map((value) => this.projectResponse(value, resource, definitionGraph, permissions)))
+          .pipe(map((value) => {
+            const readRisks: RiskLevel[] = []
+            const projected = this.projectResponse(value, resource, definitionGraph, permissions, readRisks)
+            if (request.method === 'GET' && resource.startsWith('system.file')) {
+              const level = maxRiskLevel(request.riskLevel || 'L0', ...readRisks)
+              request.riskLevel = level
+              if (!hasRecentSecurityProof(request.user || {}, level)) {
+                if (!request.operationCode) throw new ForbiddenException('字段安全操作未声明 operationCode')
+                throw securityStepUpException(request.user || {}, resolveRiskDecision(request.operationCode, { minimumLevel: level }))
+              }
+            }
+            return projected
+          }))
       })
     )
   }
@@ -115,6 +135,9 @@ export class DataFieldSecurityInterceptor implements NestInterceptor {
           relationResource: true,
           relationModel: true,
           relationField: true,
+          readable: true,
+          allowCreate: true,
+          allowUpdate: true,
           status: true,
           riskLevel: true,
           readPermission: { select: { code: true } },
@@ -129,6 +152,9 @@ export class DataFieldSecurityInterceptor implements NestInterceptor {
         relationField: definition.relationField,
         readCode: definition.readPermission.code,
         writeCode: definition.writePermission?.code,
+        readable: definition.readable,
+        allowCreate: definition.allowCreate,
+        allowUpdate: definition.allowUpdate,
         riskLevel: definition.riskLevel as RiskLevel,
         status: definition.status,
       }))
@@ -143,7 +169,7 @@ export class DataFieldSecurityInterceptor implements NestInterceptor {
 
   private readableDefinitions(definitions: FieldDefinition[], permissions: Set<string>) {
     return definitions.filter(
-      (definition) => permissions.has(definition.readCode)
+      (definition) => definition.readable && permissions.has(definition.readCode)
     )
   }
 
@@ -151,7 +177,8 @@ export class DataFieldSecurityInterceptor implements NestInterceptor {
     value: unknown,
     resource: string,
     graph: Map<string, FieldDefinition[]>,
-    permissions: Set<string>
+    permissions: Set<string>,
+    readRisks: RiskLevel[] = []
   ) {
     const projectData = (data: unknown, currentResource: string, depth: number): unknown => {
       if (depth > 3) return undefined
@@ -171,6 +198,7 @@ export class DataFieldSecurityInterceptor implements NestInterceptor {
       for (const definition of readable) {
         if (!Object.prototype.hasOwnProperty.call(object, definition.field)) continue
         const fieldValue = object[definition.field]
+        if (fieldValue !== null && fieldValue !== undefined) readRisks.push(definition.riskLevel)
         if (definition.relationResource && fieldValue !== null && fieldValue !== undefined) {
           const projectRelation = (relation: unknown) => {
             if (!definition.relationField || !relation || typeof relation !== 'object') {

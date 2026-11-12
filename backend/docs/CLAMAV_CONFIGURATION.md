@@ -1,10 +1,13 @@
 # ClamAV 内网病毒扫描配置
 
-本文档只负责 `clamd` 的部署、权限、连通性、超时和故障排查。文件状态机、下载控制和业务接口以 [FILE_SECURITY.md](FILE_SECURITY.md) 为准，环境变量总表以 [CONFIGURATION.md](CONFIGURATION.md) 为准。
+backend 通过 Unix Socket（优先）或受控内网 TCP 调用 `clamd` 扫描文件。两个程序的职责不同：
 
-本文档是 backend 文件模块的 ClamAV 独立配置文档。系统使用常驻扫描服务 `clamd`，backend 通过 Unix Socket 优先、受控内网 TCP 备用的方式调用 `INSTREAM` 协议。
+- `freshclam`：下载和更新病毒库，不负责扫描。
+- `clamd`：加载病毒库并提供扫描服务，不负责下载更新。
 
-安全原则：文件完成分片合并后先进入隔离区，只有 ClamAV 返回 `OK` 才能进入 `READY/CLEAN`。扫描超时、Socket 不可用、病毒库过期或服务异常都必须进入 `QUARANTINED/ERROR`，不能降级放行。
+**首次部署：先下载病毒库，再启动 `clamd`。后续更新：更新病毒库，再让运行中的 `clamd` 重新加载。** 启动 backend 或重启 `clamd` 都不会下载病毒库。
+
+文件状态和下载控制见 [FILE_SECURITY.md](FILE_SECURITY.md)，环境变量见 [CONFIGURATION.md](CONFIGURATION.md)。扫描失败必须保持隔离；病毒库新鲜度需要部署侧监控，当前 backend 扫描器不会自行检查病毒库年龄。
 
 ## 一、生产环境配置
 
@@ -68,16 +71,25 @@ ReadTimeout 300
 
 ### 1.4 生产病毒库更新
 
-生产区不能依赖运行时访问公网更新病毒库。建议采用以下流程：
+生产扫描节点不直接访问公网，由专用更新节点下载，再通过内网镜像或受控介质发布。
 
-1. 由专用更新节点取得病毒库；
-2. 校验下载完整性和病毒库签名；
-3. 在隔离环境完成恶意样本回归测试；
-4. 经审批后通过内网镜像或受控介质同步到扫描节点；
-5. 记录病毒库版本、更新时间、来源、校验结果和发布人；
-6. 更新失败或病毒库超过新鲜度阈值时停止放行新文件并告警。
+| 阶段 | 操作顺序 |
+| --- | --- |
+| 首次部署 | 更新节点用 `freshclam` 下载完整病毒库 → 校验并同步到扫描节点的 `DatabaseDirectory` → 确认 `clamd` 可读 → 启动 `clamd` → 检查版本和连通性 |
+| 后续更新 | 更新节点定时运行 `freshclam` 检查更新（通常增量下载，必要时下载完整库） → 校验并发布 → 通知扫描节点的 `clamd` 重新加载 → 确认加载的新版本 |
 
-病毒库更新、ClamAV 引擎升级和规则变更必须纳入变更管理，并保留上一个可回滚版本。
+发布前校验完整性、签名并完成回归测试；记录版本、来源、更新时间和发布人，保留上一版用于回滚。同步时先写入暂存目录，完成校验后再切换，避免 `clamd` 加载尚未复制完整的数据库。
+
+扫描节点更新完成后，通过本机 Socket 请求重新加载：
+
+```bash
+printf 'RELOAD\n' | nc -U -w 2 /run/clamav/clamd.ctl
+printf 'VERSION\n' | nc -U -w 2 /run/clamav/clamd.ctl
+```
+
+`RELOAD` 只表示请求重新加载；等待加载完成后，用 `VERSION` 和服务日志核对已加载版本。`PONG` 只能证明服务可连接，不能证明病毒库最新。
+
+运维需明确更新频率、新鲜度阈值和告警规则。更新失败应告警；超过新鲜度阈值时必须阻止新文件放行，不能依赖 `clamd` 自动拒绝旧病毒库。
 
 ### 1.5 生产健康检查
 
@@ -136,26 +148,27 @@ LocalSocketGroup admin
 LocalSocketMode 660
 ```
 
-不要同时保留 `/run/clamav/clamd.sock`、`/tmp/clamd.sock` 等其他 `LocalSocket` 配置。Homebrew 的 ClamAV 服务需要 root 方式启动时，使用：
+不要同时保留 `/run/clamav/clamd.sock`、`/tmp/clamd.sock` 等其他 `LocalSocket` 配置。Socket 目录需允许 `clamd` 运行账号写入，backend 账号需属于 `LocalSocketGroup` 指定的组。
 
-```bash
-sudo brew services restart clamav
+#### 首次下载（安装后执行一次）
+
+先编辑 `/usr/local/etc/clamav/freshclam.conf`，确保以下配置各保留一行，且 `Example` 已注释：
+
+```conf
+DatabaseDirectory /usr/local/var/lib/clamav
+DatabaseMirror database.clamav.net
 ```
 
-如果运行目录由 root 创建，确认当前用户或 backend 服务账号属于 `LocalSocketGroup` 指定的组。不要使用 `sudo brew install`；root 只用于启动需要 root 的系统服务。Homebrew 服务启动后可能提示路径被改为 `root:admin`，这表示后续升级或卸载可能需要 sudo。
+两个配置文件的 `DatabaseDirectory` 必须一致。确认 `freshclam` 运行账号可写、`clamd` 运行账号可读；遇到权限错误时检查目录属主及 `freshclam.conf` 的 `DatabaseOwner`。
 
-首次更新病毒库：
+下载病毒库（需要访问更新源，首次下载可能耗时较长）：
 
 ```bash
-sed -i '' \
-  -e 's|^#DatabaseDirectory .*|DatabaseDirectory /usr/local/var/lib/clamav|' \
-  /usr/local/etc/clamav/freshclam.conf
-
 /usr/local/opt/clamav/bin/freshclam \
   --config-file=/usr/local/etc/clamav/freshclam.conf
 ```
 
-启动并验证：
+确认命令成功退出，目录中已有 `main`、`daily`、`bytecode` 等数据库文件（扩展名可能为 `.cvd` 或 `.cld`），再启动并验证：
 
 ```bash
 sudo brew services restart clamav
@@ -165,7 +178,44 @@ test -S /usr/local/var/run/clamav/clamd.sock \
 printf 'PING\n' | nc -U -w 2 /usr/local/var/run/clamav/clamd.sock
 ```
 
-backend 开发环境配置：
+正常返回 `PONG`。上述示例用 root 启动扫描服务；不要使用 `sudo brew install`。如果按此方式启动，应使用同样的 `sudo brew services` 命令管理服务。
+
+#### 后续更新（重复执行）
+
+手动更新使用同一条 `freshclam` 命令；已有病毒库时会检查版本，无更新则无需下载。下载成功后请求 `clamd` 重新加载：
+
+```bash
+/usr/local/opt/clamav/bin/freshclam \
+  --config-file=/usr/local/etc/clamav/freshclam.conf \
+  && printf 'RELOAD\n' | nc -U -w 2 /usr/local/var/run/clamav/clamd.sock
+```
+
+等待加载完成后核对版本和病毒库日期：
+
+```bash
+printf 'VERSION\n' | nc -U -w 2 /usr/local/var/run/clamav/clamd.sock
+```
+
+需要自动更新时，在 `freshclam.conf` 中增加：
+
+```conf
+Checks 12
+NotifyClamd /usr/local/etc/clamav/clamd.conf
+```
+
+再启动更新进程：
+
+```bash
+/usr/local/opt/clamav/bin/freshclam \
+  --daemon --foreground \
+  --config-file=/usr/local/etc/clamav/freshclam.conf
+```
+
+此命令持续运行，每天检查 12 次；下载新库后通过 `NotifyClamd` 通知扫描服务加载。更新账号需有 Socket 访问权限。关闭终端会停止该前台进程；需要持续运行时用 launchd 托管。仅写入 `Checks` 不会启动定时更新，也不要同时运行多个 `freshclam` 进程。
+
+遇到 HTTP 429/403 时检查日志并遵守更新源的冷却时间，避免反复重试。
+
+#### backend 配置
 
 ```env
 # backend/.env
@@ -214,7 +264,7 @@ sudo brew services restart clamav
 
 - `clamd.conf` 中不存在重复的 `LocalSocket`；
 - `Example` 已注释；
-- 病毒库目录中存在 `main.cvd`、`daily.cvd` 等数据库文件；
+- 病毒库目录中存在 `main`、`daily` 等数据库文件（`.cvd` 或 `.cld`）；
 - Socket 父目录存在且 clamd 运行账号有写权限；
 - backend 的 `CLAMAV_SOCKET_PATH` 与配置文件完全一致。
 
@@ -246,7 +296,18 @@ backend 使用 `INSTREAM` 流式传输，不把完整文件一次性加载到应
 参考：
 
 - [ClamAV 官方文档](https://docs.clamav.net/)
+- [freshclam 配置与更新](https://docs.clamav.net/manual/Usage/Configuration.html)
+- [freshclam.conf 配置项](https://github.com/Cisco-Talos/clamav/blob/main/docs/man/freshclam.conf.5.in)
 - [Clamd Protocol](https://docs.clamav.net/manual/Usage/ClamdProtocol.html)
 - [Homebrew Installation](https://docs.brew.sh/Installation)
 
 
+
+
+### 文件详情中的版本字段
+
+扫描前通过相同的 clamd 地址或 Unix Socket 执行 `zVERSION\0`，从响应中提取实际引擎版本，写入 `scanEngineVersion`（例如 `ClamAV 1.4.3`）。每次扫描重新获取，不缓存旧版本；该字段不是病毒库版本。需在 clamd 中启用 VERSION 命令（支持该开关的版本使用 `EnableVersionCommand yes`）。版本查询失败、被禁用或返回不合法时，扫描按异常处理并保留隔离状态，不写入假的版本号。
+
+`policyVersion` 来自代码中的 `FILE_SCAN_POLICY.version`，当前为 `clamav-instream-v1`。该版本对应 INSTREAM 流式传输、最大 1 MiB 分块、仅明确的 `stream: OK` 判为通过、`stream: <签名> FOUND` 判为感染、其他结果保持隔离的规则。修改传输或判定规则时必须递增版本，不以引擎或病毒库版本替代。
+
+重新扫描入队时清空旧的引擎及策略版本。本次扫描结果写回时保存实际使用的版本，扫描异常也保存已获取的版本。已有文件的历史版本不会自动补写；须重新扫描后才能得到真实值。

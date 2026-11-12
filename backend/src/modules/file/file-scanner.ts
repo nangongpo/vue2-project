@@ -10,6 +10,8 @@ export type FileScanResult = {
 }
 
 export type FileScanInput = {
+  signal?: AbortSignal
+  onStage?: (stage: 'VERSION' | 'SCAN') => Promise<void>
   stream: Readable
   size: bigint
   sha256?: string | null

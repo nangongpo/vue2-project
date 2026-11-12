@@ -10,12 +10,18 @@
 4. [TENANCY_SECURITY.md](TENANCY_SECURITY.md)：单租户、多租户、组织和部门的数据边界。
 5. [PERMISSION_DESIGN.md](PERMISSION_DESIGN.md)：认证后的授权模型、职责分离和数据范围判定。
 6. [PERMISSION_CODE_STANDARD.md](PERMISSION_CODE_STANDARD.md)：权限码、动作和迁移命名规范。
-7. [APPROVAL_CONTRACT.md](APPROVAL_CONTRACT.md)：高危操作审批接口、状态机和执行契约。
-8. [FILE_SECURITY.md](FILE_SECURITY.md)：文件上传、隔离、扫描、下载和删除安全模型。
-9. [SSE_DESIGN.md](SSE_DESIGN.md)：SSE 事件流、多实例投递、连接治理和轮询兜底。
-10. [CONFIGURATION.md](CONFIGURATION.md)：应用环境变量和安全配置总表。
-11. [CLAMAV_CONFIGURATION.md](CLAMAV_CONFIGURATION.md)：ClamAV 部署、连通性和扫描故障处理。
-12. [DATABASE_OPERATIONS.md](DATABASE_OPERATIONS.md)：数据库迁移、备份、恢复和生产操作约束。
+7. [DATA_FIELD_SECURITY.md](DATA_FIELD_SECURITY.md)：字段权限模型、初始化、运行时执行和开发验收。
+8. [APPROVAL_CONTRACT.md](APPROVAL_CONTRACT.md)：高危操作审批接口、状态机和执行契约。
+9. [FILE_SECURITY.md](FILE_SECURITY.md)：文件上传、隔离、扫描、下载和删除安全模型。
+10. [SSE_DESIGN.md](SSE_DESIGN.md)：SSE 事件流、多实例投递、连接治理和轮询兜底。
+11. [CONFIGURATION.md](CONFIGURATION.md)：应用环境变量和安全配置总表。
+12. [CLAMAV_CONFIGURATION.md](CLAMAV_CONFIGURATION.md)：ClamAV 部署、连通性和扫描故障处理。
+13. [DATABASE_OPERATIONS.md](DATABASE_OPERATIONS.md)：数据库迁移、备份、恢复和生产操作约束。
+14. [TESTING.md](TESTING.md)：按职责划分的单元测试、真实依赖集成测试和前端测试规范。
+
+扫描历史专项开发方案见 [FILE_SCAN_HISTORY_DESIGN.md](FILE_SCAN_HISTORY_DESIGN.md)，作为文件安全模型的补充，包含实现与验证记录。
+
+文件管理风险分级方案见 [FILE_OPERATION_RISK_DESIGN.md](FILE_OPERATION_RISK_DESIGN.md)，包含接口等级、动态升级、审批与并发防绕过要求，以及现有接口实现与验证范围。
 
 ## 2. 文档职责矩阵
 
@@ -27,12 +33,16 @@
 | `TENANCY_SECURITY.md` | 租户模式、租户上下文、组织/部门和切换控制 | 通用 RBAC、文件扫描实现 |
 | `PERMISSION_DESIGN.md` | 授权对象、判定顺序、职责分离和数据范围 | 权限码命名细则、审批接口字段 |
 | `PERMISSION_CODE_STANDARD.md` | 权限码和动作的命名、目录、迁移规则 | 授权运行时流程 |
+| `DATA_FIELD_SECURITY.md` | 数据字段模型、读写策略、投影、初始化和验收 | 通用权限码命名、租户模式、审批流程 |
 | `APPROVAL_CONTRACT.md` | 审批 API、请求体、状态机、执行和审计回写 | 通用权限架构 |
 | `FILE_SECURITY.md` | 文件上传、生命周期、存储隔离、病毒扫描和下载安全 | ClamAV 安装命令、通用配置表 |
+| `FILE_SCAN_HISTORY_DESIGN.md` | 扫描历史开发契约、模型、查询、权限及验收 | ClamAV 部署、通用审批与授权规则 |
+| `FILE_OPERATION_RISK_DESIGN.md` | 文件接口风险分级目标、场景控制、动态决策与验收 | 当前已实现的生命周期和通用认证机制 |
 | `SSE_DESIGN.md` | SSE 事件流、连接认证、多实例投递和轮询兜底 | 租户与数据范围权威规则 |
 | `CONFIGURATION.md` | 环境变量、密钥和部署配置原则 | 数据库/ClamAV 的完整运维手册 |
 | `CLAMAV_CONFIGURATION.md` | ClamAV 运维和故障排查 | 文件模块业务状态机 |
 | `DATABASE_OPERATIONS.md` | 数据库生产操作和恢复 | 应用权限和业务契约 |
+| `TESTING.md` | 测试职责、环境分层、集成依赖和验收顺序 | 业务实现规则和生产配置 |
 
 ## 3. 权威性与冲突处理
 

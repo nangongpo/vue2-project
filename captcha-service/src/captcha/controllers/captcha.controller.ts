@@ -12,7 +12,7 @@ import {
 } from '@nestjs/common'
 import { randomUUID } from 'node:crypto'
 import { FastifyReply, FastifyRequest } from 'fastify'
-import { CaptchaEngine, CaptchaError, CaptchaPoint } from '#app/captcha/services/captcha.engine.js'
+import { CaptchaAnswer, CaptchaEngine, CaptchaError, CaptchaType } from '#app/captcha/services/captcha.engine.js'
 import { findBinding, loadBindings } from '#app/captcha/config/config.js'
 import { requiredVersion, signRequest, signaturesMatch } from '#app/captcha/protocol/protocol.js'
 import { RedisService } from '#app/captcha/services/redis.service.js'
@@ -83,7 +83,7 @@ export class CaptchaController {
       type: 'object',
       properties: {
         ...authProperties,
-        Action: {
+        Operation: {
           type: 'string',
           enum: ['CreateChallenge'],
           example: 'CreateChallenge',
@@ -91,7 +91,7 @@ export class CaptchaController {
         },
         CaptchaType: {
           type: 'string',
-          enum: ['SLIDER'],
+          enum: ['SIMPLE_SLIDER', 'SLIDER', 'ROTATE', 'GRID_IMAGE_SELECT', 'CLICK_ORDER', 'TEXT_SELECT', 'AUDIO'],
           default: 'SLIDER',
           description: '验证码类型。',
         },
@@ -101,6 +101,7 @@ export class CaptchaController {
           default: 'EMBED',
           description: '验证码展示模式。',
         },
+        Action: { type: 'string', maxLength: 64, default: 'LOGIN', description: '业务动作。' },
         Subject: { type: 'string', maxLength: 64, description: '业务主体标识，例如用户名。' },
         ClientIp: { type: 'string', description: '调用方采集的客户端 IP。' },
         UserAgent: { type: 'string', description: '客户端 User-Agent。' },
@@ -115,7 +116,7 @@ export class CaptchaController {
         'SignatureVersion',
         'SignatureNonce',
         'Signature',
-        'Action',
+        'Operation',
         'SceneId',
         'AttemptId',
       ],
@@ -136,8 +137,10 @@ export class CaptchaController {
         return this.engine.createChallenge(binding, {
           attemptId: String(b.AttemptId),
           sceneId: String(b.SceneId),
-          captchaType: b.CaptchaType as 'SLIDER' | undefined,
+          captchaType: b.CaptchaType as CaptchaType | undefined,
           mode: b.Mode as 'EMBED' | 'POPUP' | undefined,
+          previousChallengeId: b.PreviousChallengeId as string | undefined,
+          action: b.Action ? String(b.Action) : undefined,
           subject: String(b.Subject || ''),
           clientIp: String(b.ClientIp || req.ip || ''),
           userAgent: String(b.UserAgent || req.headers?.['user-agent'] || 'unknown'),
@@ -155,7 +158,7 @@ export class CaptchaController {
       type: 'object',
       properties: {
         ...authProperties,
-        Action: {
+        Operation: {
           type: 'string',
           enum: ['VerifyChallenge'],
           example: 'VerifyChallenge',
@@ -170,22 +173,9 @@ export class CaptchaController {
         ClientIp: { type: 'string', description: '调用方采集的客户端 IP。' },
         UserAgent: { type: 'string', description: '客户端 User-Agent。' },
         DeviceId: { type: 'string', description: '客户端设备标识。' },
-        Points: {
-          type: 'array',
-          minItems: 8,
-          maxItems: 300,
-          items: {
-            type: 'object',
-            properties: {
-              x: { type: 'number', description: '轨迹点横坐标。' },
-              y: { type: 'number', description: '轨迹点纵坐标。' },
-              t: { type: 'number', description: '轨迹点时间戳或相对时间。' },
-            },
-            required: ['x', 'y', 't'],
-          },
-        },
-        FinalX: { type: 'number', description: '滑块最终横坐标。' },
-        TrackWidth: { type: 'number', description: '客户端轨迹区域宽度。' },
+        CaptchaType: { type: 'string', description: '验证码类型，必须与 Challenge 一致。' },
+        Answer: { type: 'object', description: '题型对应的答案载荷。' },
+        Action: { type: 'string', maxLength: 64, default: 'LOGIN', description: '业务动作。' },
       },
       required: [
         'ApiVersion',
@@ -196,13 +186,10 @@ export class CaptchaController {
         'SignatureVersion',
         'SignatureNonce',
         'Signature',
-        'Action',
+        'Operation',
         'SceneId',
         'AttemptId',
         'ChallengeId',
-        'Points',
-        'FinalX',
-        'TrackWidth',
       ],
     },
   })
@@ -226,9 +213,9 @@ export class CaptchaController {
           clientIp: String(b.ClientIp || req.ip || ''),
           userAgent: String(b.UserAgent || req.headers?.['user-agent'] || 'unknown'),
           deviceId: b.DeviceId ? String(b.DeviceId) : undefined,
-          points: b.Points as CaptchaPoint[],
-          finalX: Number(b.FinalX),
-          trackWidth: Number(b.TrackWidth),
+          action: b.Action ? String(b.Action) : undefined,
+          captchaType: b.CaptchaType as CaptchaType,
+          answer: b.Answer as CaptchaAnswer,
         })
       },
       reply
@@ -242,7 +229,7 @@ export class CaptchaController {
       type: 'object',
       properties: {
         ...authProperties,
-        Action: {
+        Operation: {
           type: 'string',
           enum: ['ConsumeToken'],
           example: 'ConsumeToken',
@@ -266,7 +253,7 @@ export class CaptchaController {
         'SignatureVersion',
         'SignatureNonce',
         'Signature',
-        'Action',
+        'Operation',
         'SceneId',
         'AttemptId',
         'CaptchaToken',
@@ -293,6 +280,8 @@ export class CaptchaController {
             subject: String(b.Subject || ''),
             clientIp: String(b.ClientIp || req.ip || ''),
             deviceId: b.DeviceId ? String(b.DeviceId) : undefined,
+            action: String(b.Action),
+            captchaType: String(b.CaptchaType) as CaptchaType,
           }),
         }
       },
@@ -309,15 +298,20 @@ export class CaptchaController {
     const requestId = String(body.RequestId || randomUUID())
     const startedAt = Date.now()
     try {
-      if (body.Action !== action) throw new CaptchaError('ACTION_PATH_MISMATCH', '操作与路径不匹配')
+      if (body.Operation !== action) throw new CaptchaError('OPERATION_PATH_MISMATCH', '协议操作与路径不匹配')
       const versionError = requiredVersion(body)
       if (versionError) throw new CaptchaError(versionError, '请求版本不支持')
       const result = await operation(body)
-      const operationCode = action === 'CreateChallenge'
-        ? 'captcha.challenge.created'
-        : action === 'VerifyChallenge'
-          ? result.Verified === true ? 'captcha.verify.success' : 'captcha.verify.failed'
-          : result.Valid === true ? 'captcha.token.consumed' : 'captcha.verify.failed'
+      const operationCode =
+        action === 'CreateChallenge'
+          ? 'captcha.challenge.created'
+          : action === 'VerifyChallenge'
+          ? result.Verified === true
+            ? 'captcha.verify.success'
+            : 'captcha.verify.failed'
+          : result.Valid === true
+          ? 'captcha.token.consumed'
+          : 'captcha.verify.failed'
       const eventResult = operationCode.endsWith('.failed') ? 'FAILURE' : 'SUCCESS'
       logSecurityEvent({
         operationCode,
@@ -335,19 +329,24 @@ export class CaptchaController {
       reply.status(200)
       return { ApiVersion: '1', ProtocolVersion: '1.0', RequestId: requestId, ...result }
     } catch (e) {
-      const error =
-        e instanceof CaptchaError
-          ? e
-          : new CaptchaError('SERVICE_UNAVAILABLE', '验证码服务暂不可用', true)
-      const operationCode = error.code === 'RATE_LIMITED'
-        ? 'captcha.rate_limited'
-        : error.code === 'SERVICE_AUTH_FAILED'
+      const error = e instanceof CaptchaError ? e : new CaptchaError('SERVICE_UNAVAILABLE', '验证码服务暂不可用', true)
+      const operationCode =
+        error.code === 'RATE_LIMITED'
+          ? 'captcha.rate_limited'
+          : error.code === 'SERVICE_AUTH_FAILED'
           ? 'captcha.service_auth_failed'
           : error.code === 'SERVICE_UNAVAILABLE'
-            ? 'captcha.redis_unavailable'
-            : action === 'VerifyChallenge' && ['ANSWER_INVALID', 'TRACK_INVALID', 'CHALLENGE_EXPIRED', 'CHALLENGE_NOT_FOUND', 'CONTEXT_MISMATCH'].includes(error.code)
-              ? 'captcha.verify.failed'
-            : 'captcha.protocol_rejected'
+          ? 'captcha.redis_unavailable'
+          : action === 'VerifyChallenge' &&
+            [
+              'ANSWER_INVALID',
+              'TRACK_INVALID',
+              'CHALLENGE_EXPIRED',
+              'CHALLENGE_NOT_FOUND',
+              'CONTEXT_MISMATCH',
+            ].includes(error.code)
+          ? 'captcha.verify.failed'
+          : 'captcha.protocol_rejected'
       logSecurityEvent({
         operationCode,
         action,
@@ -364,9 +363,7 @@ export class CaptchaController {
         rateLimited: error.code === 'RATE_LIMITED',
         dependency: error.code === 'SERVICE_UNAVAILABLE' ? 'redis-or-dependency' : undefined,
       })
-      reply.status(
-        error.code === 'SERVICE_UNAVAILABLE' ? 503 : error.code === 'RATE_LIMITED' ? 429 : 400
-      )
+      reply.status(error.code === 'SERVICE_UNAVAILABLE' ? 503 : error.code === 'RATE_LIMITED' ? 429 : 400)
       return {
         ApiVersion: '1',
         ProtocolVersion: '1.0',
@@ -394,28 +391,56 @@ export class CaptchaController {
     if (b.SceneId !== 'login' || !/^[A-Za-z0-9_-]{1,64}$/.test(String(b.AttemptId)))
       throw new CaptchaError('SCENE_NOT_FOUND', '业务场景不存在')
     if (action === 'CreateChallenge') {
-      if (b.Subject !== undefined && String(b.Subject).length > 64)
-        throw new CaptchaError('CONTEXT_MISMATCH', '请求参数无效')
-      if (b.CaptchaType !== undefined && b.CaptchaType !== 'SLIDER')
-        throw new CaptchaError('VERSION_UNSUPPORTED', '验证码类型暂不支持')
-      if (b.Mode !== undefined && b.Mode !== 'EMBED' && b.Mode !== 'POPUP')
-        throw new CaptchaError('SCENE_NOT_FOUND', '展示模式无效')
-    } else if (action === 'VerifyChallenge') {
       if (
+        b.PreviousChallengeId !== undefined &&
+        (typeof b.PreviousChallengeId !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(b.PreviousChallengeId))
+      )
+        throw new CaptchaError('CONTEXT_MISMATCH', '原验证码标识无效')
+      if (
+        typeof b.Action !== 'string' ||
+        !b.Action ||
+        typeof b.Mode !== 'string' ||
+        (b.Mode !== 'EMBED' && b.Mode !== 'POPUP') ||
+        typeof b.Subject !== 'string' ||
+        !b.Subject ||
+        typeof b.ClientIp !== 'string' ||
+        !b.ClientIp ||
+        typeof b.UserAgent !== 'string' ||
+        !b.UserAgent ||
+        String(b.Subject).length > 64 ||
+        String(b.Action).length > 64
+      )
+        throw new CaptchaError('CONTEXT_MISMATCH', '请求参数无效')
+      if (
+        b.CaptchaType !== undefined &&
+        !['SIMPLE_SLIDER', 'SLIDER', 'ROTATE', 'GRID_IMAGE_SELECT', 'CLICK_ORDER', 'TEXT_SELECT', 'AUDIO'].includes(
+          String(b.CaptchaType)
+        )
+      )
+        throw new CaptchaError('VERSION_UNSUPPORTED', '验证码类型暂不支持')
+    } else if (action === 'VerifyChallenge') {
+      const hasAnswer = b.Answer !== undefined && b.Answer !== null && typeof b.Answer === 'object'
+      if (
+        Object.prototype.hasOwnProperty.call(b, 'Points') ||
+        Object.prototype.hasOwnProperty.call(b, 'FinalX') ||
+        Object.prototype.hasOwnProperty.call(b, 'TrackWidth') ||
         typeof b.ChallengeId !== 'string' ||
         String(b.ChallengeId).length > 128 ||
-        !Array.isArray(b.Points) ||
-        b.Points.length < 8 ||
-        b.Points.length > Number(process.env.CAPTCHA_MAX_TRACK_POINTS || 300) ||
-        !Number.isFinite(Number(b.FinalX)) ||
-        !Number.isFinite(Number(b.TrackWidth))
+        typeof b.CaptchaType !== 'string' ||
+        !b.Action ||
+        typeof b.Action !== 'string' ||
+        !hasAnswer
       )
         throw new CaptchaError('TRACK_INVALID', '请求轨迹无效')
     } else if (action === 'ConsumeToken') {
       if (
         typeof b.CaptchaToken !== 'string' ||
         !b.CaptchaToken.length ||
-        String(b.CaptchaToken).length > 256
+        String(b.CaptchaToken).length > 256 ||
+        typeof b.Action !== 'string' ||
+        !b.Action ||
+        typeof b.CaptchaType !== 'string' ||
+        !b.CaptchaType
       )
         throw new CaptchaError('CHALLENGE_NOT_FOUND', '一次性令牌无效')
     }
@@ -438,9 +463,7 @@ export class CaptchaController {
     )
       throw new CaptchaError('SERVICE_AUTH_FAILED', '服务认证失败')
     const nonce = await this.redis.setOnce(
-      `captcha:${process.env.NODE_ENV || 'development'}:${binding.prefix}:nonce:${String(
-        body.SignatureNonce
-      )}`,
+      `captcha:${process.env.NODE_ENV || 'development'}:${binding.prefix}:nonce:${String(body.SignatureNonce)}`,
       300
     )
     if (nonce === null) throw new CaptchaError('SERVICE_UNAVAILABLE', '验证码服务暂不可用', true)

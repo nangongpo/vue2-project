@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Inject, Param, ParseUUIDPipe, Patch, Post, Query, Req, UseGuards } from '@nestjs/common'
 import { FieldRiskLevel, PermissionStatus } from '#app/common/types/prisma-enums.js'
-import { IsBoolean, IsEnum, IsIn, IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator'
+import { ArrayUnique, IsArray, IsBoolean, IsEnum, IsIn, IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator'
 import { AuthGuard } from '#app/security/guards/auth.guard.js'
 import { RequirePermissions } from '#app/security/decorators/permission.decorator.js'
 import { DataFieldService } from '#app/modules/permission/services/data-field.service.js'
@@ -14,11 +14,12 @@ class DataFieldUpdateDto {
   @IsIn(['string', 'number', 'boolean', 'enum', 'datetime', 'array', 'object', 'secret'])
   dataType!: string
   @IsEnum(FieldRiskLevel) riskLevel!: FieldRiskLevel
+  @IsBoolean() readable!: boolean
+  @IsOptional() @IsArray() @ArrayUnique() @IsIn(['CREATE', 'UPDATE'], { each: true }) writeOperations?: Array<'CREATE' | 'UPDATE'>
 }
 class DataFieldCreateDto extends DataFieldUpdateDto {
   @IsString() @Matches(/^[a-z][a-z0-9_.:-]{0,127}$/) resource!: string
   @IsString() @Matches(/^[a-z][a-zA-Z0-9_]{0,127}$/) field!: string
-  @IsOptional() @IsBoolean() writable?: boolean
 }
 
 @Controller('permission/fields')

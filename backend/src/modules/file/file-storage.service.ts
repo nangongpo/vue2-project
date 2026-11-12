@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common'
 import { createHash } from 'node:crypto'
 import { createReadStream, createWriteStream } from 'node:fs'
-import { mkdir, rename, rm, stat } from 'node:fs/promises'
+import { mkdir, rename, rm, stat, open, link, chmod } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import { Transform } from 'node:stream'
@@ -82,6 +82,7 @@ export class FileStorageService {
         output.once('finish', resolvePromise)
         output.once('error', reject)
       })
+      await chmod(temp, 0o440)
       await rename(temp, target)
       return { checksum: hash.digest('hex'), size: (await stat(target)).size }
     } catch (error) {
@@ -91,24 +92,46 @@ export class FileStorageService {
     }
   }
 
-  async promote(uploadId: string, storageKey: string) {
-    const source = this.quarantineObjectPath(uploadId)
-    const target = this.finalPath(storageKey)
-    await mkdir(dirname(target), { recursive: true, mode: 0o750 })
-    await rename(source, target)
-    await rm(resolve(this.root, 'quarantine', uploadId), { recursive: true, force: true })
+  // Open an immutable inode with an independent file descriptor for each scan.
+  // No per-attempt content copy, including for large files.
+  async openScanSource(uploadId: string, storageKey: string, signal: AbortSignal) {
+    signal.throwIfAborted()
+    let handle
+    try { handle = await open(this.finalPath(storageKey), 'r') }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      handle = await open(this.quarantineObjectPath(uploadId), 'r')
+    }
+    try {
+      const identity = await handle.stat()
+      signal.throwIfAborted()
+      const source = handle
+      return Object.assign(handle.createReadStream({ signal, autoClose: false }), {
+        scanIdentity: { dev: identity.dev, ino: identity.ino },
+        closeScanSource: () => source.close(),
+      })
+    }
+    catch (error) { await handle.close(); throw error }
   }
 
-  async prepareForScan(uploadId: string, storageKey: string) {
-    const quarantine = this.quarantineObjectPath(uploadId)
+  async publishScannedSource(uploadId: string, storageKey: string, signal: AbortSignal, identity: { dev: number; ino: number }) {
+    signal.throwIfAborted()
+    const target = this.finalPath(storageKey)
+    await mkdir(dirname(target), { recursive: true, mode: 0o750 })
     try {
-      await stat(quarantine)
-      return
-    } catch {
-      // A rescan starts from the private object and moves it back to quarantine.
+      // An exclusive hard link publishes the same immutable inode without a
+      // copy or an overwrite. Quarantine and objects must share a filesystem.
+      await link(this.quarantineObjectPath(uploadId), target)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {
+        // A completed upload may already have been cleaned from quarantine.
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+        await stat(target)
+      }
     }
-    await mkdir(dirname(quarantine), { recursive: true, mode: 0o750 })
-    await rename(this.finalPath(storageKey), quarantine)
+    const published = await stat(target)
+    if (published.dev !== identity.dev || published.ino !== identity.ino) throw new Error('扫描源与发布文件不一致')
+    signal.throwIfAborted()
   }
 
   async removeUpload(uploadId: string) {

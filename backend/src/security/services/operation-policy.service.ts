@@ -1,3 +1,4 @@
+import type { Prisma } from '@prisma/client'
 import { Injectable, ServiceUnavailableException } from '@nestjs/common'
 import { OperationPolicyStatus } from '#app/common/types/prisma-enums.js'
 import { PrismaService } from '#app/database/prisma.service.js'
@@ -29,8 +30,8 @@ function assertControlsAtLeast(actual: {
 export class OperationPolicyService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async resolve(operationCode: string, permissionCodes: string[] = []) {
-    const policy = await this.prisma.operationPolicy.findFirst({
+  async resolve(operationCode: string, permissionCodes: string[] = [], db: Prisma.TransactionClient = this.prisma) {
+    const policy = await db.operationPolicy.findFirst({
       where: { operationCode, status: OperationPolicyStatus.ACTIVE },
     })
     const permissionRisk = permissionCodes.length
@@ -57,7 +58,12 @@ export class OperationPolicyService {
     const controls = baselineFor(operationCode, maxRiskLevel(permissionRisk, configuredRisk))
     assertControlsAtLeast(policy, controls, '业务操作安全控制低于系统安全基线')
     const effectiveRiskLevel = maxRiskLevel(configuredRisk, permissionRisk)
-    return { ...policy, ...controls, riskLevel: effectiveRiskLevel, minimumRiskLevel: minimum, source: 'DATABASE' as const }
+    return { ...policy, ...controls,
+      requireMfa: controls.requireMfa || policy.requireMfa,
+      requireReauth: controls.requireReauth || policy.requireReauth,
+      requireApproval: controls.requireApproval || policy.requireApproval,
+      requireDualControl: controls.requireDualControl || policy.requireDualControl,
+      riskLevel: effectiveRiskLevel, minimumRiskLevel: minimum, source: 'DATABASE' as const }
   }
 
   async list(status?: OperationPolicyStatus) {

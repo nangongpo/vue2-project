@@ -1,4 +1,5 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
+import { Prisma } from '@prisma/client'
 import { randomUUID } from 'node:crypto'
 import type { Readable } from 'node:stream'
 import { PrismaService } from '#app/database/prisma.service.js'
@@ -299,10 +300,11 @@ export class FileService {
   async download(fileId: string, actor: Actor) {
     const userId = await this.prisma.$transaction((tx) => requireActor(tx, actor), serializable)
     const file = await this.prisma.fileObject.findFirst({
-      where: { id: fileId, tenantId: actor.tenantId, ownerUserId: userId, status: 'READY', scanStatus: 'CLEAN' },
-      select: { storageKey: true, originalName: true, detectedMime: true, declaredMime: true, size: true },
+      where: { id: fileId, tenantId: actor.tenantId, ownerUserId: userId, status: 'READY', scanStatus: 'CLEAN', securityHold: null },
+      select: { storageKey: true, originalName: true, detectedMime: true, declaredMime: true, size: true, classification: true },
     })
     if (!file) throw new NotFoundException('文件不存在或尚未通过安全扫描')
+    if (file.classification !== 'INTERNAL') throw new ConflictException('文件分类未登记下载策略，禁止下载')
     // The local adapter is a controlled stream, not a public filesystem path or
     // an unbounded signed URL. Authorization has already been checked against
     // the current tenant and authenticated owner before opening the object.
@@ -315,32 +317,27 @@ export class FileService {
   }
 
   async attach(fileId: string, input: FileBindingDto, actor: Actor) {
-    const userId = await this.prisma.$transaction((tx) => requireActor(tx, actor), serializable)
-    const file = await this.prisma.fileObject.findFirst({
-      where: { id: fileId, tenantId: actor.tenantId, ownerUserId: userId, status: 'READY', scanStatus: 'CLEAN' },
-      select: { id: true, tenantId: true },
-    })
-    if (!file) throw new NotFoundException('文件不存在、未通过扫描或无权关联')
-    const binding = await this.prisma.fileBinding.create({
-      data: {
-        fileId,
-        tenantId: file.tenantId,
-        resourceType: input.resourceType,
-        resourceId: input.resourceId,
-        fieldName: input.fieldName,
-        visibility: input.visibility || 'PRIVATE',
-        createdBy: userId,
-      },
-    })
-    return successResponse(binding)
+    return this.prisma.$transaction(async (tx) => {
+      const userId = await requireActor(tx, actor)
+      await tx.$queryRaw(Prisma.sql`SELECT id FROM sys_file_object WHERE id = ${fileId} AND tenant_id = ${actor.tenantId} FOR UPDATE`)
+      const file = await tx.fileObject.findFirst({ where: { id: fileId, tenantId: actor.tenantId, ownerUserId: userId, status: 'READY', scanStatus: 'CLEAN', securityHold: null }, select: { id: true, tenantId: true } })
+      if (!file) throw new NotFoundException('文件不存在、未通过扫描或无权关联')
+      const binding = await tx.fileBinding.create({ data: { fileId, tenantId: file.tenantId,
+        resourceType: input.resourceType, resourceId: input.resourceId, fieldName: input.fieldName,
+        visibility: input.visibility || 'PRIVATE', createdBy: userId } })
+      return successResponse(binding)
+    }, serializable)
   }
 
   async detach(fileId: string, bindingId: string, actor: Actor) {
-    const userId = await this.prisma.$transaction((tx) => requireActor(tx, actor), serializable)
-    const binding = await this.prisma.fileBinding.findFirst({ where: { id: bindingId, fileId, tenantId: actor.tenantId, createdBy: userId } })
-    if (!binding) throw new NotFoundException('文件关联不存在')
-    await this.prisma.fileBinding.delete({ where: { id: bindingId } })
-    return successResponse(null)
+    return this.prisma.$transaction(async (tx) => {
+      const userId = await requireActor(tx, actor)
+      await tx.$queryRaw(Prisma.sql`SELECT id FROM sys_file_object WHERE id = ${fileId} AND tenant_id = ${actor.tenantId} FOR UPDATE`)
+      const binding = await tx.fileBinding.findFirst({ where: { id: bindingId, fileId, tenantId: actor.tenantId, createdBy: userId } })
+      if (!binding) throw new NotFoundException('文件关联不存在')
+      await tx.fileBinding.delete({ where: { id: bindingId } })
+      return successResponse(null)
+    }, serializable)
   }
 
   private async session(uploadId: string, actor: Actor) {

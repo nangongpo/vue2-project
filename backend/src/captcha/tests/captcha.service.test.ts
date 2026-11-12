@@ -3,10 +3,7 @@ import { createHmac } from 'node:crypto'
 import { CaptchaService } from '#app/captcha/services/captcha.service.js'
 
 const encode = (value: string) =>
-  encodeURIComponent(value).replace(
-    /[!'()*]/g,
-    (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`
-  )
+  encodeURIComponent(value).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)
 const expectedSignature = (body: Record<string, unknown>, secret: string) => {
   const canonical = Object.keys(body)
     .filter((key) => key !== 'Signature' && body[key] !== undefined)
@@ -43,7 +40,7 @@ describe('CaptchaService HTTP client', () => {
     expect(result).toMatchObject({
       attemptId: expect.any(String),
       challengeId: 'challenge-1',
-      expiresIn: 300,
+      expiresIn: Number(process.env.CAPTCHA_CHALLENGE_TTL || 120),
       payload: {},
     })
     expect(fetch).toHaveBeenCalledWith(
@@ -56,6 +53,75 @@ describe('CaptchaService HTTP client', () => {
     const requestBody = JSON.parse(fetch.mock.calls[0][1].body as string) as Record<string, unknown>
     expect(requestBody.Signature).toBe(expectedSignature(requestBody, 'x'.repeat(32)))
   })
+
+  it('refreshes within the existing attempt and signs the previous challenge id', async () => {
+    process.env.CAPTCHA_SERVICE_SECRET = 'x'.repeat(32)
+    const fetch = vi
+      .fn()
+      .mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ ChallengeId: 'new', CaptchaType: 'ROTATE', Mode: 'POPUP', ExpiresIn: 120, Payload: {} }),
+      })
+    vi.stubGlobal('fetch', fetch)
+    const previous = {
+      username: 'admin',
+      scene: 'login',
+      action: 'LOGIN',
+      mode: 'POPUP',
+      challengeId: 'old',
+      expiresAt: Date.now() + 60000,
+    }
+    const redis = {
+      increment: vi.fn().mockResolvedValue(1),
+      get: vi.fn().mockResolvedValue(JSON.stringify(previous)),
+      set: vi.fn().mockResolvedValue(true),
+      getAndDelete: vi.fn(),
+    } as any
+    const result = await new CaptchaService(redis).createChallenge('admin', '127.0.0.1', 'test', {
+      attemptId: 'attempt-1',
+      previousChallengeId: 'old',
+      mode: 'POPUP',
+      action: 'LOGIN',
+    })
+    expect(result.attemptId).toBe('attempt-1')
+    expect(result.expiresIn).toBeLessThanOrEqual(60)
+    const body = JSON.parse(fetch.mock.calls[0][1].body)
+    expect(body.PreviousChallengeId).toBe('old')
+    expect(body.Signature).toBe(expectedSignature(body, 'x'.repeat(32)))
+    const stored = JSON.parse(redis.set.mock.calls[0][1])
+    expect(stored.expiresAt).toBe(previous.expiresAt)
+    expect(stored.challengeId).toBe('new')
+  })
+
+  it.each([{ username: 'other' }, { mode: 'EMBED' }, { challengeId: 'different' }, { tokenHash: 'already-verified' }])(
+    'rejects refresh context changes or an already verified attempt: %j',
+    async (change) => {
+      const fetch = vi.fn()
+      vi.stubGlobal('fetch', fetch)
+      const previous = {
+        username: 'admin',
+        scene: 'login',
+        action: 'LOGIN',
+        mode: 'POPUP',
+        challengeId: 'old',
+        expiresAt: Date.now() + 60000,
+        ...change,
+      }
+      const redis = {
+        increment: vi.fn().mockResolvedValue(1),
+        get: vi.fn().mockResolvedValue(JSON.stringify(previous)),
+      } as any
+      await expect(
+        new CaptchaService(redis).createChallenge('admin', '127.0.0.1', 'test', {
+          attemptId: 'attempt-1',
+          previousChallengeId: 'old',
+          mode: 'POPUP',
+        })
+      ).rejects.toThrow('验证码刷新上下文不一致')
+      expect(fetch).not.toHaveBeenCalled()
+    }
+  )
 
   it('returns false when the isolated service rejects a token', async () => {
     process.env.CAPTCHA_SERVICE_SECRET = 'x'.repeat(32)
@@ -78,8 +144,8 @@ describe('CaptchaService HTTP client', () => {
       ),
       getAndDelete: vi.fn().mockResolvedValue(null),
     } as any
-    await expect(
-      new CaptchaService(redis).consumeToken('token', 'attempt-1', 'admin', '127.0.0.1')
-    ).resolves.toBe(false)
+    await expect(new CaptchaService(redis).consumeToken('token', 'attempt-1', 'admin', '127.0.0.1')).resolves.toBe(
+      false
+    )
   })
 })

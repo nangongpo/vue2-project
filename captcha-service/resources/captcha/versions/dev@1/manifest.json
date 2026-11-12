@@ -1,0 +1,529 @@
+{
+  "schemaVersion": "1.0",
+  "resourceVersion": "dev@1",
+  "provider": "filesystem",
+  "licensePolicy": "reviewed-before-publish",
+  "sets": [
+    {
+      "id": "grid_image_select-basic",
+      "type": "GRID_IMAGE_SELECT",
+      "targetGroups": [
+        "cats",
+        "firetrucks",
+        "pizza",
+        "sunflowers"
+      ],
+      "assets": [
+        {
+          "path": "grid/cats/dev_01.jpg",
+          "group": "cats",
+          "source": "openai-image-generation",
+          "license": "internal-ai-generated-review-required",
+          "types": [
+            "GRID_IMAGE_SELECT"
+          ],
+          "sha256": "1e4f284c95f7afdb1c500686e190c3b5baeb9e35e13db60dc36b3ab8c05109e9",
+          "status": "ACTIVE"
+        },
+        {
+          "path": "grid/cats/dev_02.jpg",
+          "group": "cats",
+          "source": "openai-image-generation",
+          "license": "internal-ai-generated-review-required",
+          "types": [
+            "GRID_IMAGE_SELECT"
+          ],
+          "sha256": "4678dde707157968cdcc5b42aff6c0f1fdb9e485af719d246d038e53db676f95",
+          "status": "ACTIVE"
+        },
+        {
+          "path": "grid/cats/dev_03.jpg",
+          "group": "cats",
+          "source": "openai-image-generation",
+          "license": "internal-ai-generated-review-required",
+          "types": [
+            "GRID_IMAGE_SELECT"
+          ],
+          "sha256": "7035c1046562cced6fa3972e3a25d8fb0515a9e055778d2e636b4c29bb6f7d15",
+          "status": "ACTIVE"
+        },
+        {
+          "path": "grid/cats/dev_04.jpg",
+          "group": "cats",
+          "source": "openai-image-generation",
+          "license": "internal-ai-generated-review-required",
+          "types": [
+            "GRID_IMAGE_SELECT"
+          ],
+          "sha256": "8c4fc470ce86480a3e8921316e6dde6835410654c1112779f2776c0e59c50d97",
+          "status": "ACTIVE"
+        },
+        {
+          "path": "grid/firetrucks/dev_01.jpg",
+          "group": "firetrucks",
+          "source": "openai-image-generation",
+          "license": "internal-ai-generated-review-required",
+          "types": [
+            "GRID_IMAGE_SELECT"
+          ],
+          "sha256": "bc0bd7cb97dd0d34d8edb0d98eeeb75d1e98b3537b8dc81bea1f35c834d86d7d",
+          "status": "ACTIVE"
+        },
+        {
+          "path": "grid/firetrucks/dev_02.jpg",
+          "group": "firetrucks",
+          "source": "openai-image-generation",
+          "license": "internal-ai-generated-review-required",
+          "types": [
+            "GRID_IMAGE_SELECT"
+          ],
+          "sha256": "652b07e48f079d719878a01f4ed9a8b6660256485c76796b4576e2abdfbe5544",
+          "status": "ACTIVE"
+        },
+        {
+          "path": "grid/firetrucks/dev_03.jpg",
+          "group": "firetrucks",
+          "source": "openai-image-generation",
+          "license": "internal-ai-generated-review-required",
+          "types": [
+            "GRID_IMAGE_SELECT"
+          ],
+          "sha256": "413ae8b650e200f64ccb223235c4b6c7ed510f4bcd1a5fac3797502c8d417189",
+          "status": "ACTIVE"
+        },
+        {
+          "path": "grid/firetrucks/dev_04.jpg",
+          "group": "firetrucks",
+          "source": "openai-image-generation",
+          "license": "internal-ai-generated-review-required",
+          "types": [
+            "GRID_IMAGE_SELECT"
+          ],
+          "sha256": "7c16bb82521b53de92e827bbabf20d88e196514ee4cdae8d45f6d5eb78595029",
+          "status": "ACTIVE"
+        },
+        {
+          "path": "grid/pizza/dev_01.jpg",
+          "group": "pizza",
+          "source": "openai-image-generation",
+          "license": "internal-ai-generated-review-required",
+          "types": [
+            "GRID_IMAGE_SELECT"
+          ],
+          "sha256": "602ee786ab7030e728dfe20ca7081b10dc6aa9933ab727658cbdef4bacfc5c2b",
+          "status": "ACTIVE"
+        },
+        {
+          "path": "grid/pizza/dev_02.jpg",
+          "group": "pizza",
+          "source": "openai-image-generation",
+          "license": "internal-ai-generated-review-required",
+          "types": [
+            "GRID_IMAGE_SELECT"
+          ],
+          "sha256": "d803453a26091e383b59cfe1f7dbb463837e14d654151b1feb99d23ea0cbd500",
+          "status": "ACTIVE"
+        },
+        {
+          "path": "grid/pizza/dev_03.jpg",
+          "group": "pizza",
+          "source": "openai-image-generation",
+          "license": "internal-ai-generated-review-required",
+          "types": [
+            "GRID_IMAGE_SELECT"
+          ],
+          "sha256": "505f9611567bc8994f0e8c1f539b78a30d2aa08702767455d12fce85cc7cbdd3",
+          "status": "ACTIVE"
+        },
+        {
+          "path": "grid/pizza/dev_04.jpg",
+          "group": "pizza",
+          "source": "openai-image-generation",
+          "license": "internal-ai-generated-review-required",
+          "types": [
+            "GRID_IMAGE_SELECT"
+          ],
+          "sha256": "2f63d5ff8936f21898122dc52e4b580491dc1bc8b745ccc321acc76dcce19a68",
+          "status": "ACTIVE"
+        },
+        {
+          "path": "grid/sunflowers/dev_01.jpg",
+          "group": "sunflowers",
+          "source": "openai-image-generation",
+          "license": "internal-ai-generated-review-required",
+          "types": [
+            "GRID_IMAGE_SELECT"
+          ],
+          "sha256": "fa6399a606a62781663fe69d4f8bbb58ea81ab22bf1c41684c066b8d0470d94e",
+          "status": "ACTIVE"
+        },
+        {
+          "path": "grid/sunflowers/dev_02.jpg",
+          "group": "sunflowers",
+          "source": "openai-image-generation",
+          "license": "internal-ai-generated-review-required",
+          "types": [
+            "GRID_IMAGE_SELECT"
+          ],
+          "sha256": "1eaef27f2cec942f7408883dd8583e4c64fb5cabf343266cf04336d38fc34e9b",
+          "status": "ACTIVE"
+        },
+        {
+          "path": "grid/sunflowers/dev_03.jpg",
+          "group": "sunflowers",
+          "source": "openai-image-generation",
+          "license": "internal-ai-generated-review-required",
+          "types": [
+            "GRID_IMAGE_SELECT"
+          ],
+          "sha256": "384779d12dc3ff6df55f6636b99183c72066e12b636b7c5c074409c5866087f4",
+          "status": "ACTIVE"
+        },
+        {
+          "path": "grid/sunflowers/dev_04.jpg",
+          "group": "sunflowers",
+          "source": "openai-image-generation",
+          "license": "internal-ai-generated-review-required",
+          "types": [
+            "GRID_IMAGE_SELECT"
+          ],
+          "sha256": "48b69c48485a6059c1c0087c7d7c76a8350f637094aba97004a3d6ddbe9576ff",
+          "status": "ACTIVE"
+        },
+        {
+          "path": "grid-target/cats/target.svg",
+          "group": "cats",
+          "source": "internal-vector-line-art",
+          "license": "internal-created",
+          "types": [
+            "GRID_IMAGE_SELECT"
+          ],
+          "sha256": "171e9f3f455757139d8c06ad07d2d6173966e55550c9cf7c5eb06d97727de7fd",
+          "status": "ACTIVE"
+        },
+        {
+          "path": "grid-target/firetrucks/target.svg",
+          "group": "firetrucks",
+          "source": "internal-vector-line-art",
+          "license": "internal-created",
+          "types": [
+            "GRID_IMAGE_SELECT"
+          ],
+          "sha256": "b7903f25903cfe0313315ac6b43c6b739a7efac7e421a4ccfa170893ad6bff0b",
+          "status": "ACTIVE"
+        },
+        {
+          "path": "grid-target/pizza/target.svg",
+          "group": "pizza",
+          "source": "internal-vector-line-art",
+          "license": "internal-created",
+          "types": [
+            "GRID_IMAGE_SELECT"
+          ],
+          "sha256": "63f647679e9ba4400b4670a3ca3c3f3c3ba587bf680402460cd5d42341a31f56",
+          "status": "ACTIVE"
+        },
+        {
+          "path": "grid-target/sunflowers/target.svg",
+          "group": "sunflowers",
+          "source": "internal-vector-line-art",
+          "license": "internal-created",
+          "types": [
+            "GRID_IMAGE_SELECT"
+          ],
+          "sha256": "34927ac78c5471d025a1d279e4518a50c61ed81094fedc397bf42aed86c9c4d9",
+          "status": "ACTIVE"
+        }
+      ],
+      "answerCount": 3,
+      "status": "ACTIVE"
+    },
+    {
+      "id": "click_order-basic",
+      "type": "CLICK_ORDER",
+      "targetGroups": [
+        "road-objects",
+        "traffic-signs"
+      ],
+      "assets": [
+        {
+          "path": "click-order/road-objects/dev_01.jpg",
+          "group": "road-objects",
+          "source": "openai-image-generation",
+          "license": "internal-ai-generated-review-required",
+          "types": [
+            "CLICK_ORDER"
+          ],
+          "sha256": "92aad2f6c3a342801bea6c3508c1a54525cf8036d801e0297f5d1c466bed3210",
+          "status": "ACTIVE"
+        },
+        {
+          "path": "click-order/road-objects/dev_02.jpg",
+          "group": "road-objects",
+          "source": "openai-image-generation",
+          "license": "internal-ai-generated-review-required",
+          "types": [
+            "CLICK_ORDER"
+          ],
+          "sha256": "d2ea81571063e02781c06c37f3546f7bad976d02a4ed7e7bce51651bda2c47ec",
+          "status": "ACTIVE"
+        },
+        {
+          "path": "click-order/road-objects/dev_03.jpg",
+          "group": "road-objects",
+          "source": "openai-image-generation",
+          "license": "internal-ai-generated-review-required",
+          "types": [
+            "CLICK_ORDER"
+          ],
+          "sha256": "ad8fbee78f46bdff206da3c1eaf2c1bdde4966c2257db813f93fed1c89bc32af",
+          "status": "ACTIVE"
+        },
+        {
+          "path": "click-order/road-objects/dev_04.jpg",
+          "group": "road-objects",
+          "source": "openai-image-generation",
+          "license": "internal-ai-generated-review-required",
+          "types": [
+            "CLICK_ORDER"
+          ],
+          "sha256": "c7bb4e74d1b05a7b0dd4bc5cdbf461b9393a3bd3a3f26d87ede2c4215ac53e85",
+          "status": "ACTIVE"
+        },
+        {
+          "path": "click-order/road-objects/dev_05.jpg",
+          "group": "road-objects",
+          "source": "openai-image-generation",
+          "license": "internal-ai-generated-review-required",
+          "types": [
+            "CLICK_ORDER"
+          ],
+          "sha256": "e3c3fd6dedae40c8152aabb042636fa752e6da5819d99a0cf61d1833c94ef2cf",
+          "status": "ACTIVE"
+        },
+        {
+          "path": "click-order/road-objects/dev_06.jpg",
+          "group": "road-objects",
+          "source": "openai-image-generation",
+          "license": "internal-ai-generated-review-required",
+          "types": [
+            "CLICK_ORDER"
+          ],
+          "sha256": "6a4b8caee91ae6de2e038293ecc0714ab90fb79821bb3aae97707b9a7d1cdab8",
+          "status": "ACTIVE"
+        },
+        {
+          "path": "click-order/traffic-signs/dev_01.jpg",
+          "group": "traffic-signs",
+          "source": "openai-image-generation",
+          "license": "internal-ai-generated-review-required",
+          "types": [
+            "CLICK_ORDER"
+          ],
+          "sha256": "fb06fac1e3d0e019818325ad77edf2325f8be59d496eaef8ab4cd0febffa4ece",
+          "status": "ACTIVE"
+        },
+        {
+          "path": "click-order/traffic-signs/dev_02.jpg",
+          "group": "traffic-signs",
+          "source": "openai-image-generation",
+          "license": "internal-ai-generated-review-required",
+          "types": [
+            "CLICK_ORDER"
+          ],
+          "sha256": "9390e35c0795053980d0bab6bf76478f8eec881d237a82498c41afeba35f8873",
+          "status": "ACTIVE"
+        },
+        {
+          "path": "click-order/traffic-signs/dev_03.jpg",
+          "group": "traffic-signs",
+          "source": "openai-image-generation",
+          "license": "internal-ai-generated-review-required",
+          "types": [
+            "CLICK_ORDER"
+          ],
+          "sha256": "ffcaa6b7b49c60343c1d3421735b4c1049954499aee0339619290a7d1a816102",
+          "status": "ACTIVE"
+        },
+        {
+          "path": "click-order/traffic-signs/dev_04.jpg",
+          "group": "traffic-signs",
+          "source": "openai-image-generation",
+          "license": "internal-ai-generated-review-required",
+          "types": [
+            "CLICK_ORDER"
+          ],
+          "sha256": "92cdc17a44802873912df022b09d71b9875e2efdd2366f482f03b1ca70b268f4",
+          "status": "ACTIVE"
+        },
+        {
+          "path": "click-order/traffic-signs/dev_05.jpg",
+          "group": "traffic-signs",
+          "source": "openai-image-generation",
+          "license": "internal-ai-generated-review-required",
+          "types": [
+            "CLICK_ORDER"
+          ],
+          "sha256": "01228da6cf2d8758927b6e7b54b10f620f299af7cf5dabd09c64dbd2e064a1c1",
+          "status": "ACTIVE"
+        },
+        {
+          "path": "click-order/traffic-signs/dev_06.jpg",
+          "group": "traffic-signs",
+          "source": "openai-image-generation",
+          "license": "internal-ai-generated-review-required",
+          "types": [
+            "CLICK_ORDER"
+          ],
+          "sha256": "4c88c5c6b69d98f9df67e565e4ca0b4df7266eda09372d7453b9623fcd632841",
+          "status": "ACTIVE"
+        }
+      ],
+      "answerCount": 3,
+      "status": "ACTIVE"
+    },
+    {
+      "id": "rotate-basic",
+      "type": "ROTATE",
+      "targetGroups": [
+        "directional-objects",
+        "vehicles"
+      ],
+      "assets": [
+        {
+          "path": "rotate/directional-objects/dev_01.jpg",
+          "group": "directional-objects",
+          "source": "openai-image-generation",
+          "license": "internal-ai-generated-review-required",
+          "types": [
+            "ROTATE"
+          ],
+          "sha256": "67e4e28c7bfbf8a3ee99ae9be620f6e69109639e38b8dc88d7bc047d8cd4994d",
+          "status": "ACTIVE"
+        },
+        {
+          "path": "rotate/directional-objects/dev_02.jpg",
+          "group": "directional-objects",
+          "source": "openai-image-generation",
+          "license": "internal-ai-generated-review-required",
+          "types": [
+            "ROTATE"
+          ],
+          "sha256": "d8a3d42440c213edbd1a68171ed666d3046ca42edc6a6dad0b2a1bed2e083553",
+          "status": "ACTIVE"
+        },
+        {
+          "path": "rotate/directional-objects/dev_03.jpg",
+          "group": "directional-objects",
+          "source": "openai-image-generation",
+          "license": "internal-ai-generated-review-required",
+          "types": [
+            "ROTATE"
+          ],
+          "sha256": "5f1c2c16c05c99da34d3e53061cceb764bc4e10846d884f74b40bf2e22c18b0f",
+          "status": "ACTIVE"
+        },
+        {
+          "path": "rotate/directional-objects/dev_04.jpg",
+          "group": "directional-objects",
+          "source": "openai-image-generation",
+          "license": "internal-ai-generated-review-required",
+          "types": [
+            "ROTATE"
+          ],
+          "sha256": "12ce1c89688a57b054666705c4c2e9f0c06baf0f296a5335cf24843a3b4db17f",
+          "status": "ACTIVE"
+        },
+        {
+          "path": "rotate/directional-objects/dev_05.jpg",
+          "group": "directional-objects",
+          "source": "openai-image-generation",
+          "license": "internal-ai-generated-review-required",
+          "types": [
+            "ROTATE"
+          ],
+          "sha256": "fe7ba13d17d0d1b68d261e12600a009b0de9b4c29a0c278a619ce09976a869eb",
+          "status": "ACTIVE"
+        },
+        {
+          "path": "rotate/directional-objects/dev_06.jpg",
+          "group": "directional-objects",
+          "source": "openai-image-generation",
+          "license": "internal-ai-generated-review-required",
+          "types": [
+            "ROTATE"
+          ],
+          "sha256": "dbadcb69342057e63fbf2e3384573751e3232ecb751add508379a9b64dd6f5d8",
+          "status": "ACTIVE"
+        },
+        {
+          "path": "rotate/vehicles/dev_01.jpg",
+          "group": "vehicles",
+          "source": "openai-image-generation",
+          "license": "internal-ai-generated-review-required",
+          "types": [
+            "ROTATE"
+          ],
+          "sha256": "254177890f6f3ddc6d8d9884741177efb869496bf8615ccc200a56910ce3d650",
+          "status": "ACTIVE"
+        },
+        {
+          "path": "rotate/vehicles/dev_02.jpg",
+          "group": "vehicles",
+          "source": "openai-image-generation",
+          "license": "internal-ai-generated-review-required",
+          "types": [
+            "ROTATE"
+          ],
+          "sha256": "b92eecc1c60f0ebd2f91b5baa8cdae12b45a2ee6eb7846d7e9ff2efe9f7aa12a",
+          "status": "ACTIVE"
+        },
+        {
+          "path": "rotate/vehicles/dev_03.jpg",
+          "group": "vehicles",
+          "source": "openai-image-generation",
+          "license": "internal-ai-generated-review-required",
+          "types": [
+            "ROTATE"
+          ],
+          "sha256": "f74286612fba7881de28886d45a1baa89e48972237b6c3c0161332e256c2177b",
+          "status": "ACTIVE"
+        },
+        {
+          "path": "rotate/vehicles/dev_04.jpg",
+          "group": "vehicles",
+          "source": "openai-image-generation",
+          "license": "internal-ai-generated-review-required",
+          "types": [
+            "ROTATE"
+          ],
+          "sha256": "3e9245debc0c8154dfdf802a08a651922330ec5967deed8d65332845f4b7deb4",
+          "status": "ACTIVE"
+        },
+        {
+          "path": "rotate/vehicles/dev_05.jpg",
+          "group": "vehicles",
+          "source": "openai-image-generation",
+          "license": "internal-ai-generated-review-required",
+          "types": [
+            "ROTATE"
+          ],
+          "sha256": "406706f7e0e1922a71727806df8e4beda38d14e3ee78bda2602d5cb4e3533682",
+          "status": "ACTIVE"
+        },
+        {
+          "path": "rotate/vehicles/dev_06.jpg",
+          "group": "vehicles",
+          "source": "openai-image-generation",
+          "license": "internal-ai-generated-review-required",
+          "types": [
+            "ROTATE"
+          ],
+          "sha256": "b5b669b063cf8fddab99d9bfe62b7e913e3351322d431d4daf3ea35763f18774",
+          "status": "ACTIVE"
+        }
+      ],
+      "status": "ACTIVE"
+    }
+  ]
+}

@@ -7,4 +7,8 @@ export default defineConfig({
       '#app': fileURLToPath(new URL('./src', import.meta.url)),
     },
   },
+  test: {
+    include: ['src/**/*.test.ts'],
+    exclude: ['integration-tests/**/*.test.ts'],
+  },
 })

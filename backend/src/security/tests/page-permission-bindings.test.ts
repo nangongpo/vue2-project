@@ -56,4 +56,12 @@ describe('seeded page permission bindings', () => {
       apiCode: 'system.button.options',
     })
   })
+  it('keeps optional scan history access from blocking the file and approval pages', () => {
+    for (const page of ['page.system.file', 'page.system.approval'] as const) {
+      const bindings = PAGE_PERMISSION_BINDINGS[page].filter((binding) => binding.apiCode.startsWith('system.file.admin.scan-history.'))
+      expect(bindings).toHaveLength(3)
+      for (const binding of bindings) expect(binding).toMatchObject({ type: 'PAGE_API', required: false })
+    }
+  })
+
 })
